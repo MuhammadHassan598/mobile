@@ -146,27 +146,64 @@ window.empireMap = (() => {
             }
 
             // Nation label (skip when zoomed far out and text would be tiny).
-            if (view.scale > 0.25) {
-                const lx = p.labelX ?? p.LabelX, ly = p.labelY ?? p.LabelY;
-                if (lx !== undefined) {
-                    const [lsx, lsy] = toScreen(lx, ly);
-                    const fs = Math.max(10, 13 * Math.min(view.scale, 1.4));
-                    ctx.font = `600 ${fs}px Georgia, serif`;
-                    ctx.textAlign = 'center';
-                    ctx.textBaseline = 'middle';
-                    const label = p.name ?? p.Name ?? '';
-                    ctx.lineWidth = 3;
-                    ctx.strokeStyle = 'rgba(245,240,225,0.85)';
-                    ctx.strokeText(label, lsx, lsy);
-                    ctx.fillStyle = '#2A2118';
-                    ctx.fillText(label, lsx, lsy);
-                }
-            }
+            // (Labels are drawn in a dedicated collision-aware pass below.)
+        }
+
+        drawNationLabels();
+    }
+
+    function polyAreaPts(pts) {
+        let a = 0;
+        for (let i = 0; i < pts.length - 1; i++)
+            a += ptX(pts[i]) * ptY(pts[i + 1]) - ptX(pts[i + 1]) * ptY(pts[i]);
+        return Math.abs(a) / 2;
+    }
+
+    function shapeArea(p) {
+        let a = 0;
+        for (const pts of polys(p)) a += polyAreaPts(pts);
+        return a;
+    }
+
+    // Labels with collision detection: biggest territories win, the rest wait
+    // until you zoom in. No more unreadable overlapping text.
+    function drawNationLabels() {
+        if (view.scale < 0.22) return;
+        const w = cssW(), h = cssH();
+        const fs = Math.max(9, 11 * Math.min(view.scale, 1.3));
+        ctx.font = `600 ${fs}px Georgia, serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+
+        const cands = (data.shapes || [])
+            .map(p => ({ p, area: shapeArea(p) }))
+            .filter(c => {
+                const lx = c.p.labelX ?? c.p.LabelX;
+                return lx !== undefined && c.area * view.scale * view.scale > 900;
+            })
+            .sort((a, b) => b.area - a.area);
+
+        const drawn = [];
+        for (const { p } of cands) {
+            const lx = p.labelX ?? p.LabelX, ly = p.labelY ?? p.LabelY;
+            const [sx, sy] = toScreen(lx, ly);
+            if (sx < -80 || sx > w + 80 || sy < -40 || sy > h + 40) continue;
+            const label = (p.name ?? p.Name ?? '').toUpperCase();
+            if (!label) continue;
+            const tw = ctx.measureText(label).width;
+            const box = { x0: sx - tw / 2 - 6, y0: sy - fs / 2 - 5, x1: sx + tw / 2 + 6, y1: sy + fs / 2 + 5 };
+            if (drawn.some(b => b.x0 < box.x1 && b.x1 > box.x0 && b.y0 < box.y1 && b.y1 > box.y0)) continue;
+            ctx.lineWidth = 3;
+            ctx.strokeStyle = 'rgba(245,240,225,0.85)';
+            ctx.strokeText(label, sx, sy);
+            ctx.fillStyle = '#2A2118';
+            ctx.fillText(label, sx, sy);
+            drawn.push(box);
         }
     }
 
     function drawSeaLabels() {
-        if (view.scale < 0.18) return;
+        if (view.scale < 0.28) return;
         const fs = Math.max(9, 15 * Math.min(view.scale, 1.2));
         ctx.font = `${fs}px Georgia, serif`;
         ctx.textAlign = 'center';
