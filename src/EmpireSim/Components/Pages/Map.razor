@@ -144,7 +144,8 @@
         if (firstRender)
         {
             _dotNetRef = DotNetObjectReference.Create(this);
-            await JS.InvokeVoidAsync("empireMap.init", "gameMap", _dotNetRef);
+            await JS.InvokeVoidAsync("empireMap.init", "gameMap", _dotNetRef,
+                Engine.State.PlayerNation.MapX, Engine.State.PlayerNation.MapY);
             await RenderMapAsync();
         }
     }

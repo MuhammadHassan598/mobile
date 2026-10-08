@@ -38,17 +38,20 @@ window.empireMap = (() => {
         draw();
     }
 
-    function init(canvasId, ref) {
+    function init(canvasId, ref, focusX, focusY) {
         canvas = document.getElementById(canvasId);
         if (!canvas) return false;
         dotNetRef = ref;
         ctx = canvas.getContext('2d');
 
-        // Start fitted to the whole world.
-        const s = Math.min(cssW() / WORLD_W, cssH() / WORLD_H) || 1;
+        // Start zoomed into the player's lands like a war-room chart,
+        // not fitted to the whole tiny world.
+        const fit = Math.min(cssW() / WORLD_W, cssH() / WORLD_H) || 1;
+        const s = Math.min(fit * 3.2, 1.2);
         view.scale = s;
-        view.ox = (cssW() - WORLD_W * s) / 2;
-        view.oy = (cssH() - WORLD_H * s) / 2;
+        const fx = (focusX ?? WORLD_W / 2), fy = (focusY ?? WORLD_H / 2);
+        view.ox = cssW() / 2 - fx * s;
+        view.oy = cssH() / 2 - fy * s;
 
         new ResizeObserver(resize).observe(canvas);
         canvas.addEventListener('pointerdown', onDown);
