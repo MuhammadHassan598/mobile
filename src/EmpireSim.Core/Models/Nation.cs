@@ -197,6 +197,9 @@ public sealed class Nation
     /// <summary>Military item batches currently in production.</summary>
     public List<MilitaryCraftProject> MilitaryCraftQueue { get; set; } = new();
 
+    /// <summary>Diplomatic action cooldowns: action ID -> game date when available again.</summary>
+    public Dictionary<string, DateOnly> DiplomacyCooldowns { get; set; } = new();
+
     /// <summary>Buildings currently under construction.</summary>
     public List<ConstructionProject> ConstructionQueue { get; set; } = new();
 
