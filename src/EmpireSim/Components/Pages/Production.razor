@@ -30,7 +30,7 @@
                 bool canAfford = _nation.Wood >= recipe.WoodCost && _nation.Stone >= recipe.StoneCost &&
                                _nation.Iron >= recipe.IronCost && _nation.Copper >= recipe.CopperCost &&
                                _nation.Lead >= recipe.LeadCost;
-                <div class="mil-card @(_highlighted.Contains(recipe.Id) ? "highlight" : "")">
+                <div class="mil-card @(_highlightGreen.Contains(recipe.Id) ? "highlight-green" : _highlightRed.Contains(recipe.Id) ? "highlight-red" : "")">
                     <button class="mil-info" @onclick="() => _milInfo = recipe">ⓘ</button>
                     <div class="mil-icon">@recipe.Icon</div>
                     <div class="mil-name">@recipe.Name</div>
@@ -210,7 +210,8 @@
     private int _popupQty = 1;
     private ProductionBuildingSpec? _infoSpec;
     private MilitaryRecipe? _milInfo;
-    private HashSet<string> _highlighted = new();
+    private HashSet<string> _highlightGreen = new();
+    private HashSet<string> _highlightRed = new();
 
     protected override void OnInitialized() => Engine.StateChanged += OnStateChanged;
     private void OnStateChanged() => InvokeAsync(StateHasChanged);
@@ -245,12 +246,16 @@
 
     private async void StartCraft(string recipeId)
     {
-        _error = Engine.StartMilitaryCraft(recipeId);
-        // Highlight card light-red on tap (success or warning), auto-fades after 5s
-        _highlighted.Add(recipeId);
+        var err = Engine.StartMilitaryCraft(recipeId);
+        // Green glow on success, red glow on failure. No text messages.
+        if (string.IsNullOrEmpty(err))
+            _highlightGreen.Add(recipeId);
+        else
+            _highlightRed.Add(recipeId);
         StateHasChanged();
         await Task.Delay(5000);
-        _highlighted.Remove(recipeId);
+        _highlightGreen.Remove(recipeId);
+        _highlightRed.Remove(recipeId);
         StateHasChanged();
     }
 
@@ -378,8 +383,14 @@
 .mil-btn.start:disabled { opacity: 0.4; cursor: not-allowed; }
 .mil-btn.start:not(:disabled):hover { filter: brightness(1.15); }
 .mil-btn.stop { background: linear-gradient(#8B0000, #5a0000); color: #fff; }
-/* Light red highlight when crafting starts (auto-fades after 5s) */
-.mil-card.highlight {
+/* Light green highlight on success (auto-fades after 5s) */
+.mil-card.highlight-green {
+    background: linear-gradient(#c8f8c8, #a8f0a8);
+    border-color: #2e7d32;
+    box-shadow: 0 0 12px rgba(46,125,50,.5), inset 0 0 15px rgba(46,125,50,.2);
+}
+/* Light red highlight on failure (auto-fades after 5s) */
+.mil-card.highlight-red {
     background: linear-gradient(#f8c8c8, #f0a8a8);
     border-color: #d32f2f;
     box-shadow: 0 0 12px rgba(211,47,47,.5), inset 0 0 15px rgba(211,47,47,.2);
