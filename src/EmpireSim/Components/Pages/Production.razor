@@ -4,54 +4,48 @@
 @inject GameEngine Engine
 @implements IDisposable
 
-<div class="prod-page">
-    <h2>🏭 Production</h2>
-
+<div class="parchment-panel prod-competitor">
     @if (_category is null)
     {
-        <div class="cat-grid">
-            <button class="cat-card" @onclick="() => _category = ProductionCategory.Military">
-                <span class="cat-icon">⚔️</span>
-                <span class="cat-name">Military</span>
-                <span class="cat-desc">Helmets, daggers, pikes, guns, ship parts</span>
-            </button>
-            <button class="cat-card" @onclick="() => _category = ProductionCategory.Food">
-                <span class="cat-icon">🌾</span>
-                <span class="cat-name">Food & Mills</span>
-                <span class="cat-desc">Farms, bakeries, workshops, mills</span>
-            </button>
-            <button class="cat-card" @onclick="() => _category = ProductionCategory.Minerals">
-                <span class="cat-icon">⛏️</span>
-                <span class="cat-name">Minerals</span>
-                <span class="cat-desc">Iron, copper, lead, gold, wood, stone</span>
-            </button>
+        <div class="prod-cat-list">
+            @foreach (var cat in new[] { ProductionCategory.Military, ProductionCategory.Food, ProductionCategory.Minerals })
+            {
+                var specs = ProductionCatalog.ByCategory(cat);
+                int total = specs.Sum(s => _nation.GetProductionBuilding(s.Id));
+                <button class="prod-row" @onclick="() => _category = cat">
+                    <span class="prod-icon-circle">@CategoryIcon(cat)</span>
+                    <span class="prod-text">
+                        <span class="prod-name-bar">@CategoryName(cat): @total</span>
+                        <span class="prod-sub">@CategoryDesc(cat)</span>
+                    </span>
+                    <span class="prod-arrow">▶</span>
+                </button>
+            }
         </div>
     }
     else
     {
-        <button class="back-btn" @onclick="() => _category = null">← Back to categories</button>
-        <h3>@CategoryName(_category.Value)</h3>
-
-        @if (!string.IsNullOrEmpty(_error))
-        {
-            <div class="error">@_error</div>
-        }
-
-        <div class="bld-list">
+        <button class="prod-back" @onclick="() => _category = null">◀ Categories</button>
+        <div class="prod-cat-list">
             @foreach (var spec in ProductionCatalog.ByCategory(_category.Value))
             {
                 int count = _nation.GetProductionBuilding(spec.Id);
-                <div class="bld-row">
-                    <span class="bld-icon">@spec.Icon</span>
-                    <div class="bld-info">
-                        <div class="bld-name">@spec.Name: @count</div>
-                        <div class="bld-prod">@spec.Produces: @(count * spec.OutputPerDay)/day</div>
-                        <div class="bld-cost">@ProductionCatalog.CostText(spec) · @spec.BuildDays days</div>
-                    </div>
-                    <button class="build-btn" @onclick="() => Build(spec.Id)">Build</button>
+                double output = count * spec.OutputPerDay;
+                bool afford = _nation.CanPay(spec.GoldCost) && _nation.Wood >= spec.WoodCost && _nation.Iron >= spec.IronCost;
+                <div class="prod-row">
+                    <span class="prod-icon-circle">@spec.Icon</span>
+                    <span class="prod-text">
+                        <span class="prod-name-bar">@spec.Name: @count</span>
+                        <span class="prod-sub">@spec.Produces: @output.ToString("N0") <em>· @ProductionCatalog.CostText(spec)</em></span>
+                    </span>
+                    <button class="prod-arrow" disabled="@(!afford)" @onclick="() => Build(spec.Id)">▶</button>
                 </div>
             }
         </div>
+        @if (!string.IsNullOrEmpty(_error))
+        {
+            <div class="prod-error">@_error</div>
+        }
     }
 </div>
 
@@ -67,11 +61,27 @@
 
     private void OnStateChanged() => InvokeAsync(StateHasChanged);
 
+    private string CategoryIcon(ProductionCategory cat) => cat switch
+    {
+        ProductionCategory.Military => "⚔️",
+        ProductionCategory.Food => "🌾",
+        ProductionCategory.Minerals => "⛏️",
+        _ => ""
+    };
+
     private string CategoryName(ProductionCategory cat) => cat switch
     {
-        ProductionCategory.Military => "⚔️ Military Production",
-        ProductionCategory.Food => "🌾 Food & Mills",
-        ProductionCategory.Minerals => "⛏️ Mineral Production",
+        ProductionCategory.Military => "Military",
+        ProductionCategory.Food => "Food & Mills",
+        ProductionCategory.Minerals => "Minerals",
+        _ => ""
+    };
+
+    private string CategoryDesc(ProductionCategory cat) => cat switch
+    {
+        ProductionCategory.Military => "Helmets, daggers, pikes, guns, ship parts",
+        ProductionCategory.Food => "Farms, bakeries, workshops, mills",
+        ProductionCategory.Minerals => "Iron, copper, lead, gold, wood, stone",
         _ => ""
     };
 
@@ -82,3 +92,52 @@
 
     public void Dispose() => Engine.StateChanged -= OnStateChanged;
 }
+
+<style>
+.prod-competitor { padding: 8px; }
+.prod-cat-list { display: flex; flex-direction: column; gap: 6px; }
+.prod-row {
+    display: flex; align-items: center; gap: 10px;
+    background: transparent; border: none; padding: 4px;
+    cursor: pointer; text-align: left; width: 100%;
+    font-family: inherit; color: #3d2b1f;
+}
+button.prod-row:active { opacity: 0.7; }
+.prod-icon-circle {
+    width: 48px; height: 48px; border-radius: 50%;
+    background: radial-gradient(circle at 30% 30%, #f5e6c4, #d4b896);
+    border: 2px solid #8b6914;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.5rem; flex-shrink: 0;
+    box-shadow: 0 2px 4px rgba(0,0,0,.3);
+}
+.prod-text { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.prod-name-bar {
+    background: linear-gradient(#2a2a2a, #1a1a1a);
+    color: #f5e6c4; padding: 4px 10px; border-radius: 3px;
+    font-weight: bold; font-size: 0.95rem; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis;
+}
+.prod-sub {
+    color: #5a4a2a; font-size: 0.85rem; padding-left: 4px;
+}
+.prod-sub em { font-style: normal; color: #8b6914; font-size: 0.8rem; }
+.prod-arrow {
+    width: 36px; height: 36px; flex-shrink: 0;
+    background: linear-gradient(#7a5230, #4a2e14);
+    color: #f5e6c4; border: 2px solid #2e1c0c; border-radius: 6px;
+    font-size: 1rem; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+}
+.prod-arrow:disabled { opacity: 0.4; cursor: not-allowed; }
+button.prod-arrow:active { transform: translateY(1px); }
+.prod-back {
+    background: linear-gradient(#7a5230, #4a2e14); color: #f5e6c4;
+    border: 2px solid #2e1c0c; border-radius: 6px; padding: 6px 12px;
+    margin-bottom: 8px; cursor: pointer; font-family: inherit;
+}
+.prod-error {
+    background: #8B0000; color: #fff; padding: 8px; border-radius: 4px;
+    margin-top: 8px; text-align: center;
+}
+</style>
