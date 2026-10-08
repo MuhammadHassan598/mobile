@@ -64,6 +64,40 @@ public sealed class Nation
     /// <summary>Manufactured goods. Produced by workshops, sold for gold.</summary>
     public double Goods { get; set; }
 
+    /// <summary>Military item stockpiles (crafted, required for recruitment).</summary>
+    public double Helmets { get; set; }
+    public double Daggers { get; set; }
+    public double Pikes { get; set; }
+    public double Shotguns { get; set; }
+    public double Arquebuses { get; set; }
+    public double ShipParts { get; set; }
+
+    /// <summary>Gets a military item count by recipe ID.</summary>
+    public double GetMilitaryItem(string recipeId) => recipeId switch
+    {
+        "helmet" => Helmets,
+        "dagger" => Daggers,
+        "pike" => Pikes,
+        "shotgun" => Shotguns,
+        "arquebus" => Arquebuses,
+        "shipparts" => ShipParts,
+        _ => 0
+    };
+
+    /// <summary>Adds to a military item stockpile by recipe ID.</summary>
+    public void AddMilitaryItem(string recipeId, double amount)
+    {
+        switch (recipeId)
+        {
+            case "helmet": Helmets += amount; break;
+            case "dagger": Daggers += amount; break;
+            case "pike": Pikes += amount; break;
+            case "shotgun": Shotguns += amount; break;
+            case "arquebus": Arquebuses += amount; break;
+            case "shipparts": ShipParts += amount; break;
+        }
+    }
+
     public long Population { get; set; }
 
     /// <summary>Land forces by unit type. Total headcount is <see cref="Soldiers"/>.</summary>

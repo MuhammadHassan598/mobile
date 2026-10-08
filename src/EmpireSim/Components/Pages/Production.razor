@@ -24,7 +24,7 @@
         <div class="mil-grid">
             @foreach (var recipe in MilitaryRecipes.All)
             {
-                double stock = _nation.GetGood(recipe.Produces);
+                double stock = _nation.GetMilitaryItem(recipe.Id);
                 var active = _nation.MilitaryCraftQueue.FirstOrDefault(p => p.RecipeId == recipe.Id);
                 bool inProg = active is not null;
                 bool canAfford = _nation.Wood >= recipe.WoodCost && _nation.Stone >= recipe.StoneCost &&

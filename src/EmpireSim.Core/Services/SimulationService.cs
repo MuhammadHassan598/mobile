@@ -122,9 +122,7 @@ public sealed class SimulationService
             proj.DaysLeft -= 1;
             if (proj.DaysLeft > 0) continue;
             var recipe = MilitaryRecipes.Get(proj.RecipeId);
-            if (!nation.GoodsInventory.ContainsKey(recipe.Produces))
-                nation.GoodsInventory[recipe.Produces] = 0;
-            nation.GoodsInventory[recipe.Produces] += 10;
+            nation.AddMilitaryItem(proj.RecipeId, 10);
             state.Log($"{nation.Name}: Crafted 10x {recipe.Name}.");
             nation.MilitaryCraftQueue.Remove(proj);
         }
