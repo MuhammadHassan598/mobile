@@ -9,5 +9,5 @@ namespace EmpireSim;
 /// </summary>
 public static class AppVersion
 {
-    public const int Build = 13;
+    public const int Build = 14;
 }
