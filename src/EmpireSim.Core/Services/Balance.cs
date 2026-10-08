@@ -21,7 +21,7 @@ public static class Balance
     public const double GoodsSellPrice = 15.0;   // gold per goods unit
 
     // ---- Construction ----
-    public const int MaxBuildQueue = 3;
+    public const int MaxBuildQueue = 999;
 
     // ---- Commanders ----
     public const double LandCommanderUpkeepMult = 0.85;   // -15% land upkeep

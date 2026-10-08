@@ -153,6 +153,13 @@ public sealed class Nation
     public int GetProductionBuilding(string id) =>
         ProductionBuildings.TryGetValue(id, out int c) ? c : 0;
 
+    /// <summary>Stockpile of produced goods by good name (Salt, Bread, Iron, ...).</summary>
+    public Dictionary<string, double> GoodsInventory { get; set; } = new();
+
+    /// <summary>Gets the amount of a produced good, 0 if none.</summary>
+    public double GetGood(string goodName) =>
+        GoodsInventory.TryGetValue(goodName, out double v) ? v : 0;
+
     /// <summary>Buildings currently under construction.</summary>
     public List<ConstructionProject> ConstructionQueue { get; set; } = new();
 

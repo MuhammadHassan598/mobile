@@ -106,12 +106,14 @@ public sealed class SimulationService
         nation.Gold += nation.Population * Balance.TaxPerPersonPerDay * taxMult * nation.TaxMult
                          + Balance.CrownDomainIncomePerDay;
 
-        // ---- Production buildings: daily output as gold income ----
+        // ---- Production buildings: daily output goes to goods inventory ----
         foreach (var kvp in nation.ProductionBuildings)
         {
             var spec = ProductionCatalog.Get(kvp.Key);
-            // Each building produces OutputPerDay units, worth 0.1 gold each (simplified)
-            nation.Gold += kvp.Value * spec.OutputPerDay * 0.1;
+            double dailyOutput = kvp.Value * spec.OutputPerDay;
+            if (!nation.GoodsInventory.ContainsKey(spec.Produces))
+                nation.GoodsInventory[spec.Produces] = 0;
+            nation.GoodsInventory[spec.Produces] += dailyOutput;
         }
 
         double landUpkeepMult = (nation.HasCommander(CommanderRole.LandCommander) ? Balance.LandCommanderUpkeepMult : 1.0)
