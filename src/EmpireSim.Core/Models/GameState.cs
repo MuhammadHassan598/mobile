@@ -703,6 +703,7 @@ public sealed class GameState
         ApplyReligions(nations);
         ApplyHistoricalPopulations(nations);
         ApplyEmblems(nations);
+        ApplySelectPins(nations);
 
         foreach (var n in nations)
         {
@@ -804,6 +805,34 @@ public sealed class GameState
         };
         foreach (var n in nations)
             n.HistoricalPopulation = map.TryGetValue(n.Id, out var p) ? p : 0;
+    }
+
+    /// <summary>
+    /// Capital pin positions on the painted parchment select-screen map, in
+    /// image percent. The painted map is decorative, not the game coordinate
+    /// space, so every capital is placed by hand.
+    /// </summary>
+    private static void ApplySelectPins(List<Nation> nations)
+    {
+        var map = new Dictionary<string, (double x, double y)>
+        {
+            ["ottoman"] = (35.0, 32.5), ["spain"] = (18.0, 31.0), ["france"] = (23.5, 26.5),
+            ["england"] = (20.8, 20.5), ["dutch"] = (26.3, 22.5), ["austria"] = (32.5, 24.5),
+            ["poland"] = (38.5, 21.5), ["russia"] = (45.5, 15.5), ["sweden"] = (35.5, 10.5),
+            ["venice"] = (29.3, 30.0), ["persia"] = (50.5, 36.0), ["mughal"] = (61.0, 45.5),
+            ["ming"] = (80.0, 29.5), ["japan"] = (90.8, 42.5), ["kazakh"] = (58.5, 26.5),
+            ["morocco"] = (15.0, 36.5), ["denmark"] = (31.8, 16.8), ["crimea"] = (39.5, 28.5),
+            ["ethiopia"] = (47.5, 51.0), ["siam"] = (72.5, 50.5), ["korea"] = (85.8, 40.5),
+            ["bukhara"] = (55.5, 30.5), ["hre"] = (31.0, 23.5), ["scotland"] = (19.3, 16.8),
+            ["genoa"] = (27.8, 30.5), ["papal"] = (28.8, 32.8), ["italy"] = (27.5, 28.8),
+            ["croatia"] = (31.3, 27.3), ["vietnam"] = (75.3, 47.5), ["burma"] = (69.5, 48.5),
+            ["ahom"] = (67.3, 44.0), ["yuan"] = (66.5, 26.5), ["nepal"] = (62.8, 42.5),
+            ["kongo"] = (37.5, 63.0), ["jurchens"] = (82.5, 27.5), ["cambodia"] = (73.8, 52.0),
+            ["laos"] = (72.3, 47.5), ["malaysia"] = (71.3, 57.5), ["uae"] = (51.5, 44.5),
+            ["micronesia"] = (95.5, 55.0), ["easter"] = (93.0, 75.0),
+        };
+        foreach (var n in nations)
+            if (map.TryGetValue(n.Id, out var pin)) (n.PinX, n.PinY) = pin;
     }
 
     /// <summary>Emblem per nation, used for the civilization grid and banner.</summary>

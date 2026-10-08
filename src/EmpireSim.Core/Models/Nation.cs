@@ -139,6 +139,15 @@ public sealed class Nation
     /// <summary>Map anchor (replaces the old capital-province label).</summary>
     public double MapY { get; set; }
 
+    /// <summary>Capital pin position on the parchment select-screen map,
+    /// in image percent (0-100). Set per nation — the painted map is not
+    /// the game coordinate space.</summary>
+    public double PinX { get; set; }
+
+    /// <summary>Capital pin position on the parchment select-screen map,
+    /// in image percent (0-100).</summary>
+    public double PinY { get; set; }
+
     /// <summary>Territory polygons, visual only — the nation is one atomic country.</summary>
     public List<List<MapPoint>> Territory { get; set; } = new();
 

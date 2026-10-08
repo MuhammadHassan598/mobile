@@ -74,6 +74,8 @@ using (var engine2 = new GameEngine(new SimulationService(), new SaveService(sav
         "all polygon points inside the 2200x1150 viewBox");
     Check(engine2.State.AllNations().All(n => n.MapX > 0 && n.MapY > 0), "every nation has a map anchor");
     Check(engine2.State.AllNations().All(n => !string.IsNullOrEmpty(n.CapitalName)), "every nation has a capital");
+    Check(engine2.State.AllNations().All(n => n.PinX > 0 && n.PinX < 100 && n.PinY > 0 && n.PinY < 100),
+        "every nation has a capital pin on the parchment map");
     Check(engine2.State.NeutralRegions.Count > 0, "neutral territories drawn on the map");
 }
 
