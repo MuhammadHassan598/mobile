@@ -118,6 +118,33 @@ public sealed class GameEngine : IDisposable
         return null;
     }
 
+    /// <summary>Starts construction of a production building.</summary>
+    public string? BuildProduction(string buildingId)
+    {
+        var nation = State.PlayerNation;
+        var spec = ProductionCatalog.Get(buildingId);
+
+        if (nation.ConstructionQueue.Count >= Balance.MaxBuildQueue)
+            return $"Build queue is full (max {Balance.MaxBuildQueue}).";
+
+        if (!nation.CanPay(spec.GoldCost) || nation.Wood < spec.WoodCost || nation.Iron < spec.IronCost)
+            return "Not enough resources.";
+
+        nation.PayGold(spec.GoldCost);
+        nation.Wood -= spec.WoodCost;
+        nation.Iron -= spec.IronCost;
+        nation.ConstructionQueue.Add(new ConstructionProject
+        {
+            Building = BuildingType.Farm, // placeholder, ProductionBuildingId is used
+            ProductionBuildingId = buildingId,
+            DaysLeft = spec.BuildDays,
+            TotalDays = spec.BuildDays,
+        });
+        State.Log($"Started building {spec.Name} ({spec.BuildDays} days).");
+        StateChanged?.Invoke();
+        return null;
+    }
+
     /// <summary>Sells all stockpiled goods for gold (the player's meaningful trade action).</summary>
     public void SellGoods()
     {

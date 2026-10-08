@@ -11,5 +11,8 @@ public sealed class ConstructionProject
     public int DaysLeft { get; set; }
     public int TotalDays { get; set; }
 
+    /// <summary>Production building ID, if this is a production building (not a basic BuildingType).</summary>
+    public string? ProductionBuildingId { get; set; }
+
     public double Progress => TotalDays <= 0 ? 1 : 1 - (double)DaysLeft / TotalDays;
 }

@@ -1,0 +1,84 @@
+@page "/production"
+@using EmpireSim.Core.Models
+@using EmpireSim.Core.Services
+@inject GameEngine Engine
+@implements IDisposable
+
+<div class="prod-page">
+    <h2>🏭 Production</h2>
+
+    @if (_category is null)
+    {
+        <div class="cat-grid">
+            <button class="cat-card" @onclick="() => _category = ProductionCategory.Military">
+                <span class="cat-icon">⚔️</span>
+                <span class="cat-name">Military</span>
+                <span class="cat-desc">Helmets, daggers, pikes, guns, ship parts</span>
+            </button>
+            <button class="cat-card" @onclick="() => _category = ProductionCategory.Food">
+                <span class="cat-icon">🌾</span>
+                <span class="cat-name">Food & Mills</span>
+                <span class="cat-desc">Farms, bakeries, workshops, mills</span>
+            </button>
+            <button class="cat-card" @onclick="() => _category = ProductionCategory.Minerals">
+                <span class="cat-icon">⛏️</span>
+                <span class="cat-name">Minerals</span>
+                <span class="cat-desc">Iron, copper, lead, gold, wood, stone</span>
+            </button>
+        </div>
+    }
+    else
+    {
+        <button class="back-btn" @onclick="() => _category = null">← Back to categories</button>
+        <h3>@CategoryName(_category.Value)</h3>
+
+        @if (!string.IsNullOrEmpty(_error))
+        {
+            <div class="error">@_error</div>
+        }
+
+        <div class="bld-list">
+            @foreach (var spec in ProductionCatalog.ByCategory(_category.Value))
+            {
+                int count = _nation.GetProductionBuilding(spec.Id);
+                <div class="bld-row">
+                    <span class="bld-icon">@spec.Icon</span>
+                    <div class="bld-info">
+                        <div class="bld-name">@spec.Name: @count</div>
+                        <div class="bld-prod">@spec.Produces: @(count * spec.OutputPerDay)/day</div>
+                        <div class="bld-cost">@ProductionCatalog.CostText(spec) · @spec.BuildDays days</div>
+                    </div>
+                    <button class="build-btn" @onclick="() => Build(spec.Id)">Build</button>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private Nation _nation => Engine.State.PlayerNation;
+    private ProductionCategory? _category;
+    private string? _error;
+
+    protected override void OnInitialized()
+    {
+        Engine.StateChanged += OnStateChanged;
+    }
+
+    private void OnStateChanged() => InvokeAsync(StateHasChanged);
+
+    private string CategoryName(ProductionCategory cat) => cat switch
+    {
+        ProductionCategory.Military => "⚔️ Military Production",
+        ProductionCategory.Food => "🌾 Food & Mills",
+        ProductionCategory.Minerals => "⛏️ Mineral Production",
+        _ => ""
+    };
+
+    private void Build(string id)
+    {
+        _error = Engine.BuildProduction(id);
+    }
+
+    public void Dispose() => Engine.StateChanged -= OnStateChanged;
+}

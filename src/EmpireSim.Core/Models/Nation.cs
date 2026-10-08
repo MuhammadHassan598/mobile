@@ -146,6 +146,13 @@ public sealed class Nation
     /// <summary>Workshops across the whole country.</summary>
     public int Workshops { get; set; }
 
+    /// <summary>Production building counts by building ID (helmet, bakery, ironmine, ...).</summary>
+    public Dictionary<string, int> ProductionBuildings { get; set; } = new();
+
+    /// <summary>Gets the count of a production building, 0 if none built.</summary>
+    public int GetProductionBuilding(string id) =>
+        ProductionBuildings.TryGetValue(id, out int c) ? c : 0;
+
     /// <summary>Buildings currently under construction.</summary>
     public List<ConstructionProject> ConstructionQueue { get; set; } = new();
 

@@ -66,14 +66,26 @@ public sealed class SimulationService
             project.DaysLeft--;
             if (project.DaysLeft > 0) continue;
 
-            switch (project.Building)
+            if (project.ProductionBuildingId is not null)
             {
-                case BuildingType.Farm: nation.Farms++; break;
-                case BuildingType.Mine: nation.Mines++; break;
-                case BuildingType.Sawmill: nation.Sawmills++; break;
-                case BuildingType.Workshop: nation.Workshops++; break;
+                // Production building completed.
+                var spec = ProductionCatalog.Get(project.ProductionBuildingId);
+                if (!nation.ProductionBuildings.ContainsKey(spec.Id))
+                    nation.ProductionBuildings[spec.Id] = 0;
+                nation.ProductionBuildings[spec.Id]++;
+                state.Log($"{nation.Name}: {spec.Name} completed.");
             }
-            state.Log($"{nation.Name}: {BuildingCatalog.Get(project.Building).Name} completed.");
+            else
+            {
+                switch (project.Building)
+                {
+                    case BuildingType.Farm: nation.Farms++; break;
+                    case BuildingType.Mine: nation.Mines++; break;
+                    case BuildingType.Sawmill: nation.Sawmills++; break;
+                    case BuildingType.Workshop: nation.Workshops++; break;
+                }
+                state.Log($"{nation.Name}: {BuildingCatalog.Get(project.Building).Name} completed.");
+            }
             nation.ConstructionQueue.Remove(project);
         }
 
@@ -93,6 +105,14 @@ public sealed class SimulationService
         double taxMult = nation.HasCommander(CommanderRole.CommanderInChief) ? Balance.CinCTaxMult : 1.0;
         nation.Gold += nation.Population * Balance.TaxPerPersonPerDay * taxMult * nation.TaxMult
                          + Balance.CrownDomainIncomePerDay;
+
+        // ---- Production buildings: daily output as gold income ----
+        foreach (var kvp in nation.ProductionBuildings)
+        {
+            var spec = ProductionCatalog.Get(kvp.Key);
+            // Each building produces OutputPerDay units, worth 0.1 gold each (simplified)
+            nation.Gold += kvp.Value * spec.OutputPerDay * 0.1;
+        }
 
         double landUpkeepMult = (nation.HasCommander(CommanderRole.LandCommander) ? Balance.LandCommanderUpkeepMult : 1.0)
                               * (nation.HasCommander(CommanderRole.CommanderInChief) ? Balance.CinCUpkeepMult : 1.0);
