@@ -52,6 +52,7 @@ window.empireMap = (() => {
         const fx = (focusX ?? WORLD_W / 2), fy = (focusY ?? WORLD_H / 2);
         view.ox = cssW() / 2 - fx * s;
         view.oy = cssH() / 2 - fy * s;
+        clampView();
 
         new ResizeObserver(resize).observe(canvas);
         canvas.addEventListener('pointerdown', onDown);
@@ -338,6 +339,7 @@ window.empireMap = (() => {
             if (Math.hypot(dx, dy) > 8) downInfo.moved = true;
             view.ox = downInfo.ox + dx;
             view.oy = downInfo.oy + dy;
+            clampView();
             draw();
         }
     }
@@ -361,12 +363,31 @@ window.empireMap = (() => {
         zoomAt(x, y, view.scale * factor);
     }
 
+    function fitScale() {
+        return Math.min(cssW() / WORLD_W, cssH() / WORLD_H);
+    }
+
+    // Keep the map inside the viewport: no black voids when panning,
+    // and never zoom out past the fit-to-screen level.
+    function clampView() {
+        const minS = fitScale();
+        if (view.scale < minS) view.scale = minS;
+        if (view.scale > 8) view.scale = 8;
+        const mapW = WORLD_W * view.scale, mapH = WORLD_H * view.scale;
+        const w = cssW(), h = cssH();
+        if (mapW <= w) view.ox = (w - mapW) / 2;
+        else view.ox = Math.min(0, Math.max(w - mapW, view.ox));
+        if (mapH <= h) view.oy = (h - mapH) / 2;
+        else view.oy = Math.min(0, Math.max(h - mapH, view.oy));
+    }
+
     function zoomAt(cx, cy, newScale) {
-        newScale = Math.min(8, Math.max(0.2, newScale));
+        newScale = Math.min(8, Math.max(fitScale(), newScale));
         const [wx, wy] = toWorld(cx, cy);
         view.scale = newScale;
         view.ox = cx - wx * newScale;
         view.oy = cy - wy * newScale;
+        clampView();
         draw();
     }
 
