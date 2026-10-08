@@ -1,13 +1,17 @@
 @inherits LayoutComponentBase
 @inject GameEngine Engine
+@inject NavigationManager Nav
 @implements IDisposable
 
 <div class="page">
     @if (Engine.CampaignChosen)
     {
-        <TopBar />
-        <main>
-            <article class="content">
+        @if (!IsMapPage)
+        {
+            <TopBar />
+        }
+        <main class="@(IsMapPage ? "map-full" : null)">
+            <article class="content @(IsMapPage ? "content-map" : null)">
                 @Body
             </article>
         </main>
@@ -20,6 +24,10 @@
 
 @code {
     private bool _triedAutoLoad;
+
+    // The world map is a full-screen war-room chart: no top bar, no chrome.
+    private bool IsMapPage =>
+        Nav.ToBaseRelativePath(Nav.Uri).Trim('/').StartsWith("map", StringComparison.OrdinalIgnoreCase);
 
     protected override void OnInitialized() => Engine.StateChanged += OnStateChanged;
 
