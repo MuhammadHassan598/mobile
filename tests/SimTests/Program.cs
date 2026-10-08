@@ -19,7 +19,7 @@ using (var engine = new GameEngine(new SimulationService(), new SaveService(save
 {
     Check(engine.State.CurrentDate == new DateOnly(1600, 1, 1), "starts 01-01-1600");
     Check(engine.State.PlayerNation.Name == "Ottoman Empire", "player nation set");
-    Check(engine.State.PlayerNation.Provinces.Count == 4, "4 provinces");
+    Check(engine.State.PlayerNation.Territory.Count == 4, "4 territory shapes");
     Check(engine.Clock.Speed == GameSpeed.Paused, "clock paused initially");
 
     Console.WriteLine("== 2. 200-day simulation (covers the 6-month payday on 01-07-1600) ==");
@@ -66,14 +66,14 @@ using (var engine = new GameEngine(new SimulationService(), new SaveService(save
 Console.WriteLine("== 5. Map data sanity ==");
 using (var engine2 = new GameEngine(new SimulationService(), new SaveService(saveFolder)))
 {
-    var allProvs = engine2.State.AllNations().SelectMany(n => n.Provinces).ToList();
-    Check(allProvs.Count == 92, "92 map provinces across 41 nations");
+    var allTerr = engine2.State.AllNations().SelectMany(n => n.Territory).ToList();
+    Check(allTerr.Count == 92, "92 territory polygons across 41 nations");
     Check(engine2.State.AllNations().Count() == 41, "41 nations on the 1600 map");
-    Check(allProvs.All(p => p.Polygon.Count >= 3), "every province polygon has >= 3 points");
-    Check(allProvs.Select(p => p.Id).Distinct().Count() == allProvs.Count, "province ids unique");
-    Check(allProvs.All(p => p.Polygon.All(pt => pt.X >= 0 && pt.X <= 2200 && pt.Y >= 0 && pt.Y <= 1150)),
+    Check(allTerr.All(t => t.Count >= 3), "every territory polygon has >= 3 points");
+    Check(allTerr.All(t => t.All(pt => pt.X >= 0 && pt.X <= 2200 && pt.Y >= 0 && pt.Y <= 1150)),
         "all polygon points inside the 2200x1150 viewBox");
-    Check(allProvs.All(p => p.LabelX > 0 && p.LabelY > 0), "every province has a label anchor");
+    Check(engine2.State.AllNations().All(n => n.MapX > 0 && n.MapY > 0), "every nation has a map anchor");
+    Check(engine2.State.AllNations().All(n => !string.IsNullOrEmpty(n.CapitalName)), "every nation has a capital");
     Check(engine2.State.NeutralRegions.Count > 0, "neutral territories drawn on the map");
 }
 
@@ -81,34 +81,33 @@ Console.WriteLine("== 6. Economy: construction, chains, trade ==");
 using (var engine3 = new GameEngine(new SimulationService(), new SaveService(saveFolder)))
 {
     var n3 = engine3.State.PlayerNation;
-    var prov = n3.Provinces[0];
-    int farmsBefore = prov.Farms;
+    int farmsBefore = n3.Farms;
     double goldBefore = n3.WealthInSilver;
 
     // 6a. Build a farm: cost deducted upfront, completes after 5 days.
-    string? err = engine3.StartConstruction(prov.Id, BuildingType.Farm);
+    string? err = engine3.StartConstruction(BuildingType.Farm);
     Check(err is null, "farm construction accepted");
     Check(Math.Abs(n3.WealthInSilver - (goldBefore - 100)) < 0.01, "farm cost deducted upfront");
     Check(n3.ConstructionQueue.Count == 1, "project queued");
     for (int i = 0; i < 5; i++) engine3.AdvanceOneDay();
-    Check(prov.Farms == farmsBefore + 1, "farm completed after 5 days");
+    Check(n3.Farms == farmsBefore + 1, "farm completed after 5 days");
     Check(n3.ConstructionQueue.Count == 0, "queue empty after completion");
     Check(engine3.State.EventLog.Any(e => e.Contains("Farm completed")), "completion logged");
 
     // 6b. Unaffordable build is rejected.
     n3.Silver = 0; n3.Gold = 0;
-    string? err2 = engine3.StartConstruction(prov.Id, BuildingType.Mine);
+    string? err2 = engine3.StartConstruction(BuildingType.Mine);
     Check(err2 is not null, "broke build rejected with error");
     Check(n3.ConstructionQueue.Count == 0, "nothing queued when broke");
 
     // 6c. Workshop chain: wood + iron -> goods.
     n3.Silver = 5000; n3.Gold = 0; n3.Wood = 50; n3.Iron = 30;
-    string? err3 = engine3.StartConstruction(prov.Id, BuildingType.Workshop);
+    string? err3 = engine3.StartConstruction(BuildingType.Workshop);
     Check(err3 is null, "workshop construction accepted (had wood+iron)");
     for (int i = 0; i < 12; i++) engine3.AdvanceOneDay();
-    Check(prov.Workshops == 1, "workshop completed after 12 days");
+    Check(n3.Workshops == 1, "workshop completed after 12 days");
     // Isolate the chain: remove mines/sawmills so stocks move only via the workshop.
-    foreach (var pr in n3.Provinces) { pr.Mines = 0; pr.Sawmills = 0; }
+    n3.Mines = 0; n3.Sawmills = 0;
     n3.Wood = 50; n3.Iron = 30;
     double woodBefore = n3.Wood, ironBefore = n3.Iron, goodsBefore = n3.Goods;
     for (int i = 0; i < 3; i++) engine3.AdvanceOneDay();
@@ -249,9 +248,9 @@ using (var engine5 = new GameEngine(new SimulationService(seed: 42), new SaveSer
 
     // 8f. Sabotage destroys a building.
     for (int i = 0; i < 35; i++) engine5.AdvanceOneDay();
-    int buildingsBefore = persia.Provinces.Sum(p => p.Farms + p.Mines + p.Sawmills + p.Workshops);
+    int buildingsBefore = persia.Farms + persia.Mines + persia.Sawmills + persia.Workshops;
     Check(engine5.SpySabotage(persia.Id) is null, "sabotage executed");
-    int buildingsAfter = persia.Provinces.Sum(p => p.Farms + p.Mines + p.Sawmills + p.Workshops);
+    int buildingsAfter = persia.Farms + persia.Mines + persia.Sawmills + persia.Workshops;
     Check(buildingsAfter == buildingsBefore - 1, "sabotage destroyed one building");
 
     // 8g. Incite revolt causes desertion.
@@ -303,13 +302,13 @@ using (var engine7 = new GameEngine(new SimulationService(), new SaveService(sav
     Check(Currency.Cost(550) == "550 Silver", "silver costs show as Silver");
 }
 
-Console.WriteLine("== 10. Warfare: marches, battles, capture, elimination ==");
+Console.WriteLine("== 10. Warfare: marches, battles, whole-country annexation ==");
 using (var engine8 = new GameEngine(new SimulationService(seed: 11), new SaveService(saveFolder)))
 {
     var player8 = engine8.State.PlayerNation;
     var kazakh = engine8.State.OtherNations.First(n => n.Name == "Kazakh Khanate");
 
-    var (ok0, _) = engine8.LaunchInvasion(kazakh.Provinces[0].Id, 1000);
+    var (ok0, _) = engine8.LaunchInvasion(kazakh.Id, 1000);
     Check(!ok0, "invasion refused without a declaration of war");
 
     engine8.DeclareWar(kazakh.Id);
@@ -317,10 +316,11 @@ using (var engine8 = new GameEngine(new SimulationService(seed: 11), new SaveSer
     engine8.Recruit(UnitType.Musketeer, 20000);
     // Keep Kazakh strong enough to neither sue for peace nor invade back mid-march.
     kazakh.Units = UnitCatalog.SeedArmy(4000);
-    int pcountBefore = player8.Provinces.Count;
+    long popBefore = player8.Population;
+    int farmsBefore = player8.Farms;
     int soldiersBefore = player8.Soldiers;
 
-    var (ok1, msg1) = engine8.LaunchInvasion(kazakh.Provinces[0].Id, 20000);
+    var (ok1, msg1) = engine8.LaunchInvasion(kazakh.Id, 20000);
     Check(ok1 && msg1.Contains("march"), "launch creates a march, not an instant battle");
     Check(engine8.State.MarchingArmies.Count == 1, "march is tracked in state");
     Check(player8.Soldiers == soldiersBefore - 20000, "marching force leaves the army at once");
@@ -333,24 +333,24 @@ using (var engine8 = new GameEngine(new SimulationService(seed: 11), new SaveSer
     Check(engine8.State.MarchingArmies[0].Progress > 0, "march progress grows each day");
     engine8.AdvanceOneDay();
     Check(engine8.State.MarchingArmies.Count == 0, "march resolves on arrival");
-    Check(player8.Provinces.Count == pcountBefore + 1, "province captured by the attacker");
-    Check(kazakh.Provinces.Count == 1, "defender loses the province");
     Check(engine8.State.EventLog.Any(e => e.Contains("Victory")), "overwhelming invasion wins");
+    Check(kazakh.IsEliminated, "defeated nation is annexed whole");
+    Check(!kazakh.AtWarWithPlayer, "annexation ends the war");
+    Check(engine8.State.NationsAnnexedByPlayer == 1, "annexation is counted");
+    Check(player8.Population > popBefore, "winner absorbs the population");
+    Check(player8.Farms > farmsBefore, "winner absorbs the farms");
 
+    // A 500-strong force loses to a garrison (fresh enemy: Nepal).
+    var nepal = engine8.State.OtherNations.First(n => n.Id == "nepal");
+    engine8.DeclareWar(nepal.Id);
     int soldiersMid = player8.Soldiers;
-    var (ok2, msg2) = engine8.LaunchInvasion(kazakh.Provinces[0].Id, 500);
+    var (ok2, msg2) = engine8.LaunchInvasion(nepal.Id, 500);
     Check(ok2 && msg2.Contains("march"), "a 500-strong force can also march");
     int days2 = engine8.State.MarchingArmies[0].TotalDays;
     for (int i = 0; i < days2; i++) engine8.AdvanceOneDay();
     Check(engine8.State.EventLog.Any(e => e.Contains("Defeat")), "a 500-strong force loses to the garrison");
     Check(player8.Soldiers < soldiersMid, "failed invasion costs soldiers");
-
-    var (ok3, _) = engine8.LaunchInvasion(kazakh.Provinces[0].Id, player8.Soldiers);
-    Check(ok3, "final invasion launches");
-    int days3 = engine8.State.MarchingArmies[0].TotalDays;
-    for (int i = 0; i < days3; i++) engine8.AdvanceOneDay();
-    Check(kazakh.IsEliminated, "nation eliminated when its last province falls");
-    Check(!kazakh.AtWarWithPlayer, "elimination ends the war");
+    Check(!nepal.IsEliminated, "the defender survives a failed invasion");
 }
 
 Console.WriteLine("== 10b. Nation select + march recall ==");
@@ -374,14 +374,13 @@ using (var engine10c = new GameEngine(new SimulationService(seed: 7), new SaveSe
     var playerC = engine10c.State.PlayerNation;
     var persiaC = engine10c.State.OtherNations.First(n => n.Name == "Iran");
     engine10c.DeclareWar(persiaC.Id);
-    int provincesBefore = persiaC.Provinces.Count;
-    var (okC, _) = engine10c.LaunchInvasion(persiaC.Provinces[0].Id, 1000);
+    var (okC, _) = engine10c.LaunchInvasion(persiaC.Id, 1000);
     Check(okC, "invasion launches while at war");
     engine10c.SueForPeace(persiaC.Id);
     int daysC = engine10c.State.MarchingArmies[0].TotalDays;
     for (int i = 0; i < daysC; i++) engine10c.AdvanceOneDay();
     Check(engine10c.State.MarchingArmies.Count == 0, "recalled march leaves the list");
-    Check(persiaC.Provinces.Count == provincesBefore, "recalled march captures nothing");
+    Check(!persiaC.IsEliminated, "recalled march annexes nothing");
     Check(engine10c.State.EventLog.Any(e => e.Contains("called off")),
         "recalled march is reported in the log");
 }
@@ -443,13 +442,14 @@ using (var engine11 = new GameEngine(new SimulationService(), new SaveService(sa
     Check(engine11.FoundColony(engine11.State.FrontierRegions[1].Id) is not null,
         "second expedition blocked while one is at sea");
 
-    int pcount = n11.Provinces.Count;
+    long popBefore = n11.Population;
+    int farmsBefore = n11.Farms;
     for (int i = 0; i < 30; i++) engine11.AdvanceOneDay();
-    Check(n11.Provinces.Count == pcount + 1, "colony founded after 30 days");
     Check(engine11.State.FrontierRegions.Count == 2, "region removed from the frontier");
     Check(engine11.State.ActiveExpedition is null, "expedition completes");
-    var colony = n11.Provinces.First(p => p.Id == region.Id);
-    Check(colony.Population == 5000 && colony.Farms == 1, "colony starts small with one farm");
+    Check(n11.Population > popBefore, "colony settlers join the homeland");
+    Check(n11.Farms > farmsBefore, "colony adds farms to the homeland");
+    Check(n11.ColoniesFounded == 1, "colony counter increments");
 }
 
 Console.WriteLine("== 13. Balance pass: 5-year autoplay + victory/defeat ==");
@@ -457,7 +457,7 @@ using (var engine12 = new GameEngine(new SimulationService(seed: 99), new SaveSe
 {
     var n12 = engine12.State.PlayerNation;
     for (int i = 0; i < 1825; i++) engine12.AdvanceOneDay();
-    Check(n12.Provinces.Count > 0, "a passive player keeps their provinces for 5 years");
+    Check(!n12.IsEliminated, "a passive player keeps their country for 5 years");
     Check(n12.Population > 0, "population survives 5 years");
     Check(double.IsFinite(n12.WealthInSilver) && n12.WealthInSilver >= 0, "wealth stays sane for 5 years");
     Check(n12.Soldiers > 0, "the army survives 5 years");
@@ -467,19 +467,15 @@ using (var engine12 = new GameEngine(new SimulationService(seed: 99), new SaveSe
 using (var engine13 = new GameEngine(new SimulationService(), new SaveService(saveFolder)))
 {
     var p13 = engine13.State.PlayerNation;
-    foreach (var other in engine13.State.OtherNations.ToList())
-    {
-        while (other.Provinces.Count > 1 && p13.Provinces.Count < 20)
-            Warfare.TransferProvince(other.Provinces[0], other, p13);
-        if (p13.Provinces.Count >= 20) break;
-    }
-    Check(p13.Provinces.Count >= 20, "test setup: player holds 20 provinces");
+    foreach (var other in engine13.State.OtherNations.Where(n => !n.IsEliminated).Take(8).ToList())
+        Warfare.AnnexNation(engine13.State, p13, other);
+    Check(engine13.State.NationsAnnexedByPlayer == 8, "test setup: player annexed 8 nations");
     engine13.AdvanceOneDay();
     Check(engine13.State.VictoryAchieved, "hegemony triggers victory");
 
-    p13.Provinces.Clear();
+    Warfare.AnnexNation(engine13.State, engine13.State.OtherNations.First(n => !n.IsEliminated), p13);
     engine13.AdvanceOneDay();
-    Check(engine13.State.Defeated, "losing every province triggers defeat");
+    Check(engine13.State.Defeated, "losing the whole country triggers defeat");
 }
 
 Console.WriteLine("== 14. Nation-select data: religion, income estimate, stat counters ==");

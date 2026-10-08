@@ -41,18 +41,18 @@ public sealed class SimulationService
     private void AdvanceNation(GameState state, Nation nation)
     {
         // ---- Food ----
-        double produced = nation.TotalFarms * Balance.FoodPerFarmPerDay;
+        double produced = nation.Farms * Balance.FoodPerFarmPerDay;
         double consumed = nation.Population * Balance.FoodPerPersonPerDay;
         nation.Food += produced - consumed;
 
         // ---- Raw materials ----
-        nation.Iron += nation.TotalMines * Balance.IronPerMinePerDay;
-        nation.Wood += nation.TotalSawmills * Balance.WoodPerSawmillPerDay;
+        nation.Iron += nation.Mines * Balance.IronPerMinePerDay;
+        nation.Wood += nation.Sawmills * Balance.WoodPerSawmillPerDay;
 
         // ---- Workshop chain: wood + iron -> goods ----
-        if (nation.TotalWorkshops > 0)
+        if (nation.Workshops > 0)
         {
-            double runs = Math.Min(nation.TotalWorkshops, Math.Min(
+            double runs = Math.Min(nation.Workshops, Math.Min(
                 nation.Wood / Balance.WorkshopWoodConsumedPerDay,
                 nation.Iron / Balance.WorkshopIronConsumedPerDay));
             nation.Wood -= runs * Balance.WorkshopWoodConsumedPerDay;
@@ -66,18 +66,14 @@ public sealed class SimulationService
             project.DaysLeft--;
             if (project.DaysLeft > 0) continue;
 
-            var province = nation.Provinces.FirstOrDefault(p => p.Id == project.ProvinceId);
-            if (province is not null)
+            switch (project.Building)
             {
-                switch (project.Building)
-                {
-                    case BuildingType.Farm: province.Farms++; break;
-                    case BuildingType.Mine: province.Mines++; break;
-                    case BuildingType.Sawmill: province.Sawmills++; break;
-                    case BuildingType.Workshop: province.Workshops++; break;
-                }
-                state.Log($"{nation.Name}: {BuildingCatalog.Get(project.Building).Name} completed in {province.Name}.");
+                case BuildingType.Farm: nation.Farms++; break;
+                case BuildingType.Mine: nation.Mines++; break;
+                case BuildingType.Sawmill: nation.Sawmills++; break;
+                case BuildingType.Workshop: nation.Workshops++; break;
             }
+            state.Log($"{nation.Name}: {BuildingCatalog.Get(project.Building).Name} completed.");
             nation.ConstructionQueue.Remove(project);
         }
 
@@ -180,21 +176,20 @@ public sealed class SimulationService
 
                 // A stronger AI presses the attack and invades.
                 if (!other.IsEliminated
+                    && !player.IsEliminated
                     && other.Soldiers > player.Soldiers * Balance.AiInvasionArmyRatio
-                    && player.Provinces.Count > 0
                     && RollChance(Balance.AiInvasionChancePerDay))
                 {
-                    var target = player.Provinces[NextInt(player.Provinces.Count)];
-                    var outcome = Warfare.Invade(other, player, target,
+                    var outcome = Warfare.Invade(other, player,
                         other.Soldiers / 2, 1.0, _rng);
                     ArmyHelper.MergeStacks(other, outcome.AttackerSurvivors);
-                    state.Log($"{other.Name} invaded {target.Name}: {outcome.Summary}");
-                    state.ActiveWarnings.Add($"⚠ {other.Name} is invading {target.Name}!");
+                    state.Log($"{other.Name} invaded: {outcome.Summary}");
+                    state.ActiveWarnings.Add($"⚠ {other.Name} is invading!");
                     if (outcome.AttackerWon)
                     {
-                        Warfare.TransferProvince(target, player, other);
-                        state.Log($"{target.Name} has fallen to {other.Name}!");
-                        state.ActiveWarnings.Add($"⚠ {target.Name} has fallen to {other.Name}!");
+                        Warfare.AnnexNation(state, other, player);
+                        state.Log($"{player.Name} has fallen to {other.Name}!");
+                        state.ActiveWarnings.Add($"⚠ {player.Name} has fallen to {other.Name}!");
                     }
                 }
 
@@ -261,12 +256,13 @@ public sealed class SimulationService
         if (region is not null)
         {
             state.FrontierRegions.Remove(region);
-            region.Population = Balance.ColonyStartPopulation;
-            region.Farms = 1;
-            state.PlayerNation.Provinces.Add(region);
-            state.PlayerNation.Population = state.PlayerNation.Provinces.Sum(p => p.Population);
-            state.PlayerNation.ColoniesFounded++;
-            state.Log($"A colony was founded in {region.Name}! The empire grows.");
+            var home = state.PlayerNation;
+            home.Population += Balance.ColonyStartPopulation;
+            home.Farms += 8;
+            home.Mines += 2;
+            home.Food += 2000;
+            home.ColoniesFounded++;
+            state.Log($"A colony was founded in {region.Name}! Settlers and riches flow to the homeland.");
         }
         state.ActiveExpedition = null;
     }
@@ -285,41 +281,37 @@ public sealed class SimulationService
             state.MarchingArmies.Remove(march);
             var attacker = state.AllNations().FirstOrDefault(n => n.Id == march.AttackerNationId);
             var defender = state.AllNations().FirstOrDefault(n => n.Id == march.TargetNationId);
-            var province = defender?.Provinces.FirstOrDefault(p => p.Id == march.TargetProvinceId);
 
-            bool recalled = attacker is null || defender is null || province is null
-                || defender.IsEliminated || !defender.AtWarWithPlayer;
+            bool recalled = attacker is null || defender is null
+                || attacker.IsEliminated || defender.IsEliminated
+                || !defender.AtWarWithPlayer;
             if (recalled)
             {
-                if (attacker is not null)
+                if (attacker is not null && !attacker.IsEliminated)
                 {
                     ArmyHelper.MergeStacks(attacker, march.Force);
                     if (attacker.IsPlayer)
-                        state.Log($"🏳 The march on {march.TargetProvinceName} was called off — the army returns home.");
+                        state.Log($"🏳 The march on {march.TargetNationName} was called off — the army returns home.");
                 }
                 continue;
             }
 
             var outcome = Warfare.ResolveBattle(march.Force, attacker!, defender!,
-                province!, attacker!.BattleStrengthMult, _rng);
-            ArmyHelper.MergeStacks(attacker, outcome.AttackerSurvivors);
+                attacker!.BattleStrengthMult, _rng);
+            if (!attacker.IsEliminated)
+                ArmyHelper.MergeStacks(attacker, outcome.AttackerSurvivors);
 
             if (outcome.AttackerWon)
             {
-                Warfare.TransferProvince(province, defender, attacker);
-                if (attacker.IsPlayer) attacker.BattlesWon++;
-                if (defender.Provinces.Count == 0)
-                {
-                    Warfare.EliminateNation(state, defender);
-                    state.ActiveWarnings.Add($"🏳 {defender.Name} has been eliminated!");
-                }
+                Warfare.AnnexNation(state, attacker, defender);
+                state.ActiveWarnings.Add($"🏳 {defender.Name} has been annexed by {attacker.Name}!");
             }
 
             if (attacker.IsPlayer)
             {
-                state.Log($"{defender.Name} — {province.Name}: {outcome.Summary}");
+                state.Log($"{defender.Name}: {outcome.Summary}");
                 state.ActiveWarnings.Add(
-                    $"⚔ Battle at {province.Name}: {(outcome.AttackerWon ? "victory" : "defeat")}!");
+                    $"⚔ Battle for {defender.Name}: {(outcome.AttackerWon ? "victory — the country is ours" : "defeat")}!");
             }
         }
     }
@@ -329,29 +321,18 @@ public sealed class SimulationService
     {
         var player = state.PlayerNation;
 
-        if (!state.VictoryAchieved && player.Provinces.Count >= Balance.HegemonyProvinceCount)
+        if (!state.VictoryAchieved && state.NationsAnnexedByPlayer >= Balance.HegemonyNationCount)
         {
             state.VictoryAchieved = true;
             state.Log("HEGEMONY! Your empire dominates the known world.");
             state.ActiveWarnings.Add("🏆 HEGEMONY! Your empire dominates the known world.");
         }
 
-        if (!state.Defeated && player.Provinces.Count == 0)
+        if (!state.Defeated && player.IsEliminated)
         {
             state.Defeated = true;
             state.Log("Your empire has fallen. The dynasty is no more.");
             state.ActiveWarnings.Add("💀 Your empire has fallen.");
-        }
-
-        foreach (var other in state.OtherNations)
-        {
-            if (!state.Defeated && !other.IsEliminated
-                && other.Provinces.Count >= Balance.HegemonyProvinceCount)
-            {
-                state.Defeated = true;
-                state.Log($"{other.Name} achieved hegemony. Your cause is lost.");
-                state.ActiveWarnings.Add($"💀 {other.Name} dominates the world. You are defeated.");
-            }
         }
     }
 }

@@ -10,30 +10,31 @@
 
     <canvas id="gameMap" class="map-canvas"></canvas>
 
-    @if (_selected is not null)
+    @if (_selectedNation is not null || _selectedFrontier is not null || _selectedNeutral is not null)
     {
         <div class="province-card">
             <div class="province-head">
                 <div>
-                    <div class="province-name">@_selected.Name</div>
+                    <div class="province-name">@SelectedName</div>
                     <div class="province-owner">
-                        @if (_selectedOwner is not null)
+                        @if (_selectedNation is not null)
                         {
-                            <span class="owner-dot" style="background:@_selectedOwner.ColorHex"></span>
-                            @_selectedOwner.Name
-                            @if (_selectedOwner.IsPlayer)
+                            <span class="owner-dot" style="background:@_selectedNation.ColorHex"></span>
+                            @_selectedNation.CapitalName
+                            @if (_selectedNation.IsPlayer)
                             {
                                 <span class="you-badge">YOU</span>
                             }
-                            @if (_selectedOwner.IsEliminated)
-                            {
-                                <span class="badge war">ELIMINATED</span>
-                            }
+                        }
+                        else if (_selectedNeutral is not null)
+                        {
+                            <span class="owner-dot" style="background:#4A4438"></span>
+                            <span class="muted">Neutral territory</span>
                         }
                         else
                         {
-                            <span class="owner-dot" style="background:#4A4438"></span>
-                            <span class="muted">@(_selectedNeutral ? "Neutral territory" : "Uncharted territory")</span>
+                            <span class="owner-dot" style="background:#6B7280"></span>
+                            <span class="muted">Uncharted territory</span>
                         }
                     </div>
                 </div>
@@ -49,49 +50,18 @@
                 <div class="battle-report">@_battleReport</div>
             }
 
-            @if (_selectedOwner is null)
-            {
-                @if (_selectedNeutral)
-                {
-                    <div class="cards">
-                        <div class="card"><div class="label">Status</div><div class="value">Neutral territory</div></div>
-                    </div>
-                    <p class="page-hint">Beyond the reach of crowns — no ruler claims this land.</p>
-                }
-                else
-                {
-                    <div class="cards">
-                        <div class="card"><div class="label">Status</div><div class="value">Uncharted</div></div>
-                    </div>
-                    @if (Engine.State.ActiveExpedition is not null)
-                    {
-                        <div class="build-row">
-                            <div class="build-info">
-                                <div class="build-name">Expedition to @Engine.State.ActiveExpedition.RegionName</div>
-                                <div class="progress"><div class="progress-fill" style="width:@((Engine.State.ActiveExpedition.Progress * 100).ToString("N0"))%"></div></div>
-                            </div>
-                            <div class="build-days">@((Engine.State.ActiveExpedition.Progress * 100).ToString("N0"))% · @Engine.State.ActiveExpedition.DaysLeft d</div>
-                        </div>
-                    }
-                    else
-                    {
-                        <button class="inline-btn" @onclick="() => Colonize(_selected.Id)">
-                            ⛵ Found colony (@Currency.Cost(Balance.ColonyCostSilver) · @Balance.ColonyCostFood.ToString("N0") food · @Balance.ColonyWarshipsRequired warships)
-                        </button>
-                    }
-                }
-            }
-            else
+            @if (_selectedNation is not null)
             {
                 <div class="cards">
-                    <div class="card"><div class="label">Population</div><div class="value">@_selected.Population.ToString("N0")</div></div>
-                    <div class="card"><div class="label">Farms</div><div class="value">@_selected.Farms</div></div>
-                    <div class="card"><div class="label">Mines</div><div class="value">@_selected.Mines</div></div>
+                    <div class="card"><div class="label">Population</div><div class="value">@_selectedNation.Population.ToString("N0")</div></div>
+                    <div class="card"><div class="label">Capital</div><div class="value">@_selectedNation.CapitalName</div></div>
+                    <div class="card"><div class="label">Farms</div><div class="value">@_selectedNation.Farms</div></div>
+                    <div class="card"><div class="label">Mines</div><div class="value">@_selectedNation.Mines</div></div>
                 </div>
-                @if (!_selectedOwner.IsPlayer && !_selectedOwner.IsEliminated && _selectedOwner.AtWarWithPlayer)
+                @if (!_selectedNation.IsPlayer && !_selectedNation.IsEliminated && _selectedNation.AtWarWithPlayer)
                 {
                     <div class="invade-box">
-                        <div class="invade-title">⚔ Invade @_selected.Name</div>
+                        <div class="invade-title">⚔ Invade @_selectedNation.Name — take the whole country</div>
                         <div class="invade-sizes">
                             @foreach (var size in new[] { 500, 2000, 5000 })
                             {
@@ -99,33 +69,67 @@
                             }
                             <button class="@(_commitSize == -1 ? "active" : "")" @onclick="() => _commitSize = -1">All</button>
                         </div>
-                        <button class="inline-btn" @onclick="() => Invade(_selected.Id)">Launch invasion (@(_commitSize == -1 ? "all" : _commitSize.ToString("N0")) soldiers)</button>
+                        <button class="inline-btn" @onclick="() => Invade(_selectedNation.Id)">Launch invasion (@(_commitSize == -1 ? "all" : _commitSize.ToString("N0")) soldiers)</button>
                     </div>
+                }
+            }
+            else if (_selectedNeutral is not null)
+            {
+                <div class="cards">
+                    <div class="card"><div class="label">Status</div><div class="value">Neutral territory</div></div>
+                </div>
+                <p class="page-hint">Beyond the reach of crowns — no ruler claims this land.</p>
+            }
+            else
+            {
+                <div class="cards">
+                    <div class="card"><div class="label">Status</div><div class="value">Uncharted</div></div>
+                </div>
+                @if (Engine.State.ActiveExpedition is not null)
+                {
+                    <div class="build-row">
+                        <div class="build-info">
+                            <div class="build-name">Expedition to @Engine.State.ActiveExpedition.RegionName</div>
+                            <div class="progress"><div class="progress-fill" style="width:@((Engine.State.ActiveExpedition.Progress * 100).ToString("N0"))%"></div></div>
+                        </div>
+                        <div class="build-days">@((Engine.State.ActiveExpedition.Progress * 100).ToString("N0"))% · @Engine.State.ActiveExpedition.DaysLeft d</div>
+                    </div>
+                }
+                else
+                {
+                    <button class="inline-btn" @onclick="() => Colonize(_selectedFrontier!.Id)">
+                        ⛵ Found colony (@Currency.Cost(Balance.ColonyCostSilver) · @Balance.ColonyCostFood.ToString("N0") food · @Balance.ColonyWarshipsRequired warships)
+                    </button>
                 }
             }
         </div>
     }
     else
     {
-        <div class="map-hint">Drag to pan · scroll or pinch to zoom · tap a province</div>
+        <div class="map-hint">Drag to pan · scroll or pinch to zoom · tap a country</div>
     }
 </div>
 
 @code {
     private DotNetObjectReference<Map>? _dotNetRef;
-    private Province? _selected;
-    private Nation? _selectedOwner;
-    private bool _selectedNeutral;
+    private Nation? _selectedNation;
+    private FrontierRegion? _selectedFrontier;
+    private NeutralTerritory? _selectedNeutral;
     private string? _error;
     private string? _battleReport;
     private int _commitSize = 2000;
 
-    private void Invade(string provinceId)
+    private string SelectedName =>
+        _selectedNation?.Name ?? _selectedFrontier?.Name ?? _selectedNeutral?.Name ?? "";
+    private string? SelectedId =>
+        _selectedNation?.Id ?? _selectedFrontier?.Id ?? _selectedNeutral?.Id;
+
+    private void Invade(string nationId)
     {
         _error = null;
         _battleReport = null;
         int commit = _commitSize == -1 ? Engine.State.PlayerNation.Soldiers : _commitSize;
-        var (ok, message) = Engine.LaunchInvasion(provinceId, commit);
+        var (ok, message) = Engine.LaunchInvasion(nationId, commit);
         if (ok) _battleReport = message;
         else _error = message;
     }
@@ -147,77 +151,53 @@
 
     private async Task RenderMapAsync()
     {
-        var provinces = Engine.State.AllNations()
-            .SelectMany(n => n.Provinces.Select(p => new
+        var nations = Engine.State.AllNations()
+            .Where(n => !n.IsEliminated && n.Territory.Count > 0)
+            .Select(n => new
             {
-                id = p.Id,
-                name = p.Name,
-                color = n.IsEliminated ? "#3A3A3A" : n.ColorHex,
-                polygon = p.Polygon,
-                labelX = p.LabelX,
-                labelY = p.LabelY,
-            }))
-            .Concat(Engine.State.FrontierRegions.Select(p => new
-            {
-                id = p.Id,
-                name = p.Name,
-                color = "#6B7280",
-                polygon = p.Polygon,
-                labelX = p.LabelX,
-                labelY = p.LabelY,
-            }))
-            .Concat(Engine.State.NeutralRegions.Select(p => new
-            {
-                id = p.Id,
-                name = p.Name,
-                color = "#4A4438",
-                polygon = p.Polygon,
-                labelX = p.LabelX,
-                labelY = p.LabelY,
-            }))
+                id = n.Id,
+                name = n.Name,
+                color = n.ColorHex,
+                polygons = n.Territory,
+                labelX = n.MapX,
+                labelY = n.MapY,
+            })
             .ToList();
 
+        var frontier = Engine.State.FrontierRegions.Select(r => new
+        {
+            id = r.Id,
+            name = r.Name,
+            color = "#6B7280",
+            polygons = new List<List<MapPoint>> { r.Polygon },
+            labelX = r.LabelX,
+            labelY = r.LabelY,
+        });
+
+        var neutral = Engine.State.NeutralRegions.Select(r => new
+        {
+            id = r.Id,
+            name = r.Name,
+            color = "#4A4438",
+            polygons = new List<List<MapPoint>> { r.Polygon },
+            labelX = r.LabelX,
+            labelY = r.LabelY,
+        });
+
+        var shapes = nations.Cast<object>().Concat(frontier).Concat(neutral).ToList();
+
         await JS.InvokeVoidAsync("empireMap.render",
-            new { provinces, selectedId = _selected?.Id });
+            new { shapes, selectedId = SelectedId });
     }
 
     [JSInvokable]
-    public async Task OnProvinceTapped(string provinceId)
+    public async Task OnMapTapped(string id)
     {
-        var found = Engine.State.AllNations()
-            .SelectMany(n => n.Provinces.Select(p => (Province: p, Owner: (Nation?)n)))
-            .FirstOrDefault(x => x.Province.Id == provinceId);
-
-        if (found != default)
-        {
-            _selected = found.Province;
-            _selectedOwner = found.Owner;
-            _selectedNeutral = false;
-        }
-        else
-        {
-            var region = Engine.State.FrontierRegions.FirstOrDefault(p => p.Id == provinceId);
-            if (region is not null)
-            {
-                _selected = region;
-                _selectedOwner = null;
-                _selectedNeutral = false;
-            }
-            else
-            {
-                var neutral = Engine.State.NeutralRegions.FirstOrDefault(p => p.Id == provinceId);
-                if (neutral is not null)
-                {
-                    _selected = neutral;
-                    _selectedOwner = null;
-                    _selectedNeutral = true;
-                }
-                else
-                {
-                    return;
-                }
-            }
-        }
+        _selectedNation = Engine.State.AllNations().FirstOrDefault(n => n.Id == id);
+        _selectedFrontier = _selectedNation is null
+            ? Engine.State.FrontierRegions.FirstOrDefault(r => r.Id == id) : null;
+        _selectedNeutral = _selectedNation is null && _selectedFrontier is null
+            ? Engine.State.NeutralRegions.FirstOrDefault(r => r.Id == id) : null;
 
         _error = null;
         _battleReport = null;
@@ -227,9 +207,9 @@
 
     private async Task ClearSelection()
     {
-        _selected = null;
-        _selectedOwner = null;
-        _selectedNeutral = false;
+        _selectedNation = null;
+        _selectedFrontier = null;
+        _selectedNeutral = null;
         await RenderMapAsync();
         StateHasChanged();
     }

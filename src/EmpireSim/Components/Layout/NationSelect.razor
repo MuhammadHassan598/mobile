@@ -134,9 +134,9 @@
 
     private static string Fmt(double v) => v.ToString("N0");
     private long _income => GameEngine.EstimateDailyIncome(_selected);
-    private string CapitalName => _selected.Provinces.FirstOrDefault()?.Name ?? "—";
-    private double PinX => (_selected.Provinces.FirstOrDefault()?.LabelX ?? 1100) / 2200 * 100;
-    private double PinY => (_selected.Provinces.FirstOrDefault()?.LabelY ?? 575) / 1150 * 100;
+    private string CapitalName => _selected.CapitalName;
+    private double PinX => _selected.MapX / 2200 * 100;
+    private double PinY => _selected.MapY / 1150 * 100;
 
     private static string ReligionIcon(string r) => r switch
     {

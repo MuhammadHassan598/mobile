@@ -90,19 +90,17 @@ public sealed class GameEngine : IDisposable
     }
 
     /// <summary>
-    /// Starts construction of a building in one of the player's provinces.
+    /// Starts construction of a building for the whole nation.
     /// Costs are paid upfront. Returns an error message, or null on success.
     /// </summary>
-    public string? StartConstruction(string provinceId, BuildingType type)
+    public string? StartConstruction(BuildingType type)
     {
         var nation = State.PlayerNation;
-        var province = nation.Provinces.FirstOrDefault(p => p.Id == provinceId);
-        if (province is null) return "Province not found.";
 
         var spec = BuildingCatalog.Get(type);
 
-        if (nation.ConstructionQueue.Count(q => q.ProvinceId == provinceId) >= Balance.MaxQueuePerProvince)
-            return $"Build queue is full in {province.Name} (max {Balance.MaxQueuePerProvince}).";
+        if (nation.ConstructionQueue.Count >= Balance.MaxBuildQueue)
+            return $"Build queue is full (max {Balance.MaxBuildQueue}).";
 
         if (!CanAfford(spec)) return "Not enough resources.";
 
@@ -111,13 +109,11 @@ public sealed class GameEngine : IDisposable
         nation.Iron -= spec.IronCost;
         nation.ConstructionQueue.Add(new ConstructionProject
         {
-            ProvinceId = province.Id,
-            ProvinceName = province.Name,
             Building = type,
             DaysLeft = spec.BuildDays,
             TotalDays = spec.BuildDays,
         });
-        State.Log($"Started building {spec.Name} in {province.Name} ({spec.BuildDays} days).");
+        State.Log($"Started building {spec.Name} ({spec.BuildDays} days).");
         StateChanged?.Invoke();
         return null;
     }
@@ -164,21 +160,15 @@ public sealed class GameEngine : IDisposable
     // ---------------- Warfare ----------------
 
     /// <summary>
-    /// Launches an invasion: the army marches to the target province and the
-    /// battle resolves on arrival. Returns (ok, message): an error, or a
-    /// march confirmation.
+    /// Launches an invasion: the army marches on the target nation and the
+    /// battle resolves on arrival — the winner takes the whole country.
+    /// Returns (ok, message): an error, or a march confirmation.
     /// </summary>
-    public (bool ok, string message) LaunchInvasion(string provinceId, int commitCount)
+    public (bool ok, string message) LaunchInvasion(string nationId, int commitCount)
     {
         var player = State.PlayerNation;
-        Nation? owner = null;
-        Province? province = null;
-        foreach (var n in State.OtherNations)
-        {
-            province = n.Provinces.FirstOrDefault(p => p.Id == provinceId);
-            if (province is not null) { owner = n; break; }
-        }
-        if (province is null || owner is null) return (false, "Province not found.");
+        var owner = State.OtherNations.FirstOrDefault(n => n.Id == nationId);
+        if (owner is null) return (false, "Nation not found.");
         if (owner.IsEliminated) return (false, "That nation no longer exists.");
         if (!owner.AtWarWithPlayer) return (false, "You must declare war first.");
         if (player.Soldiers < Balance.MinInvasionForce)
@@ -186,14 +176,11 @@ public sealed class GameEngine : IDisposable
 
         int commit = Math.Min(commitCount, player.Soldiers);
         var force = ArmyHelper.ExtractSoldiers(player, commit);
-        var from = player.Provinces.First();
-        int days = Warfare.TravelDays(from, province);
+        int days = Warfare.TravelDays(player.MapX, player.MapY, owner.MapX, owner.MapY);
         State.MarchingArmies.Add(new MarchingArmy
         {
             AttackerNationId = player.Id,
             AttackerNationName = player.Name,
-            TargetProvinceId = province.Id,
-            TargetProvinceName = province.Name,
             TargetNationId = owner.Id,
             TargetNationName = owner.Name,
             Force = force,
@@ -201,9 +188,9 @@ public sealed class GameEngine : IDisposable
             TotalDays = days,
         });
 
-        State.Log($"⚔ {commit:N0} soldiers march on {province.Name} ({owner.Name}) — arrival in {days} days.");
+        State.Log($"⚔ {commit:N0} soldiers march on {owner.Name} — arrival in {days} days.");
         StateChanged?.Invoke();
-        return (true, $"Your army marches on {province.Name} — arrival in {days} days.");
+        return (true, $"Your army marches on {owner.Name} — arrival in {days} days.");
     }
 
     // ---------------- Laws & religion ----------------
@@ -562,29 +549,26 @@ public sealed class GameEngine : IDisposable
             out var net, out var target);
         if (err is not null) return err;
 
-        var provinces = target!.Provinces
-            .Where(p => p.Farms + p.Mines + p.Sawmills + p.Workshops > 0).ToList();
-        if (provinces.Count == 0)
+        if (target!.Farms + target.Mines + target.Sawmills + target.Workshops == 0)
         {
             net!.Strength += Balance.SabotageStrengthCost; // refund
             return "No buildings to sabotage.";
         }
-        var prov = provinces[_sim.NextInt(provinces.Count)];
 
         var present = new List<(BuildingType type, string name)>();
-        if (prov.Farms > 0) present.Add((BuildingType.Farm, "Farm"));
-        if (prov.Mines > 0) present.Add((BuildingType.Mine, "Mine"));
-        if (prov.Sawmills > 0) present.Add((BuildingType.Sawmill, "Sawmill"));
-        if (prov.Workshops > 0) present.Add((BuildingType.Workshop, "Workshop"));
+        if (target.Farms > 0) present.Add((BuildingType.Farm, "Farm"));
+        if (target.Mines > 0) present.Add((BuildingType.Mine, "Mine"));
+        if (target.Sawmills > 0) present.Add((BuildingType.Sawmill, "Sawmill"));
+        if (target.Workshops > 0) present.Add((BuildingType.Workshop, "Workshop"));
         var pick = present[_sim.NextInt(present.Count)];
         switch (pick.type)
         {
-            case BuildingType.Farm: prov.Farms--; break;
-            case BuildingType.Mine: prov.Mines--; break;
-            case BuildingType.Sawmill: prov.Sawmills--; break;
-            case BuildingType.Workshop: prov.Workshops--; break;
+            case BuildingType.Farm: target.Farms--; break;
+            case BuildingType.Mine: target.Mines--; break;
+            case BuildingType.Sawmill: target.Sawmills--; break;
+            case BuildingType.Workshop: target.Workshops--; break;
         }
-        State.Log($"Spies sabotaged a {pick.name} in {prov.Name} ({target.Name}).");
+        State.Log($"Spies sabotaged a {pick.name} in {target.Name}.");
         if (_sim.RollChance(Balance.SabotageDiscoveryChance))
             Discover(net!, target, "sabotage");
         StateChanged?.Invoke();

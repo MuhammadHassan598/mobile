@@ -130,15 +130,32 @@ public sealed class Nation
 
     public double RelationDriftBonus => Stance == ReligiousStance.Tolerant ? 0.30 : 0.0;
 
-    public List<Province> Provinces { get; set; } = new();
+    /// <summary>Capital city name, shown on the select screen and map.</summary>
+    public string CapitalName { get; set; } = "";
+
+    /// <summary>Map anchor (replaces the old capital-province label).</summary>
+    public double MapX { get; set; }
+
+    /// <summary>Map anchor (replaces the old capital-province label).</summary>
+    public double MapY { get; set; }
+
+    /// <summary>Territory polygons, visual only — the nation is one atomic country.</summary>
+    public List<List<MapPoint>> Territory { get; set; } = new();
+
+    /// <summary>Farms across the whole country.</summary>
+    public int Farms { get; set; }
+
+    /// <summary>Mines across the whole country.</summary>
+    public int Mines { get; set; }
+
+    /// <summary>Sawmills across the whole country.</summary>
+    public int Sawmills { get; set; }
+
+    /// <summary>Workshops across the whole country.</summary>
+    public int Workshops { get; set; }
 
     /// <summary>Buildings currently under construction.</summary>
     public List<ConstructionProject> ConstructionQueue { get; set; } = new();
-
-    public int TotalFarms => Provinces.Sum(p => p.Farms);
-    public int TotalMines => Provinces.Sum(p => p.Mines);
-    public int TotalSawmills => Provinces.Sum(p => p.Sawmills);
-    public int TotalWorkshops => Provinces.Sum(p => p.Workshops);
 
     // ---- Army maintenance (6-month payday cycle, per design doc) ----
 

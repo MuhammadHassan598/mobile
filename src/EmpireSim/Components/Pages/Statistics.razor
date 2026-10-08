@@ -10,11 +10,11 @@
     <div class="cards">
         <div class="card"><div class="label">Treasury</div><div class="value gold">@Currency.Format(_nation.WealthInSilver)</div></div>
         <div class="card"><div class="label">Income / day</div><div class="value">@GameEngine.EstimateDailyIncome(_nation).ToString("N0") Silver</div></div>
-        <div class="card"><div class="label">Provinces</div><div class="value">@_nation.Provinces.Count</div></div>
+        <div class="card"><div class="label">Countries annexed</div><div class="value">@Engine.State.NationsAnnexedByPlayer</div></div>
         <div class="card"><div class="label">Population</div><div class="value">@_nation.Population.ToString("N0")</div></div>
         <div class="card"><div class="label">Soldiers</div><div class="value">@_nation.Soldiers.ToString("N0")</div></div>
         <div class="card"><div class="label">Warships</div><div class="value">@_nation.Warships.ToString("N0")</div></div>
-        <div class="card"><div class="label">Buildings</div><div class="value">@(_nation.TotalFarms + _nation.TotalMines + _nation.TotalSawmills + _nation.TotalWorkshops)</div></div>
+        <div class="card"><div class="label">Buildings</div><div class="value">@(_nation.Farms + _nation.Mines + _nation.Sawmills + _nation.Workshops)</div></div>
         <div class="card"><div class="label">Trade pacts</div><div class="value">@Engine.State.OtherNations.Count(n => n.HasTradePactWithPlayer)</div></div>
         <div class="card"><div class="label">Wars</div><div class="value">@Engine.State.OtherNations.Count(n => n.AtWarWithPlayer)</div></div>
         <div class="card"><div class="label">Spy networks</div><div class="value">@Engine.State.SpyNetworks.Count</div></div>

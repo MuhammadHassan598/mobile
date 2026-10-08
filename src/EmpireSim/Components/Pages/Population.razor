@@ -9,19 +9,12 @@
 
     <div class="cards">
         <div class="card"><div class="label">Total</div><div class="value">@_nation.Population.ToString("N0")</div></div>
-        <div class="card"><div class="label">Provinces</div><div class="value">@_nation.Provinces.Count</div></div>
+        <div class="card"><div class="label">Capital</div><div class="value">@_nation.CapitalName</div></div>
+        <div class="card"><div class="label">Countries annexed</div><div class="value">@Engine.State.NationsAnnexedByPlayer</div></div>
+        <div class="card"><div class="label">Colonies founded</div><div class="value">@_nation.ColoniesFounded</div></div>
     </div>
 
-    @foreach (var p in _nation.Provinces)
-    {
-        <div class="build-card">
-            <div class="build-row">
-                <div class="build-name">@p.Name</div>
-                <div class="build-days">@p.Population.ToString("N0")</div>
-            </div>
-            <div class="mil-sub">🌾 @p.Farms farms · ⛏️ @p.Mines mines</div>
-        </div>
-    }
+    <p class="page-hint">Your people are one nation — every subject pays tax, eats food, and may be called to the colors.</p>
 </div>
 
 @code {

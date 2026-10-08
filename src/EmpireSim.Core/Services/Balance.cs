@@ -21,7 +21,7 @@ public static class Balance
     public const double GoodsSellPrice = 15.0;   // gold per goods unit
 
     // ---- Construction ----
-    public const int MaxQueuePerProvince = 3;
+    public const int MaxBuildQueue = 3;
 
     // ---- Commanders ----
     public const double LandCommanderUpkeepMult = 0.85;   // -15% land upkeep
@@ -98,7 +98,7 @@ public static class Balance
     public const long ColonyStartPopulation = 5000;
 
     // ---- Victory ----
-    public const int HegemonyProvinceCount = 20;
+    public const int HegemonyNationCount = 8;
 
     // ---- Treasury (per in-game day) ----
     // Per-capita rates are rebased for historical 1600 populations: every

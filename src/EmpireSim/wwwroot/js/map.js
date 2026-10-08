@@ -1,12 +1,13 @@
 /* EmpireSim world map: canvas rendering with pan, zoom and tap-to-select.
-   Provinces arrive from .NET as { provinces: [...], selectedId } where each
-   province is { id, name, color, polygon: [{x,y}...], labelX, labelY }.
-   Property names may arrive camelCase or PascalCase — both are accepted. */
+   Shapes arrive from .NET as { shapes: [...], selectedId } where each shape
+   is { id, name, color, polygons: [[{x,y}...], ...], labelX, labelY }.
+   A shape is one country (possibly several polygons), a frontier region or
+   a neutral territory. Property names may arrive camelCase or PascalCase. */
 
 window.empireMap = (() => {
     const WORLD_W = 2200, WORLD_H = 1150;
     let canvas = null, ctx = null, dotNetRef = null;
-    let data = { provinces: [], selectedId: null };
+    let data = { shapes: [], selectedId: null };
     let view = { scale: 1, ox: 0, oy: 0 };
     let dpr = 1;
 
@@ -49,7 +50,7 @@ window.empireMap = (() => {
     }
 
     function render(newData) {
-        data = newData || { provinces: [], selectedId: null };
+        data = newData || { shapes: [], selectedId: null };
         draw();
     }
 
@@ -58,6 +59,7 @@ window.empireMap = (() => {
     function toWorld(sx, sy) { return [(sx - view.ox) / view.scale, (sy - view.oy) / view.scale]; }
 
     function poly(p) { return p.polygon || p.Polygon || []; }
+    function polys(p) { return p.polygons || p.Polygons || [poly(p)]; }
     function ptX(pt) { return Array.isArray(pt) ? pt[0] : (pt.x ?? pt.X); }
     function ptY(pt) { return Array.isArray(pt) ? pt[1] : (pt.y ?? pt.Y); }
 
@@ -71,28 +73,28 @@ window.empireMap = (() => {
         ctx.fillStyle = '#0B1B33';
         ctx.fillRect(0, 0, w, h);
 
-        for (const p of (data.provinces || [])) {
-            const pts = poly(p);
-            if (pts.length < 3) continue;
+        for (const p of (data.shapes || [])) {
             const isSel = (p.id ?? p.Id) === (data.selectedId ?? data.SelectedId);
+            for (const pts of polys(p)) {
+                if (pts.length < 3) continue;
+                ctx.beginPath();
+                const [sx0, sy0] = toScreen(ptX(pts[0]), ptY(pts[0]));
+                ctx.moveTo(sx0, sy0);
+                for (let i = 1; i < pts.length; i++) {
+                    const [sx, sy] = toScreen(ptX(pts[i]), ptY(pts[i]));
+                    ctx.lineTo(sx, sy);
+                }
+                ctx.closePath();
 
-            ctx.beginPath();
-            const [sx0, sy0] = toScreen(ptX(pts[0]), ptY(pts[0]));
-            ctx.moveTo(sx0, sy0);
-            for (let i = 1; i < pts.length; i++) {
-                const [sx, sy] = toScreen(ptX(pts[i]), ptY(pts[i]));
-                ctx.lineTo(sx, sy);
+                ctx.globalAlpha = 0.9;
+                ctx.fillStyle = p.color || p.Color || '#555';
+                ctx.fill();
+                ctx.globalAlpha = 1;
+
+                ctx.lineWidth = isSel ? 3 : 1.25;
+                ctx.strokeStyle = isSel ? '#C9A227' : '#0E1626';
+                ctx.stroke();
             }
-            ctx.closePath();
-
-            ctx.globalAlpha = 0.9;
-            ctx.fillStyle = p.color || p.Color || '#555';
-            ctx.fill();
-            ctx.globalAlpha = 1;
-
-            ctx.lineWidth = isSel ? 3 : 1.25;
-            ctx.strokeStyle = isSel ? '#C9A227' : '#0E1626';
-            ctx.stroke();
 
             // Label (skip when zoomed far out and text would be tiny).
             if (view.scale > 0.25) {
@@ -125,13 +127,14 @@ window.empireMap = (() => {
         return inside;
     }
 
-    function provinceAt(sx, sy) {
+    function shapeAt(sx, sy) {
         const [wx, wy] = toWorld(sx, sy);
-        const provs = data.provinces || [];
-        for (let i = provs.length - 1; i >= 0; i--) {
-            const pts = poly(provs[i]);
-            if (pts.length >= 3 && pointInPoly(wx, wy, pts))
-                return provs[i].id ?? provs[i].Id;
+        const shapes = data.shapes || [];
+        for (let i = shapes.length - 1; i >= 0; i--) {
+            for (const pts of polys(shapes[i])) {
+                if (pts.length >= 3 && pointInPoly(wx, wy, pts))
+                    return shapes[i].id ?? shapes[i].Id;
+            }
         }
         return null;
     }
@@ -183,8 +186,8 @@ window.empireMap = (() => {
 
         if (downInfo && !downInfo.moved && Date.now() - downInfo.time < 500) {
             const [x, y] = localPos(e);
-            const id = provinceAt(x, y);
-            if (id && dotNetRef) dotNetRef.invokeMethodAsync('OnProvinceTapped', id);
+            const id = shapeAt(x, y);
+            if (id && dotNetRef) dotNetRef.invokeMethodAsync('OnMapTapped', id);
         }
         downInfo = null;
     }

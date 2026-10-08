@@ -18,10 +18,10 @@ public sealed class GameState
     public List<SpyNetwork> SpyNetworks { get; set; } = new();
 
     /// <summary>Uncharted regions that can be colonised.</summary>
-    public List<Province> FrontierRegions { get; set; } = new();
+    public List<FrontierRegion> FrontierRegions { get; set; } = new();
 
     /// <summary>Neutral territories: drawn on the map, owned by no crown.</summary>
-    public List<Province> NeutralRegions { get; set; } = new();
+    public List<NeutralTerritory> NeutralRegions { get; set; } = new();
 
     /// <summary>The colony expedition currently at sea (one at a time).</summary>
     public ColonyExpedition? ActiveExpedition { get; set; }
@@ -31,6 +31,9 @@ public sealed class GameState
 
     public bool VictoryAchieved { get; set; }
     public bool Defeated { get; set; }
+
+    /// <summary>Whole countries annexed by the player (hegemony victory).</summary>
+    public int NationsAnnexedByPlayer { get; set; }
 
     public IEnumerable<Nation> AllNations()
     {
@@ -55,18 +58,6 @@ public sealed class GameState
             EventLog.RemoveRange(0, EventLog.Count - 300);
     }
 
-    private static Province P(string name, long pop, int farms, int mines,
-        double lx, double ly, params (double x, double y)[] pts) => new()
-    {
-        Name = name,
-        Population = pop,
-        Farms = farms,
-        Mines = mines,
-        LabelX = lx,
-        LabelY = ly,
-        Polygon = pts.Select(p => new MapPoint(p.x, p.y)).ToList(),
-    };
-
     /// <summary>
     /// Creates a fresh 1600 campaign. The starter map is a stylised
     /// 1000x700 region with 10 provinces across 4 nations — real
@@ -90,16 +81,14 @@ public sealed class GameState
                 Silver = 5000, Gold = 12, Food = 5000, Wood = 20, Iron = 10,
                 Units = UnitCatalog.SeedArmy(8_000), Warships = 25,
                 NextPayday = new DateOnly(1600, 7, 1),
-                Provinces = new List<Province>
+                CapitalName = "Constantinople", MapX = 1335, MapY = 568,
+                Farms = 155, Mines = 8, Sawmills = 0, Workshops = 0,
+                Territory = new List<List<MapPoint>>
                 {
-                    P("Constantinople", 40_000, 40, 2, 1335, 568,
-                        (1290,540),(1360,530),(1380,570),(1340,600),(1290,590)),
-                    P("Rumelia", 25_000, 30, 2, 1240, 548,
-                        (1180,534),(1290,524),(1300,545),(1240,575),(1180,560)),
-                    P("Anatolia", 30_000, 35, 3, 1402, 590,
-                        (1330,560),(1470,550),(1480,610),(1380,625),(1320,600)),
-                    P("Egypt", 35_000, 50, 1, 1380, 712,
-                        (1330,660),(1430,655),(1440,730),(1360,770),(1320,720)),
+                    new() { new(1290, 540), new(1360, 530), new(1380, 570), new(1340, 600), new(1290, 590) },
+                    new() { new(1180, 534), new(1290, 524), new(1300, 545), new(1240, 575), new(1180, 560) },
+                    new() { new(1330, 560), new(1470, 550), new(1480, 610), new(1380, 625), new(1320, 600) },
+                    new() { new(1330, 660), new(1430, 655), new(1440, 730), new(1360, 770), new(1320, 720) },
                 }
             },
             // ---------------- Spain (Iberian Union) ----------------
@@ -109,14 +98,13 @@ public sealed class GameState
                 Silver = 6000, Gold = 15, Food = 4500, Wood = 25, Iron = 12,
                 Units = UnitCatalog.SeedArmy(9_000), Warships = 30,
                 NextPayday = new DateOnly(1600, 7, 1),
-                Provinces = new List<Province>
+                CapitalName = "Castile", MapX = 880, MapY = 542,
+                Farms = 85, Mines = 7, Sawmills = 0, Workshops = 0,
+                Territory = new List<List<MapPoint>>
                 {
-                    P("Castile", 35_000, 35, 3, 880, 542,
-                        (830,500),(920,490),(940,570),(860,590),(820,550)),
-                    P("Aragon", 15_000, 20, 2, 938, 530,
-                        (915,495),(960,505),(950,565),(915,560)),
-                    P("Naples", 25_000, 30, 2, 1130, 612,
-                        (1100,596),(1150,592),(1165,610),(1120,630),(1095,614)),
+                    new() { new(830, 500), new(920, 490), new(940, 570), new(860, 590), new(820, 550) },
+                    new() { new(915, 495), new(960, 505), new(950, 565), new(915, 560) },
+                    new() { new(1100, 596), new(1150, 592), new(1165, 610), new(1120, 630), new(1095, 614) },
                 }
             },
             // ---------------- France ----------------
@@ -126,14 +114,13 @@ public sealed class GameState
                 Silver = 5500, Gold = 12, Food = 5000, Wood = 20, Iron = 10,
                 Units = UnitCatalog.SeedArmy(9_000), Warships = 15,
                 NextPayday = new DateOnly(1600, 7, 1),
-                Provinces = new List<Province>
+                CapitalName = "Paris", MapX = 986, MapY = 460,
+                Farms = 100, Mines = 6, Sawmills = 0, Workshops = 0,
+                Territory = new List<List<MapPoint>>
                 {
-                    P("Paris", 40_000, 40, 2, 986, 460,
-                        (950,430),(1020,425),(1030,480),(970,495),(945,465)),
-                    P("Aquitaine", 20_000, 30, 2, 945, 525,
-                        (920,495),(970,495),(975,545),(930,555),(915,525)),
-                    P("Languedoc", 20_000, 30, 2, 998, 518,
-                        (975,495),(1015,482),(1020,520),(1010,550),(975,545)),
+                    new() { new(950, 430), new(1020, 425), new(1030, 480), new(970, 495), new(945, 465) },
+                    new() { new(920, 495), new(970, 495), new(975, 545), new(930, 555), new(915, 525) },
+                    new() { new(975, 495), new(1015, 482), new(1020, 520), new(1010, 550), new(975, 545) },
                 }
             },
             // ---------------- England ----------------
@@ -143,12 +130,12 @@ public sealed class GameState
                 Silver = 4000, Gold = 10, Food = 3500, Wood = 25, Iron = 8,
                 Units = UnitCatalog.SeedArmy(4_000), Warships = 25,
                 NextPayday = new DateOnly(1600, 7, 1),
-                Provinces = new List<Province>
+                CapitalName = "London", MapX = 890, MapY = 358,
+                Farms = 50, Mines = 5, Sawmills = 0, Workshops = 0,
+                Territory = new List<List<MapPoint>>
                 {
-                    P("London", 35_000, 30, 2, 890, 358,
-                        (860,330),(920,325),(930,375),(880,390),(855,360)),
-                    P("York", 15_000, 20, 3, 883, 298,
-                        (850,270),(910,265),(920,325),(860,330),(848,300)),
+                    new() { new(860, 330), new(920, 325), new(930, 375), new(880, 390), new(855, 360) },
+                    new() { new(850, 270), new(910, 265), new(920, 325), new(860, 330), new(848, 300) },
                 }
             },
             // ---------------- Dutch Republic ----------------
@@ -158,12 +145,12 @@ public sealed class GameState
                 Silver = 5000, Gold = 15, Food = 2500, Wood = 30, Iron = 6,
                 Units = UnitCatalog.SeedArmy(3_000), Warships = 20,
                 NextPayday = new DateOnly(1600, 7, 1),
-                Provinces = new List<Province>
+                CapitalName = "Holland", MapX = 1012, MapY = 362,
+                Farms = 43, Mines = 2, Sawmills = 0, Workshops = 0,
+                Territory = new List<List<MapPoint>>
                 {
-                    P("Holland", 30_000, 25, 1, 1012, 362,
-                        (992,340),(1030,335),(1035,375),(1000,385),(990,360)),
-                    P("Gelderland", 12_000, 18, 1, 1048, 360,
-                        (1030,335),(1062,340),(1060,380),(1035,375)),
+                    new() { new(992, 340), new(1030, 335), new(1035, 375), new(1000, 385), new(990, 360) },
+                    new() { new(1030, 335), new(1062, 340), new(1060, 380), new(1035, 375) },
                 }
             },
             // ---------------- Austria (Habsburgs) ----------------
@@ -173,14 +160,13 @@ public sealed class GameState
                 Silver = 4500, Gold = 10, Food = 4000, Wood = 20, Iron = 12,
                 Units = UnitCatalog.SeedArmy(7_000), Warships = 5,
                 NextPayday = new DateOnly(1600, 7, 1),
-                Provinces = new List<Province>
+                CapitalName = "Vienna", MapX = 1142, MapY = 428,
+                Farms = 83, Mines = 9, Sawmills = 0, Workshops = 0,
+                Territory = new List<List<MapPoint>>
                 {
-                    P("Vienna", 30_000, 30, 3, 1142, 428,
-                        (1152,400),(1170,398),(1172,445),(1112,455),(1150,432)),
-                    P("Bohemia", 18_000, 25, 4, 1130, 374,
-                        (1100,355),(1165,350),(1160,392),(1100,396),(1095,375)),
-                    P("Hungary", 20_000, 28, 2, 1205, 458,
-                        (1170,445),(1235,440),(1240,470),(1180,474),(1170,470)),
+                    new() { new(1152, 400), new(1170, 398), new(1172, 445), new(1112, 455), new(1150, 432) },
+                    new() { new(1100, 355), new(1165, 350), new(1160, 392), new(1100, 396), new(1095, 375) },
+                    new() { new(1170, 445), new(1235, 440), new(1240, 470), new(1180, 474), new(1170, 470) },
                 }
             },
             // ---------------- Poland-Lithuania ----------------
@@ -190,14 +176,13 @@ public sealed class GameState
                 Silver = 3500, Gold = 8, Food = 4500, Wood = 25, Iron = 8,
                 Units = UnitCatalog.SeedArmy(6_000), Warships = 5,
                 NextPayday = new DateOnly(1600, 7, 1),
-                Provinces = new List<Province>
+                CapitalName = "Krakow", MapX = 1268, MapY = 405,
+                Farms = 87, Mines = 7, Sawmills = 0, Workshops = 0,
+                Territory = new List<List<MapPoint>>
                 {
-                    P("Krakow", 28_000, 32, 3, 1268, 405,
-                        (1235,380),(1300,375),(1305,425),(1240,430),(1230,405)),
-                    P("Lithuania", 15_000, 20, 2, 1342, 352,
-                        (1300,330),(1380,325),(1385,375),(1300,375)),
-                    P("Ukraine", 18_000, 35, 2, 1350, 450,
-                        (1305,425),(1390,420),(1400,475),(1320,480),(1300,450)),
+                    new() { new(1235, 380), new(1300, 375), new(1305, 425), new(1240, 430), new(1230, 405) },
+                    new() { new(1300, 330), new(1380, 325), new(1385, 375), new(1300, 375) },
+                    new() { new(1305, 425), new(1390, 420), new(1400, 475), new(1320, 480), new(1300, 450) },
                 }
             },
             // ---------------- Russia ----------------
@@ -207,14 +192,13 @@ public sealed class GameState
                 Silver = 3500, Gold = 8, Food = 4500, Wood = 30, Iron = 10,
                 Units = UnitCatalog.SeedArmy(7_000), Warships = 5,
                 NextPayday = new DateOnly(1600, 7, 1),
-                Provinces = new List<Province>
+                CapitalName = "Moscow", MapX = 1462, MapY = 255,
+                Farms = 72, Mines = 8, Sawmills = 0, Workshops = 0,
+                Territory = new List<List<MapPoint>>
                 {
-                    P("Moscow", 30_000, 30, 3, 1462, 255,
-                        (1420,220),(1500,215),(1510,280),(1430,290),(1415,255)),
-                    P("Novgorod", 15_000, 20, 2, 1380, 185,
-                        (1340,150),(1430,145),(1420,220),(1345,215),(1330,180)),
-                    P("Kazan", 15_000, 22, 3, 1555, 312,
-                        (1510,280),(1600,275),(1610,340),(1520,350),(1505,315)),
+                    new() { new(1420, 220), new(1500, 215), new(1510, 280), new(1430, 290), new(1415, 255) },
+                    new() { new(1340, 150), new(1430, 145), new(1420, 220), new(1345, 215), new(1330, 180) },
+                    new() { new(1510, 280), new(1600, 275), new(1610, 340), new(1520, 350), new(1505, 315) },
                 }
             },
             // ---------------- Sweden ----------------
@@ -224,12 +208,12 @@ public sealed class GameState
                 Silver = 3000, Gold = 8, Food = 2500, Wood = 30, Iron = 14,
                 Units = UnitCatalog.SeedArmy(4_000), Warships = 15,
                 NextPayday = new DateOnly(1600, 7, 1),
-                Provinces = new List<Province>
+                CapitalName = "Stockholm", MapX = 1155, MapY = 215,
+                Farms = 30, Mines = 7, Sawmills = 0, Workshops = 0,
+                Territory = new List<List<MapPoint>>
                 {
-                    P("Stockholm", 20_000, 18, 4, 1155, 215,
-                        (1120,180),(1190,175),(1195,240),(1130,250),(1115,215)),
-                    P("Finland", 10_000, 12, 3, 1228, 270,
-                        (1195,240),(1260,235),(1265,300),(1200,305),(1190,270)),
+                    new() { new(1120, 180), new(1190, 175), new(1195, 240), new(1130, 250), new(1115, 215) },
+                    new() { new(1195, 240), new(1260, 235), new(1265, 300), new(1200, 305), new(1190, 270) },
                 }
             },
             // ---------------- Venice ----------------
@@ -239,12 +223,12 @@ public sealed class GameState
                 Silver = 4500, Gold = 15, Food = 2000, Wood = 15, Iron = 5,
                 Units = UnitCatalog.SeedArmy(2_500), Warships = 25,
                 NextPayday = new DateOnly(1600, 7, 1),
-                Provinces = new List<Province>
+                CapitalName = "Venice", MapX = 1088, MapY = 508,
+                Farms = 35, Mines = 2, Sawmills = 0, Workshops = 0,
+                Territory = new List<List<MapPoint>>
                 {
-                    P("Venice", 25_000, 20, 1, 1088, 508,
-                        (1065,490),(1110,485),(1115,525),(1070,530),(1060,510)),
-                    P("Crete", 8_000, 15, 1, 1362, 650,
-                        (1330,640),(1390,635),(1400,660),(1340,665),(1325,652)),
+                    new() { new(1065, 490), new(1110, 485), new(1115, 525), new(1070, 530), new(1060, 510) },
+                    new() { new(1330, 640), new(1390, 635), new(1400, 660), new(1340, 665), new(1325, 652) },
                 }
             },
             // ---------------- Safavid Persia ----------------
@@ -254,14 +238,13 @@ public sealed class GameState
                 Silver = 4000, Gold = 10, Food = 3500, Wood = 12, Iron = 8,
                 Units = UnitCatalog.SeedArmy(5_000), Warships = 8,
                 NextPayday = new DateOnly(1600, 7, 1),
-                Provinces = new List<Province>
+                CapitalName = "Isfahan", MapX = 1605, MapY = 655,
+                Farms = 75, Mines = 8, Sawmills = 0, Workshops = 0,
+                Territory = new List<List<MapPoint>>
                 {
-                    P("Isfahan", 30_000, 30, 3, 1605, 655,
-                        (1570,630),(1640,625),(1650,675),(1580,685),(1565,655)),
-                    P("Tabriz", 18_000, 25, 3, 1552, 608,
-                        (1520,590),(1590,585),(1585,630),(1525,625),(1515,605)),
-                    P("Khorasan", 15_000, 20, 2, 1685, 625,
-                        (1650,600),(1720,595),(1725,650),(1650,655),(1645,625)),
+                    new() { new(1570, 630), new(1640, 625), new(1650, 675), new(1580, 685), new(1565, 655) },
+                    new() { new(1520, 590), new(1590, 585), new(1585, 630), new(1525, 625), new(1515, 605) },
+                    new() { new(1650, 600), new(1720, 595), new(1725, 650), new(1650, 655), new(1645, 625) },
                 }
             },
             // ---------------- Mughal Empire ----------------
@@ -271,14 +254,13 @@ public sealed class GameState
                 Silver = 6000, Gold = 15, Food = 6000, Wood = 15, Iron = 8,
                 Units = UnitCatalog.SeedArmy(8_000), Warships = 12,
                 NextPayday = new DateOnly(1600, 7, 1),
-                Provinces = new List<Province>
+                CapitalName = "Agra", MapX = 1738, MapY = 728,
+                Farms = 115, Mines = 7, Sawmills = 0, Workshops = 0,
+                Territory = new List<List<MapPoint>>
                 {
-                    P("Agra", 40_000, 45, 2, 1738, 728,
-                        (1700,700),(1770,695),(1780,750),(1710,760),(1695,730)),
-                    P("Bengal", 25_000, 40, 2, 1800, 780,
-                        (1780,750),(1840,745),(1830,810),(1770,815),(1765,780)),
-                    P("Deccan", 20_000, 30, 3, 1705, 822,
-                        (1695,760),(1765,780),(1750,870),(1680,880),(1660,810)),
+                    new() { new(1700, 700), new(1770, 695), new(1780, 750), new(1710, 760), new(1695, 730) },
+                    new() { new(1780, 750), new(1840, 745), new(1830, 810), new(1770, 815), new(1765, 780) },
+                    new() { new(1695, 760), new(1765, 780), new(1750, 870), new(1680, 880), new(1660, 810) },
                 }
             },
             // ---------------- Ming Dynasty ----------------
@@ -288,16 +270,14 @@ public sealed class GameState
                 Silver = 7000, Gold = 20, Food = 8000, Wood = 25, Iron = 15,
                 Units = UnitCatalog.SeedArmy(12_000), Warships = 20,
                 NextPayday = new DateOnly(1600, 7, 1),
-                Provinces = new List<Province>
+                CapitalName = "Beijing", MapX = 1915, MapY = 460,
+                Farms = 160, Mines = 11, Sawmills = 0, Workshops = 0,
+                Territory = new List<List<MapPoint>>
                 {
-                    P("Beijing", 45_000, 40, 3, 1915, 460,
-                        (1880,436),(1950,432),(1955,480),(1890,490),(1875,462)),
-                    P("Nanjing", 35_000, 45, 2, 1938, 545,
-                        (1900,520),(1970,515),(1975,570),(1905,575)),
-                    P("Canton", 25_000, 35, 2, 1905, 628,
-                        (1870,605),(1940,600),(1945,646),(1875,651),(1865,630)),
-                    P("Sichuan", 25_000, 40, 4, 1835, 530,
-                        (1800,500),(1870,495),(1875,560),(1805,565),(1795,530)),
+                    new() { new(1880, 436), new(1950, 432), new(1955, 480), new(1890, 490), new(1875, 462) },
+                    new() { new(1900, 520), new(1970, 515), new(1975, 570), new(1905, 575) },
+                    new() { new(1870, 605), new(1940, 600), new(1945, 646), new(1875, 651), new(1865, 630) },
+                    new() { new(1800, 500), new(1870, 495), new(1875, 560), new(1805, 565), new(1795, 530) },
                 }
             },
             // ---------------- Japan ----------------
@@ -307,12 +287,12 @@ public sealed class GameState
                 Silver = 3500, Gold = 10, Food = 3000, Wood = 25, Iron = 12,
                 Units = UnitCatalog.SeedArmy(5_000), Warships = 15,
                 NextPayday = new DateOnly(1600, 7, 1),
-                Provinces = new List<Province>
+                CapitalName = "Edo", MapX = 2098, MapY = 472,
+                Farms = 52, Mines = 5, Sawmills = 0, Workshops = 0,
+                Territory = new List<List<MapPoint>>
                 {
-                    P("Edo", 30_000, 30, 3, 2098, 472,
-                        (2070,450),(2120,445),(2125,495),(2075,500)),
-                    P("Kyushu", 12_000, 22, 2, 2078, 528,
-                        (2055,505),(2100,500),(2105,550),(2060,555),(2050,530)),
+                    new() { new(2070, 450), new(2120, 445), new(2125, 495), new(2075, 500) },
+                    new() { new(2055, 505), new(2100, 500), new(2105, 550), new(2060, 555), new(2050, 530) },
                 }
             },
             // ---------------- Kazakh Khanate ----------------
@@ -322,12 +302,12 @@ public sealed class GameState
                 Silver = 2500, Gold = 5, Food = 2200, Wood = 8, Iron = 4,
                 Units = UnitCatalog.SeedArmy(4_000), Warships = 0,
                 NextPayday = new DateOnly(1600, 7, 1),
-                Provinces = new List<Province>
+                CapitalName = "Turkestan", MapX = 1628, MapY = 448,
+                Farms = 27, Mines = 3, Sawmills = 0, Workshops = 0,
+                Territory = new List<List<MapPoint>>
                 {
-                    P("Turkestan", 15_000, 15, 1, 1628, 448,
-                        (1590,420),(1660,415),(1665,470),(1595,475)),
-                    P("Kazakh Steppe", 10_000, 12, 2, 1700, 445,
-                        (1660,415),(1740,410),(1745,470),(1665,475),(1658,445)),
+                    new() { new(1590, 420), new(1660, 415), new(1665, 470), new(1595, 475) },
+                    new() { new(1660, 415), new(1740, 410), new(1745, 470), new(1665, 475), new(1658, 445) },
                 }
             },
             // ---------------- Morocco ----------------
@@ -337,12 +317,12 @@ public sealed class GameState
                 Silver = 3000, Gold = 8, Food = 2500, Wood = 10, Iron = 5,
                 Units = UnitCatalog.SeedArmy(3_500), Warships = 10,
                 NextPayday = new DateOnly(1600, 7, 1),
-                Provinces = new List<Province>
+                CapitalName = "Marrakesh", MapX = 832, MapY = 670,
+                Farms = 47, Mines = 4, Sawmills = 0, Workshops = 0,
+                Territory = new List<List<MapPoint>>
                 {
-                    P("Marrakesh", 20_000, 25, 2, 832, 670,
-                        (800,650),(860,645),(865,690),(805,695)),
-                    P("Fez", 15_000, 22, 2, 892, 632,
-                        (865,620),(915,615),(920,650),(865,645)),
+                    new() { new(800, 650), new(860, 645), new(865, 690), new(805, 695) },
+                    new() { new(865, 620), new(915, 615), new(920, 650), new(865, 645) },
                 }
             },
             // ---------------- Denmark-Norway ----------------
@@ -352,12 +332,12 @@ public sealed class GameState
                 Silver = 3000, Gold = 8, Food = 2200, Wood = 25, Iron = 8,
                 Units = UnitCatalog.SeedArmy(3_500), Warships = 18,
                 NextPayday = new DateOnly(1600, 7, 1),
-                Provinces = new List<Province>
+                CapitalName = "Denmark", MapX = 1036, MapY = 316,
+                Farms = 32, Mines = 6, Sawmills = 0, Workshops = 0,
+                Territory = new List<List<MapPoint>>
                 {
-                    P("Denmark", 18_000, 20, 2, 1036, 316,
-                        (1000,298),(1068,294),(1072,332),(1008,338),(998,318)),
-                    P("Norway", 12_000, 12, 4, 1038, 210,
-                        (1000,120),(1078,115),(1080,295),(1000,298),(995,200)),
+                    new() { new(1000, 298), new(1068, 294), new(1072, 332), new(1008, 338), new(998, 318) },
+                    new() { new(1000, 120), new(1078, 115), new(1080, 295), new(1000, 298), new(995, 200) },
                 }
             },
             // ---------------- Crimean Khanate ----------------
@@ -367,12 +347,12 @@ public sealed class GameState
                 Silver = 2000, Gold = 5, Food = 2000, Wood = 8, Iron = 3,
                 Units = UnitCatalog.SeedArmy(4_500), Warships = 0,
                 NextPayday = new DateOnly(1600, 7, 1),
-                Provinces = new List<Province>
+                CapitalName = "Crimea", MapX = 1436, MapY = 502,
+                Farms = 25, Mines = 2, Sawmills = 0, Workshops = 0,
+                Territory = new List<List<MapPoint>>
                 {
-                    P("Crimea", 12_000, 15, 1, 1436, 502,
-                        (1402,480),(1460,475),(1470,520),(1410,530),(1397,505)),
-                    P("Azov Steppe", 8_000, 10, 1, 1508, 498,
-                        (1470,475),(1540,470),(1545,520),(1475,525)),
+                    new() { new(1402, 480), new(1460, 475), new(1470, 520), new(1410, 530), new(1397, 505) },
+                    new() { new(1470, 475), new(1540, 470), new(1545, 520), new(1475, 525) },
                 }
             },
             // ---------------- Ethiopia ----------------
@@ -382,12 +362,12 @@ public sealed class GameState
                 Silver = 2500, Gold = 6, Food = 2500, Wood = 12, Iron = 5,
                 Units = UnitCatalog.SeedArmy(3_000), Warships = 0,
                 NextPayday = new DateOnly(1600, 7, 1),
-                Provinces = new List<Province>
+                CapitalName = "Abyssinia", MapX = 1438, MapY = 830,
+                Farms = 40, Mines = 5, Sawmills = 0, Workshops = 0,
+                Territory = new List<List<MapPoint>>
                 {
-                    P("Abyssinia", 16_000, 22, 2, 1438, 830,
-                        (1400,800),(1470,795),(1475,860),(1405,865)),
-                    P("Tigray", 12_000, 18, 3, 1505, 828,
-                        (1475,795),(1530,790),(1535,860),(1475,860)),
+                    new() { new(1400, 800), new(1470, 795), new(1475, 860), new(1405, 865) },
+                    new() { new(1475, 795), new(1530, 790), new(1535, 860), new(1475, 860) },
                 }
             },
             // ---------------- Siam ----------------
@@ -397,12 +377,12 @@ public sealed class GameState
                 Silver = 3000, Gold = 8, Food = 3000, Wood = 20, Iron = 4,
                 Units = UnitCatalog.SeedArmy(3_500), Warships = 8,
                 NextPayday = new DateOnly(1600, 7, 1),
-                Provinces = new List<Province>
+                CapitalName = "Ayutthaya", MapX = 1850, MapY = 719,
+                Farms = 52, Mines = 3, Sawmills = 0, Workshops = 0,
+                Territory = new List<List<MapPoint>>
                 {
-                    P("Ayutthaya", 18_000, 30, 1, 1850, 719,
-                        (1832,700),(1872,697),(1874,740),(1834,743)),
-                    P("Tenasserim", 12_000, 22, 2, 1874, 756,
-                        (1844,738),(1902,736),(1905,772),(1846,775)),
+                    new() { new(1832, 700), new(1872, 697), new(1874, 740), new(1834, 743) },
+                    new() { new(1844, 738), new(1902, 736), new(1905, 772), new(1846, 775) },
                 }
             },
             // ---------------- Korea ----------------
@@ -412,12 +392,12 @@ public sealed class GameState
                 Silver = 2500, Gold = 6, Food = 2500, Wood = 18, Iron = 6,
                 Units = UnitCatalog.SeedArmy(2_500), Warships = 10,
                 NextPayday = new DateOnly(1600, 7, 1),
-                Provinces = new List<Province>
+                CapitalName = "Hanseong", MapX = 2015, MapY = 496,
+                Farms = 45, Mines = 4, Sawmills = 0, Workshops = 0,
+                Territory = new List<List<MapPoint>>
                 {
-                    P("Hanseong", 15_000, 25, 2, 2015, 496,
-                        (2001,481),(2026,478),(2028,513),(2003,516)),
-                    P("Gyeongsang", 10_000, 20, 2, 2028, 528,
-                        (2003,516),(2028,513),(2049,539),(2007,544)),
+                    new() { new(2001, 481), new(2026, 478), new(2028, 513), new(2003, 516) },
+                    new() { new(2003, 516), new(2028, 513), new(2049, 539), new(2007, 544) },
                 }
             },
             // ---------------- Bukhara (Uzbeks) ----------------
@@ -427,12 +407,12 @@ public sealed class GameState
                 Silver = 2500, Gold = 6, Food = 2000, Wood = 8, Iron = 4,
                 Units = UnitCatalog.SeedArmy(4_000), Warships = 0,
                 NextPayday = new DateOnly(1600, 7, 1),
-                Provinces = new List<Province>
+                CapitalName = "Bukhara", MapX = 1692, MapY = 504,
+                Farms = 29, Mines = 5, Sawmills = 0, Workshops = 0,
+                Territory = new List<List<MapPoint>>
                 {
-                    P("Bukhara", 12_000, 15, 2, 1692, 504,
-                        (1665,475),(1745,470),(1748,530),(1670,535),(1662,505)),
-                    P("Samarkand", 10_000, 14, 3, 1768, 556,
-                        (1748,530),(1792,528),(1796,580),(1750,585),(1745,555)),
+                    new() { new(1665, 475), new(1745, 470), new(1748, 530), new(1670, 535), new(1662, 505) },
+                    new() { new(1748, 530), new(1792, 528), new(1796, 580), new(1750, 585), new(1745, 555) },
                 }
             },
             // ---------------- Holy Roman Empire ----------------
@@ -442,12 +422,12 @@ public sealed class GameState
                 Silver = 4000, Gold = 10, Food = 3500, Wood = 22, Iron = 12,
                 Units = UnitCatalog.SeedArmy(5_000), Warships = 5,
                 NextPayday = new DateOnly(1600, 7, 1),
-                Provinces = new List<Province>
+                CapitalName = "Bavaria", MapX = 1078, MapY = 416,
+                Farms = 52, Mines = 7, Sawmills = 0, Workshops = 0,
+                Territory = new List<List<MapPoint>>
                 {
-                    P("Bavaria", 20_000, 28, 3, 1078, 416,
-                        (1055,398),(1100,396),(1102,432),(1057,434)),
-                    P("Saxony", 15_000, 24, 4, 1126, 413,
-                        (1102,396),(1148,394),(1150,430),(1104,432)),
+                    new() { new(1055, 398), new(1100, 396), new(1102, 432), new(1057, 434) },
+                    new() { new(1102, 396), new(1148, 394), new(1150, 430), new(1104, 432) },
                 }
             },
             // ---------------- Scotland ----------------
@@ -457,12 +437,12 @@ public sealed class GameState
                 Silver = 2000, Gold = 5, Food = 1800, Wood = 18, Iron = 6,
                 Units = UnitCatalog.SeedArmy(2_500), Warships = 8,
                 NextPayday = new DateOnly(1600, 7, 1),
-                Provinces = new List<Province>
+                CapitalName = "Edinburgh", MapX = 882, MapY = 240,
+                Farms = 23, Mines = 6, Sawmills = 0, Workshops = 0,
+                Territory = new List<List<MapPoint>>
                 {
-                    P("Edinburgh", 12_000, 15, 2, 882, 240,
-                        (848,215),(910,210),(915,265),(850,270)),
-                    P("Highlands", 8_000, 8, 4, 877, 180,
-                        (845,150),(905,145),(910,210),(848,215)),
+                    new() { new(848, 215), new(910, 210), new(915, 265), new(850, 270) },
+                    new() { new(845, 150), new(905, 145), new(910, 210), new(848, 215) },
                 }
             },
             // ---------------- Genoa ----------------
@@ -472,12 +452,12 @@ public sealed class GameState
                 Silver = 4000, Gold = 12, Food = 1500, Wood = 12, Iron = 4,
                 Units = UnitCatalog.SeedArmy(2_000), Warships = 18,
                 NextPayday = new DateOnly(1600, 7, 1),
-                Provinces = new List<Province>
+                CapitalName = "Genoa", MapX = 1042, MapY = 515,
+                Farms = 22, Mines = 2, Sawmills = 0, Workshops = 0,
+                Territory = new List<List<MapPoint>>
                 {
-                    P("Genoa", 12_000, 12, 1, 1042, 515,
-                        (1020,500),(1062,498),(1064,530),(1022,532)),
-                    P("Corsica", 6_000, 10, 1, 1046, 580,
-                        (1030,560),(1060,558),(1062,600),(1032,602)),
+                    new() { new(1020, 500), new(1062, 498), new(1064, 530), new(1022, 532) },
+                    new() { new(1030, 560), new(1060, 558), new(1062, 600), new(1032, 602) },
                 }
             },
             // ---------------- Papal States ----------------
@@ -487,12 +467,12 @@ public sealed class GameState
                 Silver = 3500, Gold = 10, Food = 1800, Wood = 10, Iron = 3,
                 Units = UnitCatalog.SeedArmy(2_000), Warships = 5,
                 NextPayday = new DateOnly(1600, 7, 1),
-                Provinces = new List<Province>
+                CapitalName = "Rome", MapX = 1139, MapY = 576,
+                Farms = 27, Mines = 2, Sawmills = 0, Workshops = 0,
+                Territory = new List<List<MapPoint>>
                 {
-                    P("Rome", 12_000, 15, 1, 1139, 576,
-                        (1118,558),(1156,554),(1158,592),(1120,596)),
-                    P("Ancona", 8_000, 12, 1, 1176, 572,
-                        (1158,554),(1192,552),(1194,590),(1160,592)),
+                    new() { new(1118, 558), new(1156, 554), new(1158, 592), new(1120, 596) },
+                    new() { new(1158, 554), new(1192, 552), new(1194, 590), new(1160, 592) },
                 }
             },
             // ---------------- Italy ----------------
@@ -502,12 +482,12 @@ public sealed class GameState
                 Silver = 3500, Gold = 10, Food = 2200, Wood = 12, Iron = 6,
                 Units = UnitCatalog.SeedArmy(3_000), Warships = 8,
                 NextPayday = new DateOnly(1600, 7, 1),
-                Provinces = new List<Province>
+                CapitalName = "Piedmont", MapX = 1077, MapY = 472,
+                Farms = 38, Mines = 4, Sawmills = 0, Workshops = 0,
+                Territory = new List<List<MapPoint>>
                 {
-                    P("Piedmont", 14_000, 20, 2, 1077, 472,
-                        (1055,455),(1098,453),(1100,490),(1057,492)),
-                    P("Tuscany", 11_000, 18, 2, 1134, 522,
-                        (1116,505),(1150,503),(1152,540),(1118,542)),
+                    new() { new(1055, 455), new(1098, 453), new(1100, 490), new(1057, 492) },
+                    new() { new(1116, 505), new(1150, 503), new(1152, 540), new(1118, 542) },
                 }
             },
             // ---------------- Croatia ----------------
@@ -517,12 +497,12 @@ public sealed class GameState
                 Silver = 2000, Gold = 5, Food = 1800, Wood = 14, Iron = 4,
                 Units = UnitCatalog.SeedArmy(2_500), Warships = 5,
                 NextPayday = new DateOnly(1600, 7, 1),
-                Provinces = new List<Province>
+                CapitalName = "Croatia", MapX = 1176, MapY = 503,
+                Farms = 26, Mines = 3, Sawmills = 0, Workshops = 0,
+                Territory = new List<List<MapPoint>>
                 {
-                    P("Croatia", 10_000, 14, 2, 1176, 503,
-                        (1140,478),(1210,472),(1214,520),(1180,524),(1138,510)),
-                    P("Slavonia", 8_000, 12, 1, 1243, 496,
-                        (1215,472),(1268,468),(1272,522),(1218,526)),
+                    new() { new(1140, 478), new(1210, 472), new(1214, 520), new(1180, 524), new(1138, 510) },
+                    new() { new(1215, 472), new(1268, 468), new(1272, 522), new(1218, 526) },
                 }
             },
             // ---------------- Vietnam ----------------
@@ -532,12 +512,12 @@ public sealed class GameState
                 Silver = 3000, Gold = 8, Food = 3500, Wood = 18, Iron = 5,
                 Units = UnitCatalog.SeedArmy(4_000), Warships = 10,
                 NextPayday = new DateOnly(1600, 7, 1),
-                Provinces = new List<Province>
+                CapitalName = "Tonkin", MapX = 1936, MapY = 680,
+                Farms = 60, Mines = 4, Sawmills = 0, Workshops = 0,
+                Territory = new List<List<MapPoint>>
                 {
-                    P("Tonkin", 20_000, 32, 2, 1936, 680,
-                        (1906,650),(1960,647),(1963,710),(1909,713)),
-                    P("Annam", 15_000, 28, 2, 1940, 748,
-                        (1909,713),(1963,710),(1968,780),(1912,783)),
+                    new() { new(1906, 650), new(1960, 647), new(1963, 710), new(1909, 713) },
+                    new() { new(1909, 713), new(1963, 710), new(1968, 780), new(1912, 783) },
                 }
             },
             // ---------------- Burma ----------------
@@ -547,12 +527,12 @@ public sealed class GameState
                 Silver = 3000, Gold = 8, Food = 3500, Wood = 20, Iron = 4,
                 Units = UnitCatalog.SeedArmy(4_000), Warships = 5,
                 NextPayday = new DateOnly(1600, 7, 1),
-                Provinces = new List<Province>
+                CapitalName = "Ava", MapX = 1808, MapY = 722,
+                Farms = 58, Mines = 3, Sawmills = 0, Workshops = 0,
+                Territory = new List<List<MapPoint>>
                 {
-                    P("Ava", 18_000, 28, 2, 1808, 722,
-                        (1785,700),(1830,697),(1832,745),(1788,748)),
-                    P("Pegu", 14_000, 30, 1, 1812, 778,
-                        (1788,748),(1832,745),(1840,810),(1790,812)),
+                    new() { new(1785, 700), new(1830, 697), new(1832, 745), new(1788, 748) },
+                    new() { new(1788, 748), new(1832, 745), new(1840, 810), new(1790, 812) },
                 }
             },
             // ---------------- Ahom Kingdom ----------------
@@ -562,12 +542,12 @@ public sealed class GameState
                 Silver = 2000, Gold = 5, Food = 2200, Wood = 16, Iron = 3,
                 Units = UnitCatalog.SeedArmy(2_500), Warships = 0,
                 NextPayday = new DateOnly(1600, 7, 1),
-                Provinces = new List<Province>
+                CapitalName = "Ahom", MapX = 1827, MapY = 676,
+                Farms = 36, Mines = 4, Sawmills = 0, Workshops = 0,
+                Territory = new List<List<MapPoint>>
                 {
-                    P("Ahom", 12_000, 20, 2, 1827, 676,
-                        (1800,655),(1855,652),(1858,695),(1803,698)),
-                    P("Kamarupa", 8_000, 16, 2, 1867, 673,
-                        (1858,652),(1874,650),(1876,695),(1861,698)),
+                    new() { new(1800, 655), new(1855, 652), new(1858, 695), new(1803, 698) },
+                    new() { new(1858, 652), new(1874, 650), new(1876, 695), new(1861, 698) },
                 }
             },
             // ---------------- Northern Yuan ----------------
@@ -577,12 +557,12 @@ public sealed class GameState
                 Silver = 2000, Gold = 5, Food = 2000, Wood = 10, Iron = 3,
                 Units = UnitCatalog.SeedArmy(5_000), Warships = 0,
                 NextPayday = new DateOnly(1600, 7, 1),
-                Provinces = new List<Province>
+                CapitalName = "Khalkha", MapX = 1852, MapY = 405,
+                Farms = 22, Mines = 4, Sawmills = 0, Workshops = 0,
+                Territory = new List<List<MapPoint>>
                 {
-                    P("Khalkha", 14_000, 12, 2, 1852, 405,
-                        (1800,380),(1900,375),(1905,430),(1805,435)),
-                    P("Chahar", 11_000, 10, 2, 1931, 403,
-                        (1905,375),(1953,372),(1956,430),(1908,433)),
+                    new() { new(1800, 380), new(1900, 375), new(1905, 430), new(1805, 435) },
+                    new() { new(1905, 375), new(1953, 372), new(1956, 430), new(1908, 433) },
                 }
             },
             // ---------------- Nepal ----------------
@@ -592,12 +572,12 @@ public sealed class GameState
                 Silver = 1800, Gold = 5, Food = 1800, Wood = 14, Iron = 4,
                 Units = UnitCatalog.SeedArmy(2_000), Warships = 0,
                 NextPayday = new DateOnly(1600, 7, 1),
-                Provinces = new List<Province>
+                CapitalName = "Kathmandu", MapX = 1726, MapY = 656,
+                Farms = 24, Mines = 6, Sawmills = 0, Workshops = 0,
+                Territory = new List<List<MapPoint>>
                 {
-                    P("Kathmandu", 9_000, 14, 3, 1726, 656,
-                        (1700,640),(1750,638),(1752,672),(1702,674)),
-                    P("Pokhara", 6_000, 10, 3, 1774, 655,
-                        (1752,638),(1795,636),(1797,672),(1754,674)),
+                    new() { new(1700, 640), new(1750, 638), new(1752, 672), new(1702, 674) },
+                    new() { new(1752, 638), new(1795, 636), new(1797, 672), new(1754, 674) },
                 }
             },
             // ---------------- Kongo ----------------
@@ -607,12 +587,12 @@ public sealed class GameState
                 Silver = 2000, Gold = 5, Food = 2200, Wood = 16, Iron = 3,
                 Units = UnitCatalog.SeedArmy(2_500), Warships = 0,
                 NextPayday = new DateOnly(1600, 7, 1),
-                Provinces = new List<Province>
+                CapitalName = "Mbanza Kongo", MapX = 1036, MapY = 857,
+                Farms = 33, Mines = 2, Sawmills = 0, Workshops = 0,
+                Territory = new List<List<MapPoint>>
                 {
-                    P("Mbanza Kongo", 12_000, 18, 1, 1036, 857,
-                        (1000,830),(1070,828),(1072,885),(1002,888)),
-                    P("Loango", 10_000, 15, 1, 1101, 856,
-                        (1072,828),(1130,826),(1132,885),(1074,888)),
+                    new() { new(1000, 830), new(1070, 828), new(1072, 885), new(1002, 888) },
+                    new() { new(1072, 828), new(1130, 826), new(1132, 885), new(1074, 888) },
                 }
             },
             // ---------------- Jianzhou Jurchens ----------------
@@ -622,12 +602,12 @@ public sealed class GameState
                 Silver = 2200, Gold = 6, Food = 2000, Wood = 18, Iron = 8,
                 Units = UnitCatalog.SeedArmy(4_500), Warships = 0,
                 NextPayday = new DateOnly(1600, 7, 1),
-                Provinces = new List<Province>
+                CapitalName = "Hetu Ala", MapX = 1984, MapY = 393,
+                Farms = 22, Mines = 6, Sawmills = 0, Workshops = 0,
+                Territory = new List<List<MapPoint>>
                 {
-                    P("Hetu Ala", 11_000, 12, 3, 1984, 393,
-                        (1960,378),(2005,376),(2008,408),(1962,410)),
-                    P("Jianzhou", 9_000, 10, 3, 2030, 392,
-                        (2008,376),(2050,374),(2052,408),(2010,410)),
+                    new() { new(1960, 378), new(2005, 376), new(2008, 408), new(1962, 410) },
+                    new() { new(2008, 376), new(2050, 374), new(2052, 408), new(2010, 410) },
                 }
             },
             // ---------------- Cambodia ----------------
@@ -637,12 +617,12 @@ public sealed class GameState
                 Silver = 2500, Gold = 6, Food = 2800, Wood = 18, Iron = 3,
                 Units = UnitCatalog.SeedArmy(2_500), Warships = 5,
                 NextPayday = new DateOnly(1600, 7, 1),
-                Provinces = new List<Province>
+                CapitalName = "Angkor", MapX = 1931, MapY = 804,
+                Farms = 48, Mines = 2, Sawmills = 0, Workshops = 0,
+                Territory = new List<List<MapPoint>>
                 {
-                    P("Angkor", 14_000, 26, 1, 1931, 804,
-                        (1905,786),(1955,783),(1958,823),(1908,826)),
-                    P("Lovek", 11_000, 22, 1, 1980, 803,
-                        (1958,783),(2000,780),(2002,822),(1960,824)),
+                    new() { new(1905, 786), new(1955, 783), new(1958, 823), new(1908, 826) },
+                    new() { new(1958, 783), new(2000, 780), new(2002, 822), new(1960, 824) },
                 }
             },
             // ---------------- Laos ----------------
@@ -652,12 +632,12 @@ public sealed class GameState
                 Silver = 1800, Gold = 5, Food = 2000, Wood = 16, Iron = 3,
                 Units = UnitCatalog.SeedArmy(2_000), Warships = 0,
                 NextPayday = new DateOnly(1600, 7, 1),
-                Provinces = new List<Province>
+                CapitalName = "Luang Prabang", MapX = 1890, MapY = 680,
+                Farms = 26, Mines = 3, Sawmills = 0, Workshops = 0,
+                Territory = new List<List<MapPoint>>
                 {
-                    P("Luang Prabang", 9_000, 14, 2, 1890, 680,
-                        (1874,660),(1904,657),(1906,700),(1877,703)),
-                    P("Vientiane", 7_000, 12, 1, 1892, 720,
-                        (1877,703),(1906,700),(1908,734),(1880,737)),
+                    new() { new(1874, 660), new(1904, 657), new(1906, 700), new(1877, 703) },
+                    new() { new(1877, 703), new(1906, 700), new(1908, 734), new(1880, 737) },
                 }
             },
             // ---------------- Malaysia ----------------
@@ -667,12 +647,12 @@ public sealed class GameState
                 Silver = 3000, Gold = 8, Food = 2200, Wood = 18, Iron = 3,
                 Units = UnitCatalog.SeedArmy(2_500), Warships = 12,
                 NextPayday = new DateOnly(1600, 7, 1),
-                Provinces = new List<Province>
+                CapitalName = "Malacca", MapX = 1864, MapY = 803,
+                Farms = 38, Mines = 2, Sawmills = 0, Workshops = 0,
+                Territory = new List<List<MapPoint>>
                 {
-                    P("Malacca", 11_000, 20, 1, 1864, 803,
-                        (1846,775),(1880,773),(1882,830),(1848,832)),
-                    P("Johor", 9_000, 18, 1, 1895, 802,
-                        (1882,773),(1905,772),(1908,830),(1884,832)),
+                    new() { new(1846, 775), new(1880, 773), new(1882, 830), new(1848, 832) },
+                    new() { new(1882, 773), new(1905, 772), new(1908, 830), new(1884, 832) },
                 }
             },
             // ---------------- United Arab Emirates ----------------
@@ -682,12 +662,12 @@ public sealed class GameState
                 Silver = 2500, Gold = 8, Food = 1200, Wood = 8, Iron = 2,
                 Units = UnitCatalog.SeedArmy(1_500), Warships = 8,
                 NextPayday = new DateOnly(1600, 7, 1),
-                Provinces = new List<Province>
+                CapitalName = "Julfar", MapX = 1581, MapY = 776,
+                Farms = 14, Mines = 2, Sawmills = 0, Workshops = 0,
+                Territory = new List<List<MapPoint>>
                 {
-                    P("Julfar", 6_000, 8, 1, 1581, 776,
-                        (1560,752),(1600,750),(1602,800),(1562,802)),
-                    P("Dibba", 4_000, 6, 1, 1614, 776,
-                        (1602,750),(1624,748),(1626,800),(1604,802)),
+                    new() { new(1560, 752), new(1600, 750), new(1602, 800), new(1562, 802) },
+                    new() { new(1602, 750), new(1624, 748), new(1626, 800), new(1604, 802) },
                 }
             },
             // ---------------- Micronesia ----------------
@@ -697,12 +677,12 @@ public sealed class GameState
                 Silver = 1000, Gold = 3, Food = 800, Wood = 10, Iron = 0,
                 Units = UnitCatalog.SeedArmy(500), Warships = 5,
                 NextPayday = new DateOnly(1600, 7, 1),
-                Provinces = new List<Province>
+                CapitalName = "Guam", MapX = 2169, MapY = 603,
+                Farms = 11, Mines = 0, Sawmills = 0, Workshops = 0,
+                Territory = new List<List<MapPoint>>
                 {
-                    P("Guam", 3_000, 6, 0, 2169, 603,
-                        (2150,588),(2186,586),(2188,618),(2152,620)),
-                    P("Palau", 2_000, 5, 0, 2171, 636,
-                        (2152,620),(2188,618),(2190,650),(2154,652)),
+                    new() { new(2150, 588), new(2186, 586), new(2188, 618), new(2152, 620) },
+                    new() { new(2152, 620), new(2188, 618), new(2190, 650), new(2154, 652) },
                 }
             },
             // ---------------- Easter Island ----------------
@@ -712,10 +692,11 @@ public sealed class GameState
                 Silver = 800, Gold = 2, Food = 500, Wood = 6, Iron = 0,
                 Units = UnitCatalog.SeedArmy(300), Warships = 2,
                 NextPayday = new DateOnly(1600, 7, 1),
-                Provinces = new List<Province>
+                CapitalName = "Rapa Nui", MapX = 2171, MapY = 967,
+                Farms = 5, Mines = 0, Sawmills = 0, Workshops = 0,
+                Territory = new List<List<MapPoint>>
                 {
-                    P("Rapa Nui", 3_000, 5, 0, 2171, 967,
-                        (2150,948),(2190,946),(2192,986),(2152,988)),
+                    new() { new(2150, 948), new(2190, 946), new(2192, 986), new(2152, 988) },
                 }
             },
         };
@@ -726,28 +707,12 @@ public sealed class GameState
 
         foreach (var n in nations)
         {
-            // The simulation runs on the historical 1600 population, spread
-            // across the nation's provinces in proportion to their map weights.
-            long oldTotal = n.Provinces.Sum(p => p.Population);
-            if (oldTotal > 0)
-            {
-                long assigned = 0;
-                for (int i = 0; i < n.Provinces.Count; i++)
-                {
-                    var p = n.Provinces[i];
-                    long v = i == n.Provinces.Count - 1
-                        ? n.HistoricalPopulation - assigned
-                        : (long)(p.Population * (double)n.HistoricalPopulation / oldTotal);
-                    p.Population = Math.Max(1, v);
-                    assigned += p.Population;
-                }
-            }
-            n.Population = n.Provinces.Sum(p => p.Population);
+            // The simulation runs on the historical 1600 population.
+            n.Population = n.HistoricalPopulation;
             // Mineral endowment: deterministic, from the nation's lands.
-            n.Stone = 4 * n.Provinces.Count;
-            int mines = n.Provinces.Sum(p => p.Mines);
-            n.Lead = 2 * mines;
-            n.Copper = 2 * mines;
+            n.Stone = 4 * n.Territory.Count;
+            n.Lead = 2 * n.Mines;
+            n.Copper = 2 * n.Mines;
         }
 
         var player = nations.FirstOrDefault(n => n.Id == playerNationId) ?? nations[0];
@@ -756,40 +721,40 @@ public sealed class GameState
         state.OtherNations = nations.Where(n => n != player).ToList();
 
         // Neutral territories: drawn on the map, owned by no crown.
-        state.NeutralRegions = new List<Province>
+                state.NeutralRegions = new List<NeutralTerritory>
         {
-            P("Siberia", 0, 0, 0, 1850, 230,
-                (1610,80),(2100,80),(2100,380),(1700,380),(1610,340)),
-            P("Northern Scandinavia", 0, 0, 0, 1150, 130,
-                (1080,90),(1240,90),(1240,180),(1120,180),(1080,140)),
-            P("Barbary Coast", 0, 0, 0, 1119, 670,
-                (920,640),(1318,640),(1318,700),(920,700)),
-            P("Sahara", 0, 0, 0, 1120, 750,
-                (920,700),(1320,700),(1320,800),(920,800)),
-            P("West Africa", 0, 0, 0, 860, 830,
-                (800,760),(920,760),(920,900),(800,900)),
-            P("Central Africa", 0, 0, 0, 1125, 944,
-                (920,888),(1330,888),(1330,1000),(920,1000)),
-            P("East Africa", 0, 0, 0, 1415, 932,
-                (1330,865),(1500,865),(1500,1000),(1330,1000)),
-            P("South Africa", 0, 0, 0, 1125, 1050,
-                (920,1000),(1330,1000),(1250,1100),(1000,1100)),
-            P("Arabia", 0, 0, 0, 1500, 800,
-                (1440,730),(1560,726),(1562,835),(1480,870),(1440,800)),
-            P("Tibet", 0, 0, 0, 1815, 604,
-                (1785,585),(1840,582),(1845,622),(1790,626)),
-        };
+            new() { Name = "Siberia", LabelX = 1850, LabelY = 230,
+                Polygon = new() { new(1610, 80), new(2100, 80), new(2100, 380), new(1700, 380), new(1610, 340) } },
+            new() { Name = "Northern Scandinavia", LabelX = 1150, LabelY = 130,
+                Polygon = new() { new(1080, 90), new(1240, 90), new(1240, 180), new(1120, 180), new(1080, 140) } },
+            new() { Name = "Barbary Coast", LabelX = 1119, LabelY = 670,
+                Polygon = new() { new(920, 640), new(1318, 640), new(1318, 700), new(920, 700) } },
+            new() { Name = "Sahara", LabelX = 1120, LabelY = 750,
+                Polygon = new() { new(920, 700), new(1320, 700), new(1320, 800), new(920, 800) } },
+            new() { Name = "West Africa", LabelX = 860, LabelY = 830,
+                Polygon = new() { new(800, 760), new(920, 760), new(920, 900), new(800, 900) } },
+            new() { Name = "Central Africa", LabelX = 1125, LabelY = 944,
+                Polygon = new() { new(920, 888), new(1330, 888), new(1330, 1000), new(920, 1000) } },
+            new() { Name = "East Africa", LabelX = 1415, LabelY = 932,
+                Polygon = new() { new(1330, 865), new(1500, 865), new(1500, 1000), new(1330, 1000) } },
+            new() { Name = "South Africa", LabelX = 1125, LabelY = 1050,
+                Polygon = new() { new(920, 1000), new(1330, 1000), new(1250, 1100), new(1000, 1100) } },
+            new() { Name = "Arabia", LabelX = 1500, LabelY = 800,
+                Polygon = new() { new(1440, 730), new(1560, 726), new(1562, 835), new(1480, 870), new(1440, 800) } },
+            new() { Name = "Tibet", LabelX = 1815, LabelY = 604,
+                Polygon = new() { new(1785, 585), new(1840, 582), new(1845, 622), new(1790, 626) } },
+        };;
 
         // Uncharted frontier regions, open to colonisation.
-        state.FrontierRegions = new List<Province>
+                state.FrontierRegions = new List<FrontierRegion>
         {
-            P("Western Isles", 0, 0, 0, 640, 560,
-                (560,500),(720,490),(740,600),(620,650),(550,590)),
-            P("Southern Reaches", 0, 0, 0, 700, 1010,
-                (600,950),(800,940),(830,1050),(680,1080),(590,1020)),
-            P("Far Eastern Isles", 0, 0, 0, 2120, 708,
-                (2075,660),(2150,655),(2175,740),(2110,770),(2072,712)),
-        };
+            new() { Name = "Western Isles", LabelX = 640, LabelY = 560,
+                Polygon = new() { new(560, 500), new(720, 490), new(740, 600), new(620, 650), new(550, 590) } },
+            new() { Name = "Southern Reaches", LabelX = 700, LabelY = 1010,
+                Polygon = new() { new(600, 950), new(800, 940), new(830, 1050), new(680, 1080), new(590, 1020) } },
+            new() { Name = "Far Eastern Isles", LabelX = 2120, LabelY = 708,
+                Polygon = new() { new(2075, 660), new(2150, 655), new(2175, 740), new(2110, 770), new(2072, 712) } },
+        };;
 
         state.Log($"The campaign begins. Long live {player.Name}!");
         return state;
@@ -839,7 +804,7 @@ public sealed class GameState
             ["micronesia"] = 100000, ["easter"] = 12000,
         };
         foreach (var n in nations)
-            n.HistoricalPopulation = map.TryGetValue(n.Id, out var p) ? p : n.Provinces.Sum(pr => pr.Population);
+            n.HistoricalPopulation = map.TryGetValue(n.Id, out var p) ? p : 0;
     }
 
     /// <summary>Emblem per nation, used for the civilization grid and banner.</summary>

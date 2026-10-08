@@ -39,7 +39,7 @@
         {
             <div class="build-row">
                 <div class="build-info">
-                    <div class="build-name">@BuildingCatalog.Get(q.Building).Name <span class="muted">— @q.ProvinceName</span></div>
+                    <div class="build-name">@BuildingCatalog.Get(q.Building).Name</div>
                     <div class="progress"><div class="progress-fill" style="width:@((q.Progress * 100).ToString("N0"))%"></div></div>
                 </div>
                 <div class="build-days">@q.DaysLeft d</div>
@@ -47,25 +47,22 @@
         }
     }
 
-    <h2>PROVINCES</h2>
-    @foreach (var p in _nation.Provinces)
-    {
-        <div class="province-econ">
-            <div class="province-econ-head">@p.Name</div>
-            <div class="build-counts">
-                <span>🌾 @p.Farms</span><span>⛏ @p.Mines</span><span>🪵 @p.Sawmills</span><span>🏭 @p.Workshops</span>
-            </div>
-            <div class="build-buttons">
-                @foreach (var spec in BuildingCatalog.All)
-                {
-                    <button class="build-btn" @onclick="() => Build(p.Id, spec.Type)" disabled="@(!Engine.CanAfford(spec))">
-                        + @spec.Name
-                        <small>@BuildingCatalog.CostText(spec)</small>
-                    </button>
-                }
-            </div>
+    <h2>BUILDINGS</h2>
+    <div class="province-econ">
+        <div class="province-econ-head">@_nation.Name</div>
+        <div class="build-counts">
+            <span>🌾 @_nation.Farms</span><span>⛏ @_nation.Mines</span><span>🪵 @_nation.Sawmills</span><span>🏭 @_nation.Workshops</span>
         </div>
-    }
+        <div class="build-buttons">
+            @foreach (var spec in BuildingCatalog.All)
+            {
+                <button class="build-btn" @onclick="() => Build(spec.Type)" disabled="@(!Engine.CanAfford(spec))">
+                    + @spec.Name
+                    <small>@BuildingCatalog.CostText(spec)</small>
+                </button>
+            }
+        </div>
+    </div>
 </div>
 
 @code {
@@ -79,9 +76,9 @@
 
     private void OnStateChanged() => InvokeAsync(StateHasChanged);
 
-    private void Build(string provinceId, BuildingType type)
+    private void Build(BuildingType type)
     {
-        _error = Engine.StartConstruction(provinceId, type);
+        _error = Engine.StartConstruction(type);
     }
 
     private void SellGoods() => Engine.SellGoods();
