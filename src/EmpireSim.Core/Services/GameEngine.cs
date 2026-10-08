@@ -119,29 +119,38 @@ public sealed class GameEngine : IDisposable
     }
 
     /// <summary>Starts construction of a production building.</summary>
-    public string? BuildProduction(string buildingId)
+    public string? BuildProduction(string buildingId, int count = 1)
     {
         var nation = State.PlayerNation;
         var spec = ProductionCatalog.Get(buildingId);
 
-        if (nation.ConstructionQueue.Count >= Balance.MaxBuildQueue)
+        if (count <= 0) return "Invalid count.";
+        if (nation.ConstructionQueue.Count + count > Balance.MaxBuildQueue)
             return $"Build queue is full (max {Balance.MaxBuildQueue}).";
 
-        if (!nation.CanPay(spec.GoldCost) || nation.Wood < spec.WoodCost || nation.Stone < spec.StoneCost || nation.Iron < spec.IronCost)
+        double totalGold = spec.GoldCost * count;
+        double totalWood = spec.WoodCost * count;
+        double totalStone = spec.StoneCost * count;
+        double totalIron = spec.IronCost * count;
+
+        if (!nation.CanPay(totalGold) || nation.Wood < totalWood || nation.Stone < totalStone || nation.Iron < totalIron)
             return "Not enough resources.";
 
-        nation.PayGold(spec.GoldCost);
-        nation.Wood -= spec.WoodCost;
-        nation.Stone -= spec.StoneCost;
-        nation.Iron -= spec.IronCost;
-        nation.ConstructionQueue.Add(new ConstructionProject
+        nation.PayGold(totalGold);
+        nation.Wood -= totalWood;
+        nation.Stone -= totalStone;
+        nation.Iron -= totalIron;
+        for (int i = 0; i < count; i++)
         {
-            Building = BuildingType.Farm, // placeholder, ProductionBuildingId is used
-            ProductionBuildingId = buildingId,
-            DaysLeft = spec.BuildDays,
-            TotalDays = spec.BuildDays,
-        });
-        State.Log($"Started building {spec.Name} ({spec.BuildDays} days).");
+            nation.ConstructionQueue.Add(new ConstructionProject
+            {
+                Building = BuildingType.Farm, // placeholder, ProductionBuildingId is used
+                ProductionBuildingId = buildingId,
+                DaysLeft = spec.BuildDays,
+                TotalDays = spec.BuildDays,
+            });
+        }
+        State.Log($"Started building {count}x {spec.Name} ({spec.BuildDays} days each).");
         StateChanged?.Invoke();
         return null;
     }
