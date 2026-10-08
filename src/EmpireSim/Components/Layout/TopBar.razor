@@ -1,0 +1,26 @@
+@inject GameEngine Engine
+@inject NavigationManager Nav
+@implements IDisposable
+
+<div class="woodbar">
+    <button class="home-btn" @onclick='() => Nav.NavigateTo("/")' title="Menu">🏠</button>
+    <div class="wood-pills">
+        <span class="wood-pill" title="Gold">🪙 @_gold<em>+@_income</em></span>
+        <span class="wood-pill" title="Silver">⚪ @_silver</span>
+        <span class="wood-pill" title="Food">🍞 @_food</span>
+        <span class="wood-pill" title="Population">👥 @_pop</span>
+    </div>
+</div>
+
+@code {
+    private Nation _nation => Engine.State.PlayerNation;
+    private string _gold => _nation.Gold.ToString("N0");
+    private string _silver => _nation.Silver.ToString("N0");
+    private string _food => _nation.Food.ToString("N0");
+    private string _pop => _nation.Population.ToString("N0");
+    private string _income => GameEngine.EstimateDailyIncome(_nation).ToString("N0");
+
+    protected override void OnInitialized() => Engine.StateChanged += OnStateChanged;
+    private void OnStateChanged() => InvokeAsync(StateHasChanged);
+    public void Dispose() => Engine.StateChanged -= OnStateChanged;
+}

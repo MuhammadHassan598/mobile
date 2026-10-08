@@ -1,0 +1,112 @@
+@inject GameEngine Engine
+@implements IDisposable
+
+<div class="select-screen">
+    <div class="flag-rail left">
+        @foreach (var n in _options)
+        {
+            <span class="flag-chip" style="background:@n.ColorHex" title="@n.Name"></span>
+        }
+    </div>
+    <div class="flag-rail right">
+        @foreach (var n in _options)
+        {
+            <span class="flag-chip" style="background:@n.ColorHex" title="@n.Name"></span>
+        }
+    </div>
+
+    <div class="select-column">
+        <div class="advisor-row">
+            <img src="images/advisor.webp" class="advisor-img" alt="Advisor" />
+            <div class="speech-bubble">Choose the country you want to lead.</div>
+        </div>
+
+        <div class="crest-wrap">
+            <div class="crest-ring large">
+                <div class="crest" style="background:@_selected.ColorHex">@Initials(_selected)</div>
+            </div>
+            <div class="dropdown-anchor">
+                <button class="country-dropdown" @onclick="ToggleDropdown">
+                    <span>@(_dropdownOpen ? "▲" : "▼")</span> @_selected.Name
+                </button>
+                @if (_dropdownOpen)
+                {
+                    <div class="dropdown-list">
+                        @foreach (var n in _options)
+                        {
+                            <button class="dropdown-item @(n.Id == _selected.Id ? "selected" : "")"
+                                    @onclick="() => Select(n.Id)">
+                                <span class="crest-mini" style="background:@n.ColorHex">@Initials(n)</span>
+                                <span>@n.Name</span>
+                            </button>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+
+        <div class="select-map">
+            <img src="images/parchment-map.webp" alt="World map" />
+            <div class="map-pin" style="left:@PinX%;top:@PinY%">📍</div>
+        </div>
+
+        <div class="parchment-panel select-stats">
+            <div class="stat-res-row">
+                <span title="Wood">🪵 @_selected.Wood.ToString("N0")</span>
+                <span title="Iron">⛓️ @_selected.Iron.ToString("N0")</span>
+                <span title="Goods">📦 @_selected.Goods.ToString("N0")</span>
+            </div>
+            <div class="stat-grid">
+                <div class="stat"><span class="stat-ic">👥</span><span>@_selected.Population.ToString("N0")</span></div>
+                <div class="stat"><span class="stat-ic">⚔️</span><span>@_selected.Soldiers.ToString("N0")</span></div>
+                <div class="stat"><span class="stat-ic">🪙</span><span>@_income.ToString("N0") per day</span></div>
+                <div class="stat"><span class="stat-ic">✝️</span><span>@_selected.Religion</span></div>
+                <div class="stat wide"><span class="stat-ic">🏰</span><span>@CapitalName</span></div>
+            </div>
+            <button class="start-btn" @onclick="Start">START</button>
+        </div>
+    </div>
+</div>
+
+@code {
+    private List<Nation> _options = new();
+    private Nation _selected = null!;
+    private bool _dropdownOpen;
+
+    protected override void OnInitialized()
+    {
+        var preview = GameState.NewGame("ottoman");
+        _options = new[] { preview.PlayerNation }
+            .Concat(preview.OtherNations)
+            .OrderBy(n => n.Name)
+            .ToList();
+        _selected = _options.First(n => n.Id == "ottoman");
+        Engine.StateChanged += OnStateChanged;
+    }
+
+    private void OnStateChanged() => InvokeAsync(StateHasChanged);
+
+    private static string Initials(Nation n)
+    {
+        var parts = n.Name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 1) return parts[0].Substring(0, Math.Min(2, parts[0].Length)).ToUpper();
+        return (parts[0][0].ToString() + parts[^1][0]).ToUpper();
+    }
+
+    private void ToggleDropdown() => _dropdownOpen = !_dropdownOpen;
+
+    private void Select(string id)
+    {
+        _selected = _options.First(n => n.Id == id);
+        _dropdownOpen = false;
+    }
+
+    private long _income => GameEngine.EstimateDailyIncome(_selected);
+    private string CapitalName => _selected.Provinces.FirstOrDefault()?.Name ?? "—";
+    private double PinX => (_selected.Provinces.FirstOrDefault()?.LabelX ?? 1100) / 2200 * 100;
+    private double PinY => (_selected.Provinces.FirstOrDefault()?.LabelY ?? 575) / 1150 * 100;
+
+    private void Start() => Engine.StartCampaign(_selected.Id);
+
+    public void Dispose() => Engine.StateChanged -= OnStateChanged;
+}

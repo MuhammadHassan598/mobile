@@ -1,0 +1,62 @@
+@page "/laws"
+@inject GameEngine Engine
+@implements IDisposable
+
+<div class="dashboard">
+    <div class="topbar">
+        <div class="nation-name">Laws & Faith</div>
+    </div>
+
+    @if (!string.IsNullOrEmpty(_error))
+    {
+        <div class="warning">⚠ @_error</div>
+    }
+
+    <h2>EDICTS</h2>
+    @foreach (var edict in EdictCatalog.All)
+    {
+        var active = Engine.State.PlayerNation.HasEdict(edict.Type);
+        <div class="dip-card @(active ? "edict-active" : "")">
+            <div class="dip-head">
+                <span class="dip-name">@edict.Name</span>
+                @if (active) { <span class="badge pact">ENACTED</span> }
+            </div>
+            <div class="mil-sub">✓ @edict.Effect</div>
+            <div class="mil-sub">✗ @edict.TradeOff</div>
+            <button class="inline-btn" @onclick="() => Toggle(edict.Type)">
+                @(active ? "Repeal" : $"Enact ({Currency.Cost(edict.EnactCost)})")
+            </button>
+        </div>
+    }
+
+    <h2>RELIGIOUS STANCE</h2>
+    @foreach (var stance in Enum.GetValues<ReligiousStance>())
+    {
+        var current = Engine.State.PlayerNation.Stance == stance;
+        <div class="dip-card @(current ? "edict-active" : "")">
+            <div class="dip-head">
+                <span class="dip-name">@stance</span>
+                @if (current) { <span class="badge pact">CURRENT</span> }
+            </div>
+            <div class="mil-sub">@EdictCatalog.StanceDescription(stance)</div>
+            @if (!current)
+            {
+                <button class="inline-btn" @onclick="() => SetStance(stance)">
+                    Adopt (@Currency.Cost(Balance.StanceChangeCost))
+                </button>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private string? _error;
+
+    protected override void OnInitialized() => Engine.StateChanged += OnStateChanged;
+    private void OnStateChanged() => InvokeAsync(StateHasChanged);
+
+    private void Toggle(EdictType edict) => _error = Engine.ToggleEdict(edict);
+    private void SetStance(ReligiousStance stance) => _error = Engine.SetStance(stance);
+
+    public void Dispose() => Engine.StateChanged -= OnStateChanged;
+}

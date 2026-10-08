@@ -1,0 +1,57 @@
+@page "/espionage"
+@inject GameEngine Engine
+@implements IDisposable
+
+<div class="dashboard">
+    <div class="topbar">
+        <div class="nation-name">Espionage</div>
+    </div>
+
+    @if (!string.IsNullOrEmpty(_error))
+    {
+        <div class="warning">⚠ @_error</div>
+    }
+
+    <p class="page-hint">Networks grow +1 strength per day. Operations spend strength — and risk discovery.</p>
+
+    @foreach (var n in Engine.State.OtherNations)
+    {
+        var net = Engine.GetNetwork(n.Id);
+        <div class="dip-card">
+            <div class="dip-head">
+                <span class="dip-name">@n.Name</span>
+                <span class="muted">@(net is null ? "no network" : $"strength {net.Strength}")</span>
+            </div>
+            @if (net is not null)
+            {
+                <div class="progress"><div class="progress-fill" style="width:@net.Strength%"></div></div>
+            }
+            <div class="dip-actions">
+                <button @onclick="() => Establish(n.Id)">🕵 Establish (@Currency.Cost(Balance.EstablishNetworkCost))</button>
+                <button @onclick="() => Steal(n.Id)" disabled="@(net is null || net.Strength < Balance.StealMinStrength)">
+                    Steal treasury (@Balance.StealMinStrength+)
+                </button>
+                <button @onclick="() => Sabotage(n.Id)" disabled="@(net is null || net.Strength < Balance.SabotageMinStrength)">
+                    Sabotage (@Balance.SabotageMinStrength+)
+                </button>
+                <button @onclick="() => Incite(n.Id)" disabled="@(net is null || net.Strength < Balance.InciteMinStrength)">
+                    Incite revolt (@Balance.InciteMinStrength+)
+                </button>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private string? _error;
+
+    protected override void OnInitialized() => Engine.StateChanged += OnStateChanged;
+    private void OnStateChanged() => InvokeAsync(StateHasChanged);
+
+    private void Establish(string id) => _error = Engine.EstablishNetwork(id);
+    private void Steal(string id) => _error = Engine.SpySteal(id);
+    private void Sabotage(string id) => _error = Engine.SpySabotage(id);
+    private void Incite(string id) => _error = Engine.SpyInciteRevolt(id);
+
+    public void Dispose() => Engine.StateChanged -= OnStateChanged;
+}

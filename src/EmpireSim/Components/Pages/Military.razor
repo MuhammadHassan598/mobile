@@ -1,0 +1,149 @@
+@page "/military"
+@inject GameEngine Engine
+@implements IDisposable
+
+<div class="dashboard">
+    <div class="topbar">
+        <div class="nation-name">Military</div>
+    </div>
+
+    @if (!string.IsNullOrEmpty(_error))
+    {
+        <div class="warning">⚠ @_error</div>
+    }
+
+    <h2>ARMY MAINTENANCE</h2>
+    <div class="maint-card @MaintenanceClass">
+        <div class="maint-row">
+            <span>Accrued upkeep</span>
+            <strong>@Currency.Format(_nation.UpkeepAccrued)</strong>
+        </div>
+        <div class="maint-row">
+            <span>Next payday</span>
+            <strong>@_nation.NextPayday.ToString("dd-MM-yyyy") (@PaydayText)</strong>
+        </div>
+        @if (_nation.IsInGracePeriod)
+        {
+            <div class="maint-grace">⚠ GRACE PERIOD — @_nation.GraceDaysLeft days left before desertion!</div>
+        }
+        <button class="inline-btn" @onclick="PayNow" disabled="@(_nation.UpkeepAccrued <= 0)">
+            Pay now
+        </button>
+    </div>
+
+    @if (Engine.State.MarchingArmies.Count > 0)
+    {
+        <h2>CAMPAIGNS</h2>
+        @foreach (var m in Engine.State.MarchingArmies)
+        {
+            <div class="build-card">
+                <div class="build-row">
+                    <div class="build-name">⚔ March on @m.TargetProvinceName <span class="muted">(@m.TargetNationName)</span></div>
+                    <div class="build-days">@((m.Progress * 100).ToString("N0"))% · @m.DaysLeft d left</div>
+                </div>
+                <div class="progress"><div class="progress-fill" style="width:@((m.Progress * 100).ToString("N0"))%"></div></div>
+                <div class="mil-sub">@m.Strength.ToString("N0") soldiers committed</div>
+            </div>
+        }
+    }
+
+    <h2>LAND FORCES (@_nation.Soldiers.ToString("N0"))</h2>    @foreach (var spec in UnitCatalog.All)
+    {
+        var owned = _nation.Units.FirstOrDefault(u => u.Type == spec.Type)?.Count ?? 0;
+        <div class="mil-row">
+            <div class="mil-info">
+                <div class="mil-name">@spec.Icon @spec.Name <span class="muted">× @owned.ToString("N0")</span></div>
+                <div class="mil-sub">@UnitCatalog.CostText(spec) · @spec.UpkeepPerDay Silver/day each</div>
+            </div>
+            <div class="mil-actions">
+                <button @onclick="() => Recruit(spec.Type, 100)">+100<span class="btn-cost">@BatchCost(spec, 100)</span></button>
+                <button @onclick="() => Recruit(spec.Type, 1000)">+1k<span class="btn-cost">@BatchCost(spec, 1000)</span></button>
+            </div>
+        </div>
+    }
+
+    <h2>NAVY (@_nation.Warships.ToString("N0"))</h2>
+    <div class="mil-row">
+        <div class="mil-info">
+            <div class="mil-name">@WarshipSpec.Icon @WarshipSpec.Name <span class="muted">× @_nation.Warships.ToString("N0")</span></div>
+            <div class="mil-sub">@WarshipSpec.CostText · @WarshipSpec.UpkeepPerDay Silver/day each</div>
+        </div>
+        <div class="mil-actions">
+            <button @onclick="() => RecruitShips(10)">+10<span class="btn-cost">@ShipBatchCost(10)</span></button>
+            <button @onclick="() => RecruitShips(50)">+50<span class="btn-cost">@ShipBatchCost(50)</span></button>
+        </div>
+    </div>
+
+    <h2>COMMANDERS</h2>
+    @foreach (var role in CommanderCatalog.Roles)
+    {
+        var cmd = _nation.Commanders.FirstOrDefault(c => c.Role == role.Role);
+        <div class="mil-row">
+            <div class="mil-info">
+                <div class="mil-name">@role.Title</div>
+                @if (cmd is not null)
+                {
+                    <div class="mil-sub">@cmd.Name · wage @cmd.DailyWage Silver/day</div>
+                }
+                else
+                {
+                    <div class="mil-sub">@role.Effect</div>
+                }
+            </div>
+            <div class="mil-actions">
+                @if (cmd is not null)
+                {
+                    <button @onclick="() => Dismiss(role.Role)">Dismiss</button>
+                }
+                else
+                {
+                    <button @onclick="() => Hire(role.Role)">Hire (@Currency.Cost(role.HireCost))</button>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private Nation _nation => Engine.State.PlayerNation;
+    private string? _error;
+
+    private string PaydayText =>
+        _nation.IsInGracePeriod ? "OVERDUE"
+        : Engine.DaysToPayday == 0 ? "today"
+        : Engine.DaysToPayday == 1 ? "tomorrow"
+        : $"in {Engine.DaysToPayday} days";
+
+    private string MaintenanceClass =>
+        _nation.IsInGracePeriod ? "grace" : "";
+
+    protected override void OnInitialized()
+    {
+        Engine.StateChanged += OnStateChanged;
+    }
+
+    private void OnStateChanged() => InvokeAsync(StateHasChanged);
+
+    private void Recruit(UnitType type, int count) => _error = Engine.Recruit(type, count);
+    private void RecruitShips(int count) => _error = Engine.RecruitWarships(count);
+
+    private string BatchCost(UnitSpec spec, int count)
+    {
+        double mult = _nation.HasCommander(CommanderRole.LandCommander) ? Balance.LandCommanderRecruitMult : 1.0;
+        return Currency.Cost(spec.GoldCost * mult * count);
+    }
+
+    private string ShipBatchCost(int count)
+    {
+        double mult = _nation.HasCommander(CommanderRole.FleetCommander) ? Balance.FleetCommanderRecruitMult : 1.0;
+        return Currency.Cost(WarshipSpec.GoldCost * mult * count);
+    }
+    private void Hire(CommanderRole role) => _error = Engine.HireCommander(role);
+    private void Dismiss(CommanderRole role) => Engine.DismissCommander(role);
+    private void PayNow() => _error = Engine.PayMaintenance();
+
+    public void Dispose()
+    {
+        Engine.StateChanged -= OnStateChanged;
+    }
+}

@@ -1,0 +1,100 @@
+@page "/"
+@inject GameEngine Engine
+@inject NavigationManager Nav
+@implements IDisposable
+
+<div class="menu-screen">
+    @if (Engine.State.VictoryAchieved)
+    {
+        <div class="victory">🏆 HEGEMONY! Your empire dominates the known world.</div>
+    }
+    @if (Engine.State.Defeated)
+    {
+        <div class="defeat">💀 Your empire has fallen.</div>
+    }
+    @if (Engine.State.ActiveWarnings.Count > 0)
+    {
+        <div class="warnings">
+            @foreach (var w in Engine.State.ActiveWarnings)
+            {
+                <div class="warning">⚠ @w</div>
+            }
+        </div>
+    }
+
+    <div class="menu-hero">
+        <div class="hero-side">
+            <button class="hero-btn" @onclick='() => Nav.NavigateTo("/map")' title="World map">🗺️</button>
+        </div>
+        <div class="hero-center">
+            <div class="hero-date">@Engine.State.CurrentDate.ToString("dd-MM-yyyy")</div>
+            <div class="crest-ring large">
+                <div class="crest" style="background:@_nation.ColorHex">@Initials(_nation)</div>
+            </div>
+            <div class="hero-speed">
+                <button class="@Active(GameSpeed.Paused)" @onclick="() => SetSpeed(GameSpeed.Paused)">⏸</button>
+                <button class="@Active(GameSpeed.Normal)" @onclick="() => SetSpeed(GameSpeed.Normal)">▶</button>
+                <button class="@Active(GameSpeed.Fast)" @onclick="() => SetSpeed(GameSpeed.Fast)">⏩</button>
+                <button class="@Active(GameSpeed.VeryFast)" @onclick="() => SetSpeed(GameSpeed.VeryFast)">⏭</button>
+            </div>
+        </div>
+        <div class="hero-side">
+            <button class="hero-btn" @onclick='() => Nav.NavigateTo("/events")' title="Events">📜</button>
+        </div>
+    </div>
+
+    <div class="parchment-panel">
+        <div class="tile-grid">
+            <button class="menu-tile" @onclick='() => Nav.NavigateTo("/military")'><span class="tile-orb">🎖️</span><span>Command staff</span></button>
+            <button class="menu-tile" @onclick='() => Nav.NavigateTo("/military")'><span class="tile-orb">⚔️</span><span>Troops</span></button>
+            <button class="menu-tile" @onclick='() => Nav.NavigateTo("/diplomacy")'><span class="tile-orb">🤝</span><span>Diplomacy</span></button>
+            <button class="menu-tile" @onclick='() => Nav.NavigateTo("/diplomacy")'><span class="tile-orb">💰</span><span>Tribute</span></button>
+            <button class="menu-tile" @onclick='() => Nav.NavigateTo("/economy")'><span class="tile-orb">🔄</span><span>Trade</span></button>
+            <button class="menu-tile" @onclick='() => Nav.NavigateTo("/economy")'><span class="tile-orb">🏭</span><span>Production</span></button>
+            <button class="menu-tile" @onclick='() => Nav.NavigateTo("/laws")'><span class="tile-orb">🏛️</span><span>Assemblies</span></button>
+            <button class="menu-tile" @onclick='() => Nav.NavigateTo("/laws")'><span class="tile-orb">📜</span><span>Laws</span></button>
+            <button class="menu-tile" @onclick='() => Nav.NavigateTo("/laws")'><span class="tile-orb">⛪</span><span>Religion</span></button>
+            <button class="menu-tile" @onclick='() => Nav.NavigateTo("/statistics")'><span class="tile-orb">📊</span><span>Statistics</span></button>
+            <button class="menu-tile" @onclick='() => Nav.NavigateTo("/population")'><span class="tile-orb">👥</span><span>Population</span></button>
+            <button class="menu-tile" @onclick='() => Nav.NavigateTo("/events")'><span class="tile-orb">🎆</span><span>Events</span></button>
+        </div>
+    </div>
+
+    <div class="game-actions">
+        <button @onclick="Save">💾 Save</button>
+        <button @onclick="Load" disabled="@(!Engine.HasSave)">📂 Load</button>
+        <button @onclick="NewCampaign">🆕 New</button>
+    </div>
+</div>
+
+@code {
+    private Nation _nation => Engine.State.PlayerNation;
+
+    protected override void OnInitialized()
+    {
+        Engine.StateChanged += OnStateChanged;
+    }
+
+    private void OnStateChanged() => InvokeAsync(StateHasChanged);
+
+    private static string Initials(Nation n)
+    {
+        var parts = n.Name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 1) return parts[0].Substring(0, Math.Min(2, parts[0].Length)).ToUpper();
+        return (parts[0][0].ToString() + parts[^1][0]).ToUpper();
+    }
+
+    private string Active(GameSpeed speed) =>
+        Engine.Clock.Speed == speed ? "active" : "";
+
+    private void SetSpeed(GameSpeed speed) => Engine.Clock.SetSpeed(speed);
+
+    private async Task Save() => await Engine.SaveAsync();
+    private async Task Load() => await Engine.LoadAsync();
+    private void NewCampaign() => Engine.AbandonToMenu();
+
+    public void Dispose()
+    {
+        Engine.StateChanged -= OnStateChanged;
+    }
+}

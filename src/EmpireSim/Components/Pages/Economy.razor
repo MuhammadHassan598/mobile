@@ -1,0 +1,96 @@
+@page "/economy"
+@inject GameEngine Engine
+@implements IDisposable
+
+<div class="dashboard">
+    <div class="topbar">
+        <div class="nation-name">Economy</div>
+    </div>
+
+    @if (!string.IsNullOrEmpty(_error))
+    {
+        <div class="warning">⚠ @_error</div>
+    }
+
+    <h2>STOCKS</h2>
+    <div class="cards">
+        <div class="card"><div class="label">Treasury</div><div class="value gold">@Currency.Format(_nation.WealthInSilver)</div></div>
+        <div class="card"><div class="label">Food</div><div class="value">@_nation.Food.ToString("N0")</div></div>
+        <div class="card"><div class="label">Wood</div><div class="value">@_nation.Wood.ToString("N0")</div></div>
+        <div class="card"><div class="label">Iron</div><div class="value">@_nation.Iron.ToString("N0")</div></div>
+        <div class="card"><div class="label">Goods</div><div class="value">@_nation.Goods.ToString("N0")</div></div>
+        <div class="card">
+            <div class="label">Trade</div>
+            <button class="inline-btn" @onclick="SellGoods" disabled="@(_nation.Goods <= 0)">
+                Sell goods (@Currency.Cost(_nation.Goods * Balance.GoodsSellPrice))
+            </button>
+        </div>
+        <div class="card">
+            <div class="label">Exchange (@_nation.Silver.ToString("N0") Silver · @_nation.Gold.ToString("N0") Gold)</div>
+            <button class="inline-btn" @onclick="ToGold">100 Silver → 1 Gold</button>
+            <button class="inline-btn" @onclick="ToSilver">1 Gold → 100 Silver</button>
+        </div>
+    </div>
+
+    @if (_nation.ConstructionQueue.Count > 0)
+    {
+        <h2>UNDER CONSTRUCTION</h2>
+        @foreach (var q in _nation.ConstructionQueue)
+        {
+            <div class="build-row">
+                <div class="build-info">
+                    <div class="build-name">@BuildingCatalog.Get(q.Building).Name <span class="muted">— @q.ProvinceName</span></div>
+                    <div class="progress"><div class="progress-fill" style="width:@((q.Progress * 100).ToString("N0"))%"></div></div>
+                </div>
+                <div class="build-days">@q.DaysLeft d</div>
+            </div>
+        }
+    }
+
+    <h2>PROVINCES</h2>
+    @foreach (var p in _nation.Provinces)
+    {
+        <div class="province-econ">
+            <div class="province-econ-head">@p.Name</div>
+            <div class="build-counts">
+                <span>🌾 @p.Farms</span><span>⛏ @p.Mines</span><span>🪵 @p.Sawmills</span><span>🏭 @p.Workshops</span>
+            </div>
+            <div class="build-buttons">
+                @foreach (var spec in BuildingCatalog.All)
+                {
+                    <button class="build-btn" @onclick="() => Build(p.Id, spec.Type)" disabled="@(!Engine.CanAfford(spec))">
+                        + @spec.Name
+                        <small>@BuildingCatalog.CostText(spec)</small>
+                    </button>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private Nation _nation => Engine.State.PlayerNation;
+    private string? _error;
+
+    protected override void OnInitialized()
+    {
+        Engine.StateChanged += OnStateChanged;
+    }
+
+    private void OnStateChanged() => InvokeAsync(StateHasChanged);
+
+    private void Build(string provinceId, BuildingType type)
+    {
+        _error = Engine.StartConstruction(provinceId, type);
+    }
+
+    private void SellGoods() => Engine.SellGoods();
+
+    private void ToGold() => _error = Engine.ExchangeSilverForGold(100);
+    private void ToSilver() => _error = Engine.ExchangeGoldForSilver(1);
+
+    public void Dispose()
+    {
+        Engine.StateChanged -= OnStateChanged;
+    }
+}

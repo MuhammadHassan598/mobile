@@ -1,0 +1,22 @@
+@page "/events"
+@inject GameEngine Engine
+@implements IDisposable
+
+<div class="dashboard">
+    <div class="topbar">
+        <div class="nation-name">Events</div>
+    </div>
+
+    <ul class="log">
+        @foreach (var entry in Engine.State.EventLog.AsEnumerable().Reverse())
+        {
+            <li>@entry</li>
+        }
+    </ul>
+</div>
+
+@code {
+    protected override void OnInitialized() => Engine.StateChanged += OnStateChanged;
+    private void OnStateChanged() => InvokeAsync(StateHasChanged);
+    public void Dispose() => Engine.StateChanged -= OnStateChanged;
+}

@@ -1,0 +1,33 @@
+@page "/population"
+@inject GameEngine Engine
+@implements IDisposable
+
+<div class="dashboard">
+    <div class="topbar">
+        <div class="nation-name">Population</div>
+    </div>
+
+    <div class="cards">
+        <div class="card"><div class="label">Total</div><div class="value">@_nation.Population.ToString("N0")</div></div>
+        <div class="card"><div class="label">Provinces</div><div class="value">@_nation.Provinces.Count</div></div>
+    </div>
+
+    @foreach (var p in _nation.Provinces)
+    {
+        <div class="build-card">
+            <div class="build-row">
+                <div class="build-name">@p.Name</div>
+                <div class="build-days">@p.Population.ToString("N0")</div>
+            </div>
+            <div class="mil-sub">🌾 @p.Farms farms · ⛏️ @p.Mines mines</div>
+        </div>
+    }
+</div>
+
+@code {
+    private Nation _nation => Engine.State.PlayerNation;
+
+    protected override void OnInitialized() => Engine.StateChanged += OnStateChanged;
+    private void OnStateChanged() => InvokeAsync(StateHasChanged);
+    public void Dispose() => Engine.StateChanged -= OnStateChanged;
+}

@@ -1,0 +1,76 @@
+@page "/diplomacy"
+@inject GameEngine Engine
+@implements IDisposable
+
+<div class="dashboard">
+    <div class="topbar">
+        <div class="nation-name">Diplomacy</div>
+    </div>
+
+    @if (!string.IsNullOrEmpty(_error))
+    {
+        <div class="warning">⚠ @_error</div>
+    }
+
+    @foreach (var n in Engine.State.OtherNations)
+    {
+        <div class="dip-card">
+            <div class="dip-head">
+                <span class="dip-name">@n.Name</span>
+                <span class="dip-badges">
+                    @if (n.AtWarWithPlayer) { <span class="badge war">WAR</span> }
+                    @if (n.HasTradePactWithPlayer) { <span class="badge pact">TRADE PACT</span> }
+                </span>
+            </div>
+            <div class="rel-bar">
+                <div class="rel-fill @RelClass(n.RelationToPlayer)" style="@RelStyle(n.RelationToPlayer)"></div>
+            </div>
+            <div class="rel-label">@((int)n.RelationToPlayer)</div>
+            <div class="dip-actions">
+                <button @onclick="() => Gift(n.Id)">🎁 Gift (@Currency.Cost(Balance.GiftCost))</button>
+                <button @onclick="() => Tribute(n.Id)">💰 Demand tribute</button>
+                @if (n.HasTradePactWithPlayer)
+                {
+                    <button @onclick="() => CancelPact(n.Id)">Cancel pact</button>
+                }
+                else
+                {
+                    <button @onclick="() => Pact(n.Id)">🤝 Trade pact</button>
+                }
+                @if (n.AtWarWithPlayer)
+                {
+                    <button @onclick="() => Peace(n.Id)">🕊 Sue for peace</button>
+                }
+                else
+                {
+                    <button class="danger-btn" @onclick="() => War(n.Id)">⚔ Declare war</button>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private string? _error;
+
+    private static string RelClass(double rel) => rel >= 0 ? "good" : "bad";
+
+    private static string RelStyle(double rel)
+    {
+        var width = Math.Abs(rel) / 2; // -100..100 -> 0..50%
+        var left = rel < 0 ? 50 - width : 50;
+        return $"left:{left:N1}%;width:{width:N1}%";
+    }
+
+    protected override void OnInitialized() => Engine.StateChanged += OnStateChanged;
+    private void OnStateChanged() => InvokeAsync(StateHasChanged);
+
+    private void Gift(string id) => _error = Engine.SendGift(id);
+    private void Tribute(string id) => _error = Engine.DemandTribute(id);
+    private void Pact(string id) => _error = Engine.SignTradePact(id);
+    private void CancelPact(string id) => Engine.CancelTradePact(id);
+    private void War(string id) => _error = Engine.DeclareWar(id);
+    private void Peace(string id) => _error = Engine.SueForPeace(id);
+
+    public void Dispose() => Engine.StateChanged -= OnStateChanged;
+}

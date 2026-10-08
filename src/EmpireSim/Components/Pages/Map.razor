@@ -1,0 +1,242 @@
+@page "/map"
+@inject GameEngine Engine
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<div class="map-page">
+    <div class="map-toolbar">
+        <span class="map-title">World Map</span>
+    </div>
+
+    <canvas id="gameMap" class="map-canvas"></canvas>
+
+    @if (_selected is not null)
+    {
+        <div class="province-card">
+            <div class="province-head">
+                <div>
+                    <div class="province-name">@_selected.Name</div>
+                    <div class="province-owner">
+                        @if (_selectedOwner is not null)
+                        {
+                            <span class="owner-dot" style="background:@_selectedOwner.ColorHex"></span>
+                            @_selectedOwner.Name
+                            @if (_selectedOwner.IsPlayer)
+                            {
+                                <span class="you-badge">YOU</span>
+                            }
+                            @if (_selectedOwner.IsEliminated)
+                            {
+                                <span class="badge war">ELIMINATED</span>
+                            }
+                        }
+                        else
+                        {
+                            <span class="owner-dot" style="background:#4A4438"></span>
+                            <span class="muted">@(_selectedNeutral ? "Neutral territory" : "Uncharted territory")</span>
+                        }
+                    </div>
+                </div>
+                <button class="card-close" @onclick="ClearSelection">✕</button>
+            </div>
+
+            @if (!string.IsNullOrEmpty(_error))
+            {
+                <div class="warning">⚠ @_error</div>
+            }
+            @if (!string.IsNullOrEmpty(_battleReport))
+            {
+                <div class="battle-report">@_battleReport</div>
+            }
+
+            @if (_selectedOwner is null)
+            {
+                @if (_selectedNeutral)
+                {
+                    <div class="cards">
+                        <div class="card"><div class="label">Status</div><div class="value">Neutral territory</div></div>
+                    </div>
+                    <p class="page-hint">Beyond the reach of crowns — no ruler claims this land.</p>
+                }
+                else
+                {
+                    <div class="cards">
+                        <div class="card"><div class="label">Status</div><div class="value">Uncharted</div></div>
+                    </div>
+                    @if (Engine.State.ActiveExpedition is not null)
+                    {
+                        <div class="build-row">
+                            <div class="build-info">
+                                <div class="build-name">Expedition to @Engine.State.ActiveExpedition.RegionName</div>
+                                <div class="progress"><div class="progress-fill" style="width:@((Engine.State.ActiveExpedition.Progress * 100).ToString("N0"))%"></div></div>
+                            </div>
+                            <div class="build-days">@((Engine.State.ActiveExpedition.Progress * 100).ToString("N0"))% · @Engine.State.ActiveExpedition.DaysLeft d</div>
+                        </div>
+                    }
+                    else
+                    {
+                        <button class="inline-btn" @onclick="() => Colonize(_selected.Id)">
+                            ⛵ Found colony (@Currency.Cost(Balance.ColonyCostSilver) · @Balance.ColonyCostFood.ToString("N0") food · @Balance.ColonyWarshipsRequired warships)
+                        </button>
+                    }
+                }
+            }
+            else
+            {
+                <div class="cards">
+                    <div class="card"><div class="label">Population</div><div class="value">@_selected.Population.ToString("N0")</div></div>
+                    <div class="card"><div class="label">Farms</div><div class="value">@_selected.Farms</div></div>
+                    <div class="card"><div class="label">Mines</div><div class="value">@_selected.Mines</div></div>
+                </div>
+                @if (!_selectedOwner.IsPlayer && !_selectedOwner.IsEliminated && _selectedOwner.AtWarWithPlayer)
+                {
+                    <div class="invade-box">
+                        <div class="invade-title">⚔ Invade @_selected.Name</div>
+                        <div class="invade-sizes">
+                            @foreach (var size in new[] { 500, 2000, 5000 })
+                            {
+                                <button class="@(_commitSize == size ? "active" : "")" @onclick="() => _commitSize = size">@size.ToString("N0")</button>
+                            }
+                            <button class="@(_commitSize == -1 ? "active" : "")" @onclick="() => _commitSize = -1">All</button>
+                        </div>
+                        <button class="inline-btn" @onclick="() => Invade(_selected.Id)">Launch invasion (@(_commitSize == -1 ? "all" : _commitSize.ToString("N0")) soldiers)</button>
+                    </div>
+                }
+            }
+        </div>
+    }
+    else
+    {
+        <div class="map-hint">Drag to pan · scroll or pinch to zoom · tap a province</div>
+    }
+</div>
+
+@code {
+    private DotNetObjectReference<Map>? _dotNetRef;
+    private Province? _selected;
+    private Nation? _selectedOwner;
+    private bool _selectedNeutral;
+    private string? _error;
+    private string? _battleReport;
+    private int _commitSize = 2000;
+
+    private void Invade(string provinceId)
+    {
+        _error = null;
+        _battleReport = null;
+        int commit = _commitSize == -1 ? Engine.State.PlayerNation.Soldiers : _commitSize;
+        var (ok, message) = Engine.LaunchInvasion(provinceId, commit);
+        if (ok) _battleReport = message;
+        else _error = message;
+    }
+
+    private void Colonize(string regionId)
+    {
+        _error = Engine.FoundColony(regionId);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _dotNetRef = DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("empireMap.init", "gameMap", _dotNetRef);
+            await RenderMapAsync();
+        }
+    }
+
+    private async Task RenderMapAsync()
+    {
+        var provinces = Engine.State.AllNations()
+            .SelectMany(n => n.Provinces.Select(p => new
+            {
+                id = p.Id,
+                name = p.Name,
+                color = n.IsEliminated ? "#3A3A3A" : n.ColorHex,
+                polygon = p.Polygon,
+                labelX = p.LabelX,
+                labelY = p.LabelY,
+            }))
+            .Concat(Engine.State.FrontierRegions.Select(p => new
+            {
+                id = p.Id,
+                name = p.Name,
+                color = "#6B7280",
+                polygon = p.Polygon,
+                labelX = p.LabelX,
+                labelY = p.LabelY,
+            }))
+            .Concat(Engine.State.NeutralRegions.Select(p => new
+            {
+                id = p.Id,
+                name = p.Name,
+                color = "#4A4438",
+                polygon = p.Polygon,
+                labelX = p.LabelX,
+                labelY = p.LabelY,
+            }))
+            .ToList();
+
+        await JS.InvokeVoidAsync("empireMap.render",
+            new { provinces, selectedId = _selected?.Id });
+    }
+
+    [JSInvokable]
+    public async Task OnProvinceTapped(string provinceId)
+    {
+        var found = Engine.State.AllNations()
+            .SelectMany(n => n.Provinces.Select(p => (Province: p, Owner: (Nation?)n)))
+            .FirstOrDefault(x => x.Province.Id == provinceId);
+
+        if (found != default)
+        {
+            _selected = found.Province;
+            _selectedOwner = found.Owner;
+            _selectedNeutral = false;
+        }
+        else
+        {
+            var region = Engine.State.FrontierRegions.FirstOrDefault(p => p.Id == provinceId);
+            if (region is not null)
+            {
+                _selected = region;
+                _selectedOwner = null;
+                _selectedNeutral = false;
+            }
+            else
+            {
+                var neutral = Engine.State.NeutralRegions.FirstOrDefault(p => p.Id == provinceId);
+                if (neutral is not null)
+                {
+                    _selected = neutral;
+                    _selectedOwner = null;
+                    _selectedNeutral = true;
+                }
+                else
+                {
+                    return;
+                }
+            }
+        }
+
+        _error = null;
+        _battleReport = null;
+        await RenderMapAsync();
+        StateHasChanged();
+    }
+
+    private async Task ClearSelection()
+    {
+        _selected = null;
+        _selectedOwner = null;
+        _selectedNeutral = false;
+        await RenderMapAsync();
+        StateHasChanged();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        _dotNetRef?.Dispose();
+        await Task.CompletedTask;
+    }
+}

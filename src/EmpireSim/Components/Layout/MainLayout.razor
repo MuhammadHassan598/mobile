@@ -1,0 +1,39 @@
+@inherits LayoutComponentBase
+@inject GameEngine Engine
+@implements IDisposable
+
+<div class="page">
+    @if (Engine.CampaignChosen)
+    {
+        <TopBar />
+        <main>
+            <article class="content">
+                @Body
+            </article>
+        </main>
+    }
+    else
+    {
+        <NationSelect />
+    }
+</div>
+
+@code {
+    private bool _triedAutoLoad;
+
+    protected override void OnInitialized() => Engine.StateChanged += OnStateChanged;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // Returning players go straight to the main screen; only new users
+        // (no save yet) see the nation-select screen.
+        if (firstRender && !_triedAutoLoad && !Engine.CampaignChosen && Engine.HasSave)
+        {
+            _triedAutoLoad = true;
+            await Engine.LoadAsync();
+        }
+    }
+
+    private void OnStateChanged() => InvokeAsync(StateHasChanged);
+    public void Dispose() => Engine.StateChanged -= OnStateChanged;
+}
