@@ -10,6 +10,18 @@ window.empireMap = (() => {
     let data = { shapes: [], selectedId: null };
     let view = { scale: 1, ox: 0, oy: 0 };
     let dpr = 1;
+    let terrainImg = null, terrainReady = false;
+
+    // Sea labels in world coordinates (engraved cartouche style).
+    const SEA_LABELS = [
+        ["ATLANTIC OCEAN", 100, 460], ["NORTH SEA", 280, 221],
+        ["MEDITERRANEAN SEA", 430, 405], ["BLACK SEA", 590, 340],
+        ["CASPIAN SEA", 760, 350], ["RED SEA", 630, 552],
+        ["PERSIAN GULF", 760, 497], ["ARABIAN SEA", 900, 626],
+        ["INDIAN OCEAN", 1050, 966], ["BAY OF BENGAL", 1130, 626],
+        ["SOUTH CHINA SEA", 1390, 626], ["PACIFIC OCEAN", 1900, 828],
+        ["SEA OF JAPAN", 1600, 368],
+    ];
 
     // ---- pointer state ----
     const pointers = new Map();
@@ -45,8 +57,30 @@ window.empireMap = (() => {
         canvas.addEventListener('pointercancel', onUp);
         canvas.addEventListener('wheel', onWheel, { passive: false });
         canvas.style.touchAction = 'none';
+        loadTerrain();
         resize();
         return true;
+    }
+
+    function loadTerrain() {
+        if (terrainImg) return;
+        terrainImg = new Image();
+        terrainImg.onload = () => { terrainReady = true; draw(); };
+        terrainImg.src = 'images/world-terrain.jpg';
+    }
+
+    function hexRgb(hex) {
+        const h = (hex || '#555555').replace('#', '');
+        return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+    }
+    function rgba(hex, a) {
+        const [r, g, b] = hexRgb(hex);
+        return `rgba(${r},${g},${b},${a})`;
+    }
+    function darkened(hex, amt) {
+        const [r, g, b] = hexRgb(hex);
+        const d = v => Math.max(0, Math.round(v - amt));
+        return `rgb(${d(r)},${d(g)},${d(b)})`;
     }
 
     function render(newData) {
@@ -69,12 +103,21 @@ window.empireMap = (() => {
         const w = cssW(), h = cssH();
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-        // Sea background.
+        // Deep-sea backdrop, then the painted terrain of the world.
         ctx.fillStyle = '#0B1B33';
         ctx.fillRect(0, 0, w, h);
+        if (terrainReady) {
+            const [tx0, ty0] = toScreen(0, 0);
+            const [tx1, ty1] = toScreen(WORLD_W, WORLD_H);
+            ctx.drawImage(terrainImg, tx0, ty0, tx1 - tx0, ty1 - ty0);
+        }
+
+        // Sea labels under the territories.
+        drawSeaLabels();
 
         for (const p of (data.shapes || [])) {
             const isSel = (p.id ?? p.Id) === (data.selectedId ?? data.SelectedId);
+            const baseColor = p.color || p.Color || '#555555';
             for (const pts of polys(p)) {
                 if (pts.length < 3) continue;
                 ctx.beginPath();
@@ -86,31 +129,55 @@ window.empireMap = (() => {
                 }
                 ctx.closePath();
 
-                ctx.globalAlpha = 0.9;
-                ctx.fillStyle = p.color || p.Color || '#555';
+                // Faction tint over the terrain; solid engraved border.
+                ctx.fillStyle = rgba(baseColor, isSel ? 0.62 : 0.42);
                 ctx.fill();
-                ctx.globalAlpha = 1;
-
-                ctx.lineWidth = isSel ? 3 : 1.25;
-                ctx.strokeStyle = isSel ? '#C9A227' : '#0E1626';
+                ctx.lineWidth = isSel ? 3 : 1.5;
+                ctx.strokeStyle = isSel ? '#FFD700' : darkened(baseColor, 70);
                 ctx.stroke();
+                if (isSel) {
+                    ctx.lineWidth = 6;
+                    ctx.strokeStyle = 'rgba(255,215,0,0.28)';
+                    ctx.stroke();
+                }
             }
 
-            // Label (skip when zoomed far out and text would be tiny).
+            // Nation label (skip when zoomed far out and text would be tiny).
             if (view.scale > 0.25) {
                 const lx = p.labelX ?? p.LabelX, ly = p.labelY ?? p.LabelY;
                 if (lx !== undefined) {
                     const [lsx, lsy] = toScreen(lx, ly);
-                    ctx.font = `${Math.max(10, 13 * Math.min(view.scale, 1.4))}px Georgia, serif`;
+                    const fs = Math.max(10, 13 * Math.min(view.scale, 1.4));
+                    ctx.font = `600 ${fs}px Georgia, serif`;
                     ctx.textAlign = 'center';
                     ctx.textBaseline = 'middle';
-                    ctx.fillStyle = 'rgba(0,0,0,0.55)';
-                    ctx.fillText(p.name ?? p.Name ?? '', lsx + 1, lsy + 1);
-                    ctx.fillStyle = '#EDE6D6';
-                    ctx.fillText(p.name ?? p.Name ?? '', lsx, lsy);
+                    const label = p.name ?? p.Name ?? '';
+                    ctx.lineWidth = 3;
+                    ctx.strokeStyle = 'rgba(245,240,225,0.85)';
+                    ctx.strokeText(label, lsx, lsy);
+                    ctx.fillStyle = '#2A2118';
+                    ctx.fillText(label, lsx, lsy);
                 }
             }
         }
+    }
+
+    function drawSeaLabels() {
+        if (view.scale < 0.18) return;
+        const fs = Math.max(9, 15 * Math.min(view.scale, 1.2));
+        ctx.font = `${fs}px Georgia, serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        try { ctx.letterSpacing = '3px'; } catch (e) { /* older browsers */ }
+        for (const [txt, wx, wy] of SEA_LABELS) {
+            const [sx, sy] = toScreen(wx, wy);
+            ctx.lineWidth = 3;
+            ctx.strokeStyle = 'rgba(10,30,55,0.55)';
+            ctx.strokeText(txt, sx, sy);
+            ctx.fillStyle = 'rgba(232,238,244,0.88)';
+            ctx.fillText(txt, sx, sy);
+        }
+        try { ctx.letterSpacing = '0px'; } catch (e) { /* older browsers */ }
     }
 
     // ---- hit testing ----
