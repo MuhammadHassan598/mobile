@@ -838,8 +838,237 @@ public sealed class GameState
                 Polygons = new() { new() { new(1820, 800), new(1870, 795), new(1875, 835), new(1825, 840) }, new() { new(1890, 810), new(1930, 805), new(1935, 845), new(1895, 850) }, new() { new(1840, 860), new(1880, 855), new(1885, 890), new(1845, 895) } } },
         };;
 
+        // Seed historically-accurate starting production buildings (1600 economies)
+        foreach (var nation in nations)
+            SeedProductionBuildings(nation);
+
         state.Log($"The campaign begins. Long live {player.Name}!");
         return state;
+    }
+
+    /// <summary>
+    /// Seeds starting production buildings based on each nation's 1600 economy.
+    /// Larger/richer economies get more buildings; specialties reflect historical strengths.
+    /// </summary>
+    private static void SeedProductionBuildings(Nation nation)
+    {
+        var b = new Dictionary<string, int>();
+        // Base scale from population (per million)
+        double popM = nation.Population / 1_000_000.0;
+        int baseFood = (int)(popM * 2);
+        int baseMills = (int)(popM * 1);
+
+        // Default: farms and basic food production scaled by population
+        if (baseFood > 0)
+        {
+            b["farm"] = baseFood;
+            b["bakery"] = baseFood / 3;
+            b["flourmill"] = baseFood / 4;
+            b["cattlefarm"] = baseFood / 5;
+        }
+
+        // Nation-specific historical specialties (1600)
+        switch (nation.Id)
+        {
+            case "ming": // China: world's largest economy, silk, porcelain, tea, massive agriculture
+                b["farm"] = 800; b["bakery"] = 200; b["flourmill"] = 150;
+                b["tailoring"] = 120; b["saltmine"] = 60; b["perfume"] = 20;
+                b["ironmine"] = 40; b["copperminer"] = 30; b["goldmine"] = 25;
+                b["sawmill"] = 80; b["stonequarry"] = 60;
+                b["helmet"] = 30; b["dagger"] = 25; b["pike"] = 20; b["arquebus"] = 15;
+                break;
+
+            case "mughal": // India: world's textile leader, spices, agriculture
+                b["farm"] = 500; b["bakery"] = 120; b["tailoring"] = 150;
+                b["saltmine"] = 40; b["perfume"] = 30; b["sheepfarm"] = 60;
+                b["ironmine"] = 25; b["goldmine"] = 20; b["stonequarry"] = 40;
+                b["helmet"] = 20; b["dagger"] = 20; b["pike"] = 15;
+                break;
+
+            case "ottoman": // Diverse empire: textiles, food, military
+                b["farm"] = 155; b["bakery"] = 50; b["tailoring"] = 40;
+                b["saltmine"] = 25; b["sheepfarm"] = 30; b["cattlefarm"] = 40;
+                b["ironmine"] = 20; b["copperminer"] = 15; b["leadminer"] = 10;
+                b["sawmill"] = 25; b["stonequarry"] = 20;
+                b["helmet"] = 25; b["dagger"] = 20; b["pike"] = 18; b["arquebus"] = 12;
+                b["shipparts"] = 15;
+                break;
+
+            case "iran": // Safavid: silk, carpets
+                b["farm"] = 80; b["tailoring"] = 60; b["sheepfarm"] = 40;
+                b["saltmine"] = 15; b["perfume"] = 15;
+                b["ironmine"] = 12; b["copperminer"] = 10; b["stonequarry"] = 15;
+                b["helmet"] = 12; b["dagger"] = 10; b["pike"] = 8;
+                break;
+
+            case "iberian": // Spain/Portugal: agriculture, shipbuilding (American silver not modeled)
+                b["farm"] = 90; b["bakery"] = 30; b["sheepfarm"] = 35;
+                b["saltmine"] = 20; b["ironmine"] = 18; b["copperminer"] = 12;
+                b["sawmill"] = 20; b["shipparts"] = 25;
+                b["helmet"] = 15; b["dagger"] = 12; b["pike"] = 10; b["arquebus"] = 8;
+                break;
+
+            case "france": // Breadbasket, wine, textiles
+                b["farm"] = 180; b["bakery"] = 70; b["flourmill"] = 50;
+                b["tailoring"] = 45; b["sheepfarm"] = 40; b["cattlefarm"] = 50;
+                b["saltmine"] = 20; b["ironmine"] = 15; b["sawmill"] = 30;
+                b["helmet"] = 18; b["dagger"] = 15; b["pike"] = 14; b["arquebus"] = 10;
+                break;
+
+            case "england": // Wool leader, growing textiles
+                b["sheepfarm"] = 80; b["tailoring"] = 50; b["farm"] = 60;
+                b["bakery"] = 25; b["ironmine"] = 12; b["copperminer"] = 8;
+                b["sawmill"] = 15; b["shipparts"] = 12;
+                b["helmet"] = 10; b["dagger"] = 8; b["pike"] = 8;
+                break;
+
+            case "netherlands": // Trade, shipbuilding, textiles
+                b["shipparts"] = 30; b["tailoring"] = 35; b["sawmill"] = 25;
+                b["farm"] = 25; b["bakery"] = 15; b["saltmine"] = 10;
+                b["helmet"] = 8; b["dagger"] = 8; b["pike"] = 6;
+                break;
+
+            case "hre": // Germany: mining (silver, iron), agriculture
+                b["ironmine"] = 35; b["copperminer"] = 20; b["leadminer"] = 15;
+                b["saltmine"] = 25; b["farm"] = 120; b["bakery"] = 40;
+                b["sawmill"] = 35; b["stonequarry"] = 25;
+                b["helmet"] = 20; b["dagger"] = 18; b["pike"] = 16; b["arquebus"] = 10;
+                break;
+
+            case "plc": // Poland-Lithuania: grain exporter
+                b["farm"] = 150; b["flourmill"] = 60; b["bakery"] = 40;
+                b["cattlefarm"] = 35; b["sawmill"] = 25; b["saltmine"] = 15;
+                b["helmet"] = 12; b["pike"] = 12; b["dagger"] = 10;
+                break;
+
+            case "russia": // Furs, timber, agriculture
+                b["furfarm"] = 60; b["sawmill"] = 50; b["farm"] = 100;
+                b["bakery"] = 30; b["ironmine"] = 15; b["saltmine"] = 20;
+                b["helmet"] = 14; b["dagger"] = 12; b["pike"] = 12;
+                break;
+
+            case "sweden": // Iron and copper (world's largest copper)
+                b["ironmine"] = 30; b["copperminer"] = 35; b["sawmill"] = 30;
+                b["farm"] = 30; b["furfarm"] = 15;
+                b["helmet"] = 10; b["dagger"] = 8; b["pike"] = 8;
+                break;
+
+            case "japan": // Rice agriculture, silver mining
+                b["farm"] = 120; b["bakery"] = 30; b["saltmine"] = 20;
+                b["ironmine"] = 15; b["copperminer"] = 12; b["goldmine"] = 15;
+                b["sawmill"] = 25; b["stonequarry"] = 20;
+                b["helmet"] = 16; b["dagger"] = 18; b["pike"] = 10;
+                break;
+
+            case "morocco": // Agriculture, leather, textiles
+                b["farm"] = 50; b["tailoring"] = 20; b["sheepfarm"] = 25;
+                b["saltmine"] = 15; b["bakery"] = 15;
+                b["helmet"] = 8; b["dagger"] = 8;
+                break;
+
+            case "ethiopia": // Agriculture, coffee (not modeled), livestock
+                b["farm"] = 40; b["cattlefarm"] = 25; b["sheepfarm"] = 20;
+                b["bakery"] = 10;
+                break;
+
+            case "kongo": // Agriculture, copper, textiles
+                b["farm"] = 30; b["copperminer"] = 10; b["tailoring"] = 10;
+                break;
+
+            case "thailand": case "siam": // Rice, spices
+                b["farm"] = 60; b["bakery"] = 15; b["saltmine"] = 10;
+                b["perfume"] = 10;
+                break;
+
+            case "burma": case "myanmar": // Rice, teak
+                b["farm"] = 50; b["sawmill"] = 20; b["bakery"] = 12;
+                break;
+
+            case "vietnam": // Rice
+                b["farm"] = 55; b["bakery"] = 12; b["saltmine"] = 8;
+                break;
+
+            case "korea": // Rice, agriculture
+                b["farm"] = 70; b["bakery"] = 18; b["saltmine"] = 12;
+                b["ironmine"] = 8;
+                break;
+
+            case "nepal": // Mountain agriculture
+                b["farm"] = 25; b["sheepfarm"] = 15;
+                break;
+
+            case "ahom": // Assam: rice, silk
+                b["farm"] = 35; b["tailoring"] = 12;
+                break;
+
+            case "kazakh": // Nomadic: livestock
+                b["sheepfarm"] = 40; b["cattlefarm"] = 30; b["furfarm"] = 20;
+                break;
+
+            case "bukhara": case "uzbek": // Silk Road trade, agriculture
+                b["farm"] = 40; b["tailoring"] = 20; b["sheepfarm"] = 20;
+                b["saltmine"] = 10;
+                break;
+
+            case "crimean": // Livestock, grain
+                b["sheepfarm"] = 25; b["cattlefarm"] = 20; b["farm"] = 25;
+                break;
+
+            case "yuan": // Northern Yuan: nomadic livestock
+                b["sheepfarm"] = 35; b["cattlefarm"] = 25; b["furfarm"] = 15;
+                break;
+
+            case "jurchens": // Manchuria: furs, ginseng (not modeled)
+                b["furfarm"] = 25; b["farm"] = 20; b["sawmill"] = 15;
+                break;
+
+            case "denmark": // Agriculture, shipbuilding
+                b["farm"] = 35; b["shipparts"] = 12; b["sawmill"] = 15;
+                b["bakery"] = 12;
+                break;
+
+            case "scotland": // Wool, agriculture
+                b["sheepfarm"] = 30; b["farm"] = 25; b["tailoring"] = 12;
+                break;
+
+            case "genoa": case "venice": // Trade, shipbuilding
+                b["shipparts"] = 20; b["tailoring"] = 15; b["sawmill"] = 12;
+                break;
+
+            case "papal": case "italy": // Agriculture, textiles
+                b["farm"] = 45; b["tailoring"] = 20; b["bakery"] = 18;
+                b["sheepfarm"] = 15;
+                break;
+
+            case "croatia": // Agriculture, timber
+                b["farm"] = 25; b["sawmill"] = 12; b["bakery"] = 8;
+                break;
+
+            case "scotland2": // (placeholder, not used)
+                break;
+
+            case "cambodia": case "laos": // Rice
+                b["farm"] = 30; b["bakery"] = 8;
+                break;
+
+            case "malaysia": // Spices, tin
+                b["farm"] = 25; b["perfume"] = 12; b["copperminer"] = 8;
+                break;
+
+            case "uae": // Pearls (not modeled), trade
+                b["saltmine"] = 8; b["shipparts"] = 8;
+                break;
+
+            case "micronesia": case "easter": // Small islands, minimal
+                b["farm"] = 5; b["bakery"] = 2;
+                break;
+
+            default:
+                // Generic fallback based on population
+                break;
+        }
+
+        nation.ProductionBuildings = b;
     }
 
     private static void ApplyReligions(List<Nation> nations)
