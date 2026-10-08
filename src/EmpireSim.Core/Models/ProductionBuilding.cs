@@ -31,12 +31,6 @@ public static class ProductionCatalog
     public static readonly IReadOnlyList<ProductionBuildingSpec> All = new List<ProductionBuildingSpec>
     {
         // ---- Military ----
-        new("helmet", "Helmet Workshop", "🪖", "Helmets", ProductionCategory.Military, 2, 0, 0, 1, 5, 2),
-        new("dagger", "Dagger Forge", "🗡️", "Daggers", ProductionCategory.Military, 2, 0, 0, 1, 5, 2),
-        new("pike", "Pike Workshop", "🔱", "Pikes", ProductionCategory.Military, 3, 2, 0, 1, 6, 2),
-        new("shotgun", "Gunsmith", "🔫", "Shotguns", ProductionCategory.Military, 5, 2, 0, 3, 8, 1),
-        new("shipparts", "Shipyard", "⚓", "Ship Parts", ProductionCategory.Military, 8, 10, 0, 5, 10, 1),
-        new("arquebus", "Arquebus Workshop", "🏹", "Arquebuses", ProductionCategory.Military, 4, 1, 0, 2, 7, 1),
 
         // ---- Food ----
         new("saltmine", "Salt Mine", "🧂", "Salt", ProductionCategory.Food, 3, 0, 5, 0, 6, 5),

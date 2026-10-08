@@ -116,6 +116,19 @@ public sealed class SimulationService
             nation.GoodsInventory[spec.Produces] += dailyOutput;
         }
 
+        // ---- Military crafting: progress projects, add 10 units on completion ----
+        foreach (var proj in nation.MilitaryCraftQueue.ToList())
+        {
+            proj.DaysLeft -= 1;
+            if (proj.DaysLeft > 0) continue;
+            var recipe = MilitaryRecipes.Get(proj.RecipeId);
+            if (!nation.GoodsInventory.ContainsKey(recipe.Produces))
+                nation.GoodsInventory[recipe.Produces] = 0;
+            nation.GoodsInventory[recipe.Produces] += 10;
+            state.Log($"{nation.Name}: Crafted 10x {recipe.Name}.");
+            nation.MilitaryCraftQueue.Remove(proj);
+        }
+
         double landUpkeepMult = (nation.HasCommander(CommanderRole.LandCommander) ? Balance.LandCommanderUpkeepMult : 1.0)
                               * (nation.HasCommander(CommanderRole.CommanderInChief) ? Balance.CinCUpkeepMult : 1.0);
         double navalUpkeepMult = (nation.HasCommander(CommanderRole.FleetCommander) ? Balance.FleetCommanderUpkeepMult : 1.0)

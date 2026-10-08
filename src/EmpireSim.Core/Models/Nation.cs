@@ -160,6 +160,9 @@ public sealed class Nation
     public double GetGood(string goodName) =>
         GoodsInventory.TryGetValue(goodName, out double v) ? v : 0;
 
+    /// <summary>Military item batches currently in production.</summary>
+    public List<MilitaryCraftProject> MilitaryCraftQueue { get; set; } = new();
+
     /// <summary>Buildings currently under construction.</summary>
     public List<ConstructionProject> ConstructionQueue { get; set; } = new();
 

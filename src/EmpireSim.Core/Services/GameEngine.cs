@@ -155,6 +155,52 @@ public sealed class GameEngine : IDisposable
         return null;
     }
 
+    /// <summary>Starts crafting a batch (10 units) of a military item.</summary>
+    public string? StartMilitaryCraft(string recipeId)
+    {
+        var nation = State.PlayerNation;
+        var recipe = MilitaryRecipes.Get(recipeId);
+
+        if (nation.Wood < recipe.WoodCost || nation.Stone < recipe.StoneCost ||
+            nation.Iron < recipe.IronCost || nation.Copper < recipe.CopperCost ||
+            nation.Lead < recipe.LeadCost)
+            return "Not enough resources.";
+
+        nation.Wood -= recipe.WoodCost;
+        nation.Stone -= recipe.StoneCost;
+        nation.Iron -= recipe.IronCost;
+        nation.Copper -= recipe.CopperCost;
+        nation.Lead -= recipe.LeadCost;
+
+        nation.MilitaryCraftQueue.Add(new MilitaryCraftProject
+        {
+            RecipeId = recipeId,
+            DaysLeft = recipe.Days,
+            TotalDays = recipe.Days,
+        });
+        State.Log($"Started crafting 10x {recipe.Name} ({recipe.Days} days).");
+        StateChanged?.Invoke();
+        return null;
+    }
+
+    /// <summary>Cancels a military craft project (refunds 50% of resources).</summary>
+    public void CancelMilitaryCraft(string projectId)
+    {
+        var nation = State.PlayerNation;
+        var proj = nation.MilitaryCraftQueue.FirstOrDefault(p => p.Id == projectId);
+        if (proj is null) return;
+        var recipe = MilitaryRecipes.Get(proj.RecipeId);
+        // Refund 50%
+        nation.Wood += recipe.WoodCost * 0.5;
+        nation.Stone += recipe.StoneCost * 0.5;
+        nation.Iron += recipe.IronCost * 0.5;
+        nation.Copper += recipe.CopperCost * 0.5;
+        nation.Lead += recipe.LeadCost * 0.5;
+        nation.MilitaryCraftQueue.Remove(proj);
+        State.Log($"Cancelled crafting {recipe.Name} (50% refunded).");
+        StateChanged?.Invoke();
+    }
+
     /// <summary>Sells all stockpiled goods for gold (the player's meaningful trade action).</summary>
     public void SellGoods()
     {
