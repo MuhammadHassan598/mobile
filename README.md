@@ -5,10 +5,15 @@ The game simulation lives in pure C# (`EmpireSim.Core`) so it can be tested
 without a device; the MAUI app (`EmpireSim`) is the Blazor Hybrid shell.
 
 **UI direction (2026-10-08):** the app opens with an ornate nation-select screen
-(advisor, crest, country dropdown, parchment map, nation stats) for new users,
-then a main menu in the competitor's style: wooden resource bar, date + crest
-medallion + speed controls, and a parchment tile grid (Command staff, Troops,
-Diplomacy, Tribute, Trade, Production, Assemblies, Laws, Religion, Statistics,
+for new users: dark navy header (EmpireSim + settings/help), a CIVILIZATIONS
+rail with 41 tappable emblem buttons, advisor portrait + speech bubble, a red
+banner with the nation's emblem, a parchment world map with an emblem pin on
+the capital, a stats card (minerals: wood/stone/iron/copper/lead, historical
+1600 population, military strength, income/day, state religion, capital city),
+a green START button, and a painted city backdrop. Then a main menu in the
+competitor's style: wooden resource bar, date + crest medallion + speed
+controls, and a parchment tile grid (Command staff, Troops, Diplomacy,
+Tribute, Trade, Production, Assemblies, Laws, Religion, Statistics,
 Population, Events). Tiles route to the existing system pages.
 
 ## Structure

@@ -1,33 +1,45 @@
 @inject GameEngine Engine
 @implements IDisposable
 
-<div class="select-screen">
-    <div class="flag-rail left">
-        @foreach (var n in _options)
-        {
-            <span class="flag-chip" style="background:@n.ColorHex" title="@n.Name"></span>
-        }
-    </div>
-    <div class="flag-rail right">
-        @foreach (var n in _options)
-        {
-            <span class="flag-chip" style="background:@n.ColorHex" title="@n.Name"></span>
-        }
-    </div>
+<div class="select2">
+    <header class="select2-header">
+        <span class="app-title">👑 EmpireSim</span>
+        <span class="header-btns">
+            <button class="hbtn" title="Settings">⚙️</button>
+            <button class="hbtn" title="Help">❓</button>
+        </span>
+    </header>
 
-    <div class="select-column">
-        <div class="advisor-row">
-            <img src="images/advisor.webp" class="advisor-img" alt="Advisor" />
-            <div class="speech-bubble">Choose the country you want to lead.</div>
-        </div>
-
-        <div class="crest-wrap">
-            <div class="crest-ring large">
-                <div class="crest" style="background:@_selected.ColorHex">@Initials(_selected)</div>
+    <div class="select2-body">
+        <aside class="civ-rail">
+            <div class="civ-label">CIVILIZATIONS</div>
+            <div class="civ-grid">
+                @foreach (var n in _options)
+                {
+                    <button class="civ-btn @(_selected.Id == n.Id ? "sel" : "")"
+                            style="background:@n.ColorHex"
+                            title="@n.Name"
+                            @onclick="() => Select(n.Id)">
+                        <span>@n.Emblem</span>
+                    </button>
+                }
             </div>
-            <div class="dropdown-anchor">
-                <button class="country-dropdown" @onclick="ToggleDropdown">
-                    <span>@(_dropdownOpen ? "▲" : "▼")</span> @_selected.Name
+        </aside>
+
+        <div class="select2-main">
+            <div class="advisor-row2">
+                <img class="advisor-framed" src="images/advisor.webp" alt="Advisor" />
+                <div class="speech2">
+                    <div>Choose the country you want to lead.</div>
+                    <div class="speech-div">❖</div>
+                </div>
+            </div>
+
+            <div class="banner-anchor">
+                <button class="nation-banner" @onclick="ToggleDropdown">
+                    <span class="banner-emblem" style="background:@_selected.ColorHex">@_selected.Emblem</span>
+                    <span class="banner-name">@_selected.Name</span>
+                    <span class="banner-chev">@(_dropdownOpen ? "▴" : "▾")</span>
                 </button>
                 @if (_dropdownOpen)
                 {
@@ -36,34 +48,60 @@
                         {
                             <button class="dropdown-item @(n.Id == _selected.Id ? "selected" : "")"
                                     @onclick="() => Select(n.Id)">
-                                <span class="crest-mini" style="background:@n.ColorHex">@Initials(n)</span>
+                                <span class="crest-mini" style="background:@n.ColorHex">@n.Emblem</span>
                                 <span>@n.Name</span>
                             </button>
                         }
                     </div>
                 }
             </div>
-        </div>
 
-        <div class="select-map">
-            <img src="images/parchment-map.webp" alt="World map" />
-            <div class="map-pin" style="left:@PinX%;top:@PinY%">📍</div>
-        </div>
+            <div class="select-map2">
+                <img src="images/parchment-map.webp" alt="World map" />
+                <div class="map-pin2" style="left:@PinX%;top:@PinY%">
+                    <span class="pin-head"><span class="pin-emblem">@_selected.Emblem</span></span>
+                </div>
+            </div>
 
-        <div class="parchment-panel select-stats">
-            <div class="stat-res-row">
-                <span title="Wood">🪵 @_selected.Wood.ToString("N0")</span>
-                <span title="Iron">⛓️ @_selected.Iron.ToString("N0")</span>
-                <span title="Goods">📦 @_selected.Goods.ToString("N0")</span>
+            <div class="stats-card">
+                <div class="min-row">
+                    <span title="Wood">🪵 @Fmt(_selected.Wood)</span>
+                    <span title="Stone">🪨 @Fmt(_selected.Stone)</span>
+                    <span title="Iron">⛓️ @Fmt(_selected.Iron)</span>
+                    <span title="Copper">🟤 @Fmt(_selected.Copper)</span>
+                    <span title="Lead">⬜ @Fmt(_selected.Lead)</span>
+                </div>
+                <div class="stat2-grid">
+                    <div class="stat2">
+                        <span class="stat2-ic">👥</span>
+                        <span class="stat2-val">@_selected.HistoricalPopulation.ToString("N0")</span>
+                        <span class="stat2-lab">Population</span>
+                    </div>
+                    <div class="stat2">
+                        <span class="stat2-ic">⚔️</span>
+                        <span class="stat2-val">@_selected.Soldiers.ToString("N0")</span>
+                        <span class="stat2-lab">Military Strength</span>
+                    </div>
+                    <div class="stat2">
+                        <span class="stat2-ic">🪙</span>
+                        <span class="stat2-val">@_income.ToString("N0")</span>
+                        <span class="stat2-lab">Income per day</span>
+                    </div>
+                    <div class="stat2">
+                        <span class="stat2-ic">@ReligionIcon(_selected.Religion)</span>
+                        <span class="stat2-val">@_selected.Religion</span>
+                        <span class="stat2-lab">State Religion</span>
+                    </div>
+                    <div class="stat2 wide">
+                        <span class="stat2-ic">🏰</span>
+                        <span class="stat2-val">@CapitalName</span>
+                        <span class="stat2-lab">Capital City</span>
+                    </div>
+                </div>
             </div>
-            <div class="stat-grid">
-                <div class="stat"><span class="stat-ic">👥</span><span>@_selected.Population.ToString("N0")</span></div>
-                <div class="stat"><span class="stat-ic">⚔️</span><span>@_selected.Soldiers.ToString("N0")</span></div>
-                <div class="stat"><span class="stat-ic">🪙</span><span>@_income.ToString("N0") per day</span></div>
-                <div class="stat"><span class="stat-ic">✝️</span><span>@_selected.Religion</span></div>
-                <div class="stat wide"><span class="stat-ic">🏰</span><span>@CapitalName</span></div>
-            </div>
-            <button class="start-btn" @onclick="Start">START</button>
+
+            <button class="start2" @onclick="Start">START</button>
+            <img class="backdrop" src="images/select-backdrop.webp" alt="" />
         </div>
     </div>
 </div>
@@ -86,13 +124,6 @@
 
     private void OnStateChanged() => InvokeAsync(StateHasChanged);
 
-    private static string Initials(Nation n)
-    {
-        var parts = n.Name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        if (parts.Length == 1) return parts[0].Substring(0, Math.Min(2, parts[0].Length)).ToUpper();
-        return (parts[0][0].ToString() + parts[^1][0]).ToUpper();
-    }
-
     private void ToggleDropdown() => _dropdownOpen = !_dropdownOpen;
 
     private void Select(string id)
@@ -101,10 +132,24 @@
         _dropdownOpen = false;
     }
 
+    private static string Fmt(double v) => v.ToString("N0");
     private long _income => GameEngine.EstimateDailyIncome(_selected);
     private string CapitalName => _selected.Provinces.FirstOrDefault()?.Name ?? "—";
     private double PinX => (_selected.Provinces.FirstOrDefault()?.LabelX ?? 1100) / 2200 * 100;
     private double PinY => (_selected.Provinces.FirstOrDefault()?.LabelY ?? 575) / 1150 * 100;
+
+    private static string ReligionIcon(string r) => r switch
+    {
+        "Islam" => "☪️",
+        "Christianity" => "✝️",
+        "Buddhism" => "☸️",
+        "Hinduism" => "🕉️",
+        "Shinto" => "⛩️",
+        "Confucianism" => "📜",
+        "Shamanism" => "🌙",
+        "Animism" => "🌿",
+        _ => "🛐",
+    };
 
     private void Start() => Engine.StartCampaign(_selected.Id);
 

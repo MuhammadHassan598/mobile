@@ -721,9 +721,18 @@ public sealed class GameState
         };
 
         foreach (var n in nations)
+        {
             n.Population = n.Provinces.Sum(p => p.Population);
+            // Mineral endowment: deterministic, from the nation's lands.
+            n.Stone = 4 * n.Provinces.Count;
+            int mines = n.Provinces.Sum(p => p.Mines);
+            n.Lead = 2 * mines;
+            n.Copper = 2 * mines;
+        }
 
         ApplyReligions(nations);
+        ApplyHistoricalPopulations(nations);
+        ApplyEmblems(nations);
 
         var player = nations.FirstOrDefault(n => n.Id == playerNationId) ?? nations[0];
         player.IsPlayer = true;
@@ -791,5 +800,53 @@ public sealed class GameState
         };
         foreach (var n in nations)
             n.Religion = map.TryGetValue(n.Id, out var r) ? r : "";
+    }
+
+    /// <summary>Historical population estimates for 1600, shown on the select screen.</summary>
+    private static void ApplyHistoricalPopulations(List<Nation> nations)
+    {
+        var map = new Dictionary<string, long>
+        {
+            ["ottoman"] = 30000000, ["spain"] = 20000000, ["france"] = 18500000,
+            ["england"] = 6100000, ["dutch"] = 1500000, ["austria"] = 8000000,
+            ["poland"] = 11000000, ["russia"] = 13000000, ["sweden"] = 1000000,
+            ["venice"] = 2500000, ["persia"] = 10000000, ["mughal"] = 100000000,
+            ["ming"] = 160000000, ["japan"] = 12000000, ["kazakh"] = 1200000,
+            ["morocco"] = 4000000, ["denmark"] = 1000000, ["crimea"] = 500000,
+            ["ethiopia"] = 3000000, ["siam"] = 2500000, ["korea"] = 10000000,
+            ["bukhara"] = 2000000, ["hre"] = 20000000, ["scotland"] = 800000,
+            ["genoa"] = 600000, ["papal"] = 1500000, ["italy"] = 3000000,
+            ["croatia"] = 800000, ["vietnam"] = 5000000, ["burma"] = 3000000,
+            ["ahom"] = 2000000, ["yuan"] = 1000000, ["nepal"] = 1000000,
+            ["kongo"] = 2000000, ["jurchens"] = 400000, ["cambodia"] = 1000000,
+            ["laos"] = 800000, ["malaysia"] = 500000, ["uae"] = 100000,
+            ["micronesia"] = 100000, ["easter"] = 12000,
+        };
+        foreach (var n in nations)
+            n.HistoricalPopulation = map.TryGetValue(n.Id, out var p) ? p : n.Population;
+    }
+
+    /// <summary>Emblem per nation, used for the civilization grid and banner.</summary>
+    private static void ApplyEmblems(List<Nation> nations)
+    {
+        var map = new Dictionary<string, string>
+        {
+            ["ottoman"] = "☪️", ["spain"] = "🏰", ["france"] = "⚜️",
+            ["england"] = "🦁", ["dutch"] = "🌷", ["austria"] = "🦅",
+            ["poland"] = "🐎", ["russia"] = "🐻", ["sweden"] = "👑",
+            ["venice"] = "⚓", ["persia"] = "☀️", ["mughal"] = "🕌",
+            ["ming"] = "🐉", ["japan"] = "⛩️", ["kazakh"] = "🏹",
+            ["morocco"] = "🌙", ["denmark"] = "🛡️", ["crimea"] = "🐺",
+            ["ethiopia"] = "⛪", ["siam"] = "🐘", ["korea"] = "🏯",
+            ["bukhara"] = "🐫", ["hre"] = "🏛️", ["scotland"] = "🦄",
+            ["genoa"] = "🧭", ["papal"] = "✝️", ["italy"] = "🍇",
+            ["croatia"] = "⛵", ["vietnam"] = "🎋", ["burma"] = "🛕",
+            ["ahom"] = "🗡️", ["yuan"] = "🏕️", ["nepal"] = "🏔️",
+            ["kongo"] = "🥁", ["jurchens"] = "🐗", ["cambodia"] = "🗿",
+            ["laos"] = "🌅", ["malaysia"] = "🌴", ["uae"] = "🏜️",
+            ["micronesia"] = "🐚", ["easter"] = "🐢",
+        };
+        foreach (var n in nations)
+            n.Emblem = map.TryGetValue(n.Id, out var e) ? e : "🏳️";
     }
 }

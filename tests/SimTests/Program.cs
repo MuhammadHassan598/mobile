@@ -490,6 +490,10 @@ using (var engine14 = new GameEngine(new SimulationService(), new SaveService(sa
     Check(all.All(n => !string.IsNullOrWhiteSpace(n.Religion)), "every nation has a religion");
     Check(all.All(n => GameEngine.EstimateDailyIncome(n) > 0), "income estimate positive for all");
     Check(all.All(n => !string.IsNullOrWhiteSpace(n.ColorHex)), "every nation has a crest color");
+    Check(all.All(n => !string.IsNullOrWhiteSpace(n.Emblem)), "every nation has an emblem");
+    Check(all.All(n => n.HistoricalPopulation > 0), "every nation has a historical population");
+    Check(all.All(n => n.Stone >= 0 && n.Lead >= 0 && n.Copper >= 0), "mineral stocks non-negative");
+    Check(all.All(n => n.HistoricalPopulation >= n.Population), "historical pop >= sim pop");
     Check(engine14.State.PlayerNation.ColoniesFounded == 0, "colonies counter starts at 0");
     Check(engine14.State.PlayerNation.BattlesWon == 0, "battles-won counter starts at 0");
 }

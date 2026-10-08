@@ -12,6 +12,12 @@ public sealed class Nation
     /// <summary>Dominant faith, shown on the nation-select screen.</summary>
     public string Religion { get; set; } = "";
 
+    /// <summary>Historical 1600 population estimate, shown on the nation-select screen.</summary>
+    public long HistoricalPopulation { get; set; }
+
+    /// <summary>Emblem (emoji) used for the civilization grid and banner.</summary>
+    public string Emblem { get; set; } = "";
+
     /// <summary>Lifetime colonies founded (statistics).</summary>
     public int ColoniesFounded { get; set; }
 
@@ -59,6 +65,15 @@ public sealed class Nation
 
     /// <summary>Wood stockpile. Produced by sawmills, used by workshops and construction.</summary>
     public double Wood { get; set; }
+
+    /// <summary>Stone stockpile (minerals).</summary>
+    public double Stone { get; set; }
+
+    /// <summary>Lead stockpile (minerals).</summary>
+    public double Lead { get; set; }
+
+    /// <summary>Copper stockpile (minerals).</summary>
+    public double Copper { get; set; }
 
     /// <summary>Iron stockpile. Produced by mines, used by workshops and construction.</summary>
     public double Iron { get; set; }
