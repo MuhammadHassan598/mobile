@@ -151,8 +151,11 @@
 
     private async Task RenderMapAsync()
     {
+        // Draw large territories first so small nations (city-states, khanates)
+        // render on top and stay tappable.
         var nations = Engine.State.AllNations()
             .Where(n => !n.IsEliminated && n.Territory.Count > 0)
+            .OrderByDescending(n => n.Territory.Sum(t => PolyArea(t)))
             .Select(n => new
             {
                 id = n.Id,
@@ -169,7 +172,7 @@
             id = r.Id,
             name = r.Name,
             color = "#6B7280",
-            polygons = new List<List<MapPoint>> { r.Polygon },
+            polygons = r.Polygons,
             labelX = r.LabelX,
             labelY = r.LabelY,
         });
@@ -179,12 +182,14 @@
             id = r.Id,
             name = r.Name,
             color = "#4A4438",
-            polygons = new List<List<MapPoint>> { r.Polygon },
+            polygons = r.Polygons,
             labelX = r.LabelX,
             labelY = r.LabelY,
         });
 
-        var shapes = nations.Cast<object>().Concat(frontier).Concat(neutral).ToList();
+        // Neutrals form the background; nations draw over them (small first
+        // within nations so enclaves stay tappable); frontiers sit in open ocean.
+        var shapes = neutral.Cast<object>().Concat(nations).Concat(frontier).ToList();
 
         await JS.InvokeVoidAsync("empireMap.render",
             new { shapes, selectedId = SelectedId });
@@ -218,5 +223,13 @@
     {
         _dotNetRef?.Dispose();
         await Task.CompletedTask;
+    }
+
+    private static double PolyArea(List<MapPoint> poly)
+    {
+        double a = 0;
+        for (int i = 0; i < poly.Count - 1; i++)
+            a += poly[i].X * poly[i + 1].Y - poly[i + 1].X * poly[i].Y;
+        return Math.Abs(a) / 2;
     }
 }
