@@ -26,16 +26,16 @@ public static class BuildingCatalog
     {
         new(BuildingType.Farm, "Farm",
             "Produces food every day to feed your people.",
-            GoldCost: 100, WoodCost: 0, IronCost: 0, BuildDays: 5),
+            GoldCost: 1, WoodCost: 0, IronCost: 0, BuildDays: 5),
         new(BuildingType.Mine, "Mine",
             "Produces iron every day for workshops and construction.",
-            GoldCost: 250, WoodCost: 0, IronCost: 0, BuildDays: 10),
+            GoldCost: 2.5, WoodCost: 0, IronCost: 0, BuildDays: 10),
         new(BuildingType.Sawmill, "Sawmill",
             "Produces wood every day for workshops and construction.",
-            GoldCost: 200, WoodCost: 0, IronCost: 0, BuildDays: 8),
+            GoldCost: 2, WoodCost: 0, IronCost: 0, BuildDays: 8),
         new(BuildingType.Workshop, "Workshop",
             "Turns 2 wood + 1 iron into 1 goods every day. Goods are sold for gold.",
-            GoldCost: 400, WoodCost: 10, IronCost: 5, BuildDays: 12),
+            GoldCost: 4, WoodCost: 10, IronCost: 5, BuildDays: 12),
     };
 
     public static BuildingSpec Get(BuildingType type) =>

@@ -34,13 +34,13 @@ public static class UnitCatalog
     public static readonly IReadOnlyList<UnitSpec> All = new List<UnitSpec>
     {
         new(UnitType.Musketeer, "Musketeer", "🎯", "Line infantry with muskets. The backbone of the army.",
-            GoldCost: 20, WoodCost: 0, IronCost: 0, UpkeepPerDay: 0.03, Strength: 1.0),
+            GoldCost: 0.2, WoodCost: 0, IronCost: 0, UpkeepPerDay: 0.0003, Strength: 1.0),
         new(UnitType.Pikeman, "Pikeman", "🔱", "Cheap spear infantry. Holds the line.",
-            GoldCost: 15, WoodCost: 0, IronCost: 0, UpkeepPerDay: 0.025, Strength: 0.8),
+            GoldCost: 0.15, WoodCost: 0, IronCost: 0, UpkeepPerDay: 0.00025, Strength: 0.8),
         new(UnitType.Cavalry, "Cavalry", "🐎", "Fast horsemen for flanking.",
-            GoldCost: 50, WoodCost: 0, IronCost: 0, UpkeepPerDay: 0.06, Strength: 1.2),
+            GoldCost: 0.5, WoodCost: 0, IronCost: 0, UpkeepPerDay: 0.0006, Strength: 1.2),
         new(UnitType.Cannon, "Cannon", "💣", "Siege artillery. Expensive but devastating.",
-            GoldCost: 200, WoodCost: 0, IronCost: 5, UpkeepPerDay: 0.15, Strength: 2.5),
+            GoldCost: 2, WoodCost: 0, IronCost: 5, UpkeepPerDay: 0.0015, Strength: 2.5),
     };
 
     public static UnitSpec Get(UnitType type) => All.First(s => s.Type == type);
@@ -68,10 +68,10 @@ public static class WarshipSpec
 {
     public const string Name = "Warship";
     public const string Icon = "🚢";
-    public const double GoldCost = 500;
+    public const double GoldCost = 5;
     public const double WoodCost = 20;
     public const double IronCost = 10;
-    public const double UpkeepPerDay = 0.5;
+    public const double UpkeepPerDay = 0.005;
 
     public static string CostText =>
         $"{Currency.Cost(GoldCost)} + {WoodCost:N0} wood + {IronCost:N0} iron";

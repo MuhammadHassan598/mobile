@@ -32,13 +32,13 @@ public static class Balance
     public const double CinCTaxMult = 1.05;              // +5% taxes
 
     // ---- Diplomacy ----
-    public const double GiftCost = 500;
+    public const double GiftCost = 5;
     public const double GiftRelationGain = 10;
-    public const double TradePactFee = 500;
-    public const double TradePactDailyIncome = 50;
+    public const double TradePactFee = 5;
+    public const double TradePactDailyIncome = 0.5;
     public const double TradePactRelationPerDay = 0.5;
     public const double RelationDriftPerDay = 0.2;   // toward 0 when at peace
-    public const double PeaceTributeCost = 1000;
+    public const double PeaceTributeCost = 10;
     public const double TributeArmyRatio = 1.5;      // need 1.5x their army
     public const double TributeFraction = 0.10;      // they pay 10% of treasury
     public const double TributeRefusalWarChance = 0.20;
@@ -48,7 +48,7 @@ public static class Balance
     public const double WarAttritionPerDay = 0.002;   // 0.2% of soldiers/day each side
 
     // ---- Espionage ----
-    public const double EstablishNetworkCost = 800;
+    public const double EstablishNetworkCost = 8;
     public const int EstablishNetworkStrength = 20;
     public const int MaxNetworkStrength = 100;
     public const int NetworkGrowthPerDay = 1;
@@ -86,11 +86,11 @@ public static class Balance
     public const double AiInvasionChancePerDay = 0.01;
 
     // ---- Laws & religion ----
-    public const double EdictEnactCost = 200;
-    public const double StanceChangeCost = 200;
+    public const double EdictEnactCost = 2;
+    public const double StanceChangeCost = 2;
 
     // ---- Colonisation ----
-    public const double ColonyCostSilver = 2000;
+    public const double ColonyCostGold = 20;
     public const double ColonyCostFood = 3000;
     public const int ColonyColonists = 2000;
     public const int ColonyDays = 30;
@@ -101,7 +101,7 @@ public static class Balance
     // Per-capita rates are rebased for historical 1600 populations: every
     // subject still pays tax and eats food, but the crown domain (royal
     // demesne) guarantees a base income so small nations stay playable.
-    public const double TaxPerPersonPerDay = 0.00001;
+    public const double TaxPerPersonPerDay = 0.0000001;
     public const double CrownDomainIncomePerDay = 20.0;
 
     // ---- Population ----

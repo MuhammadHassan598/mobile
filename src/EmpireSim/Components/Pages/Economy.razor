@@ -14,7 +14,7 @@
 
     <h2>STOCKS</h2>
     <div class="cards">
-        <div class="card"><div class="label">Treasury</div><div class="value gold">@Currency.Format(_nation.WealthInSilver)</div></div>
+        <div class="card"><div class="label">Treasury</div><div class="value gold">@Currency.Format(_nation.Gold)</div></div>
         <div class="card"><div class="label">Food</div><div class="value">@_nation.Food.ToString("N0")</div></div>
         <div class="card"><div class="label">Wood</div><div class="value">@_nation.Wood.ToString("N0")</div></div>
         <div class="card"><div class="label">Iron</div><div class="value">@_nation.Iron.ToString("N0")</div></div>
@@ -24,11 +24,6 @@
             <button class="inline-btn" @onclick="SellGoods" disabled="@(_nation.Goods <= 0)">
                 Sell goods (@Currency.Cost(_nation.Goods * Balance.GoodsSellPrice))
             </button>
-        </div>
-        <div class="card">
-            <div class="label">Exchange (@_nation.Silver.ToString("N0") Silver · @_nation.Gold.ToString("N0") Gold)</div>
-            <button class="inline-btn" @onclick="ToGold">100 Silver → 1 Gold</button>
-            <button class="inline-btn" @onclick="ToSilver">1 Gold → 100 Silver</button>
         </div>
     </div>
 
@@ -83,11 +78,5 @@
 
     private void SellGoods() => Engine.SellGoods();
 
-    private void ToGold() => _error = Engine.ExchangeSilverForGold(100);
-    private void ToSilver() => _error = Engine.ExchangeGoldForSilver(1);
-
-    public void Dispose()
-    {
-        Engine.StateChanged -= OnStateChanged;
-    }
+    public void Dispose() => Engine.StateChanged -= OnStateChanged;
 }

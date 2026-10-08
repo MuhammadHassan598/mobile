@@ -26,39 +26,22 @@ public sealed class Nation
     public string ColorHex { get; set; } = "#8B0000";
     public bool IsPlayer { get; set; }
 
-    /// <summary>Silver purse. The working currency: taxes, upkeep, building.</summary>
-    public double Silver { get; set; }
-
-    /// <summary>Gold purse. 1 Gold = 100 Silver. A store of value.</summary>
+    /// <summary>Gold treasury. The single currency of the realm.</summary>
     public double Gold { get; set; }
 
-    /// <summary>Total wealth measured in Silver.</summary>
-    public double WealthInSilver => Silver + Gold * Currency.SilverPerGold;
+    public bool CanPay(double goldAmount) => Gold >= goldAmount;
 
-    public bool CanPay(double silverAmount) => WealthInSilver >= silverAmount;
-
-    /// <summary>
-    /// Pays a Silver-denominated amount: spends Silver first, then
-    /// auto-converts Gold if needed. Returns false when wealth is insufficient.
-    /// </summary>
-    public bool PaySilver(double amount)
+    /// <summary>Pays a Gold-denominated amount. Returns false when insufficient.</summary>
+    public bool PayGold(double amount)
     {
         if (amount <= 0) return true;
         if (!CanPay(amount)) return false;
-        if (Silver >= amount)
-        {
-            Silver -= amount;
-            return true;
-        }
-        double need = amount - Silver;
-        double goldNeeded = Math.Ceiling(need / Currency.SilverPerGold);
-        Gold -= goldNeeded;
-        Silver = goldNeeded * Currency.SilverPerGold - need;
+        Gold -= amount;
         return true;
     }
 
-    /// <summary>Income always arrives as Silver.</summary>
-    public void EarnSilver(double amount) => Silver += amount;
+    /// <summary>Income arrives as Gold.</summary>
+    public void EarnGold(double amount) => Gold += amount;
 
     /// <summary>Food stockpile in generic food units.</summary>
     public double Food { get; set; }

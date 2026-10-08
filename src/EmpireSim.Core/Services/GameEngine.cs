@@ -84,7 +84,7 @@ public sealed class GameEngine : IDisposable
     public bool CanAfford(BuildingSpec spec)
     {
         var n = State.PlayerNation;
-        return n.WealthInSilver >= spec.GoldCost
+        return n.Gold >= spec.GoldCost
             && n.Wood >= spec.WoodCost
             && n.Iron >= spec.IronCost;
     }
@@ -104,7 +104,7 @@ public sealed class GameEngine : IDisposable
 
         if (!CanAfford(spec)) return "Not enough resources.";
 
-        nation.PaySilver(spec.GoldCost);
+        nation.PayGold(spec.GoldCost);
         nation.Wood -= spec.WoodCost;
         nation.Iron -= spec.IronCost;
         nation.ConstructionQueue.Add(new ConstructionProject
@@ -125,36 +125,9 @@ public sealed class GameEngine : IDisposable
         if (n.Goods <= 0) return;
         double gold = n.Goods * Balance.GoodsSellPrice;
         State.Log($"Sold {n.Goods:N0} goods for {Currency.Cost(gold)}.");
-        n.Silver += gold;
+        n.Gold += gold;
         n.Goods = 0;
         StateChanged?.Invoke();
-    }
-
-    /// <summary>Converts Silver into Gold (100:1). Returns an error, or null.</summary>
-    public string? ExchangeSilverForGold(double silverAmount)
-    {
-        var n = State.PlayerNation;
-        double convertible = Math.Floor(Math.Min(n.Silver, silverAmount) / Currency.SilverPerGold)
-            * Currency.SilverPerGold;
-        if (convertible < Currency.SilverPerGold)
-            return $"Need at least {Currency.SilverPerGold:N0} Silver.";
-        n.Silver -= convertible;
-        n.Gold += convertible / Currency.SilverPerGold;
-        State.Log($"Exchanged {Currency.Cost(convertible)} into Gold.");
-        StateChanged?.Invoke();
-        return null;
-    }
-
-    /// <summary>Converts Gold back into Silver. Returns an error, or null.</summary>
-    public string? ExchangeGoldForSilver(double goldAmount)
-    {
-        var n = State.PlayerNation;
-        if (goldAmount <= 0 || n.Gold < goldAmount) return "Not enough Gold.";
-        n.Gold -= goldAmount;
-        n.Silver += goldAmount * Currency.SilverPerGold;
-        State.Log($"Exchanged {goldAmount:N0} Gold into Silver.");
-        StateChanged?.Invoke();
-        return null;
     }
 
     // ---------------- Warfare ----------------
@@ -205,8 +178,8 @@ public sealed class GameEngine : IDisposable
         }
         else
         {
-            if (!n.CanPay(Balance.EdictEnactCost)) return "Not enough Silver.";
-            n.PaySilver(Balance.EdictEnactCost);
+            if (!n.CanPay(Balance.EdictEnactCost)) return "Not enough Gold.";
+            n.PayGold(Balance.EdictEnactCost);
             n.ActiveEdicts.Add(edict);
             State.Log($"Enacted {EdictCatalog.Get(edict).Name}.");
         }
@@ -218,8 +191,8 @@ public sealed class GameEngine : IDisposable
     {
         var n = State.PlayerNation;
         if (n.Stance == stance) return null;
-        if (!n.CanPay(Balance.StanceChangeCost)) return "Not enough Silver.";
-        n.PaySilver(Balance.StanceChangeCost);
+        if (!n.CanPay(Balance.StanceChangeCost)) return "Not enough Gold.";
+        n.PayGold(Balance.StanceChangeCost);
         n.Stance = stance;
         State.Log($"The court adopts a {stance.ToString().ToLower()} religious stance.");
         StateChanged?.Invoke();
@@ -237,11 +210,11 @@ public sealed class GameEngine : IDisposable
         var n = State.PlayerNation;
         if (n.Warships < Balance.ColonyWarshipsRequired)
             return $"Need {Balance.ColonyWarshipsRequired} warships to carry the colonists.";
-        if (!n.CanPay(Balance.ColonyCostSilver)) return "Not enough Silver.";
+        if (!n.CanPay(Balance.ColonyCostGold)) return "Not enough Gold.";
         if (n.Food < Balance.ColonyCostFood) return "Not enough food for the voyage.";
         if (n.Population < Balance.ColonyColonists) return "Not enough people to spare.";
 
-        n.PaySilver(Balance.ColonyCostSilver);
+        n.PayGold(Balance.ColonyCostGold);
         n.Food -= Balance.ColonyCostFood;
         n.Population -= Balance.ColonyColonists;
         State.ActiveExpedition = new ColonyExpedition
@@ -272,7 +245,7 @@ public sealed class GameEngine : IDisposable
         if (!n.CanPay(gold) || n.Wood < wood || n.Iron < iron)
             return "Not enough resources.";
 
-        n.PaySilver(gold);
+        n.PayGold(gold);
         n.Wood -= wood;
         n.Iron -= iron;
         var stack = n.Units.FirstOrDefault(u => u.Type == type);
@@ -297,7 +270,7 @@ public sealed class GameEngine : IDisposable
         if (!n.CanPay(gold) || n.Wood < wood || n.Iron < iron)
             return "Not enough resources.";
 
-        n.PaySilver(gold);
+        n.PayGold(gold);
         n.Wood -= wood;
         n.Iron -= iron;
         n.Warships += count;
@@ -313,9 +286,9 @@ public sealed class GameEngine : IDisposable
         var n = State.PlayerNation;
         if (n.HasCommander(role)) return "Role already filled.";
         var spec = CommanderCatalog.GetRole(role);
-        if (!n.CanPay(spec.HireCost)) return "Not enough Silver.";
+        if (!n.CanPay(spec.HireCost)) return "Not enough Gold.";
 
-        n.PaySilver(spec.HireCost);
+        n.PayGold(spec.HireCost);
         n.Commanders.Add(new Commander
         {
             Name = CommanderCatalog.NextCandidateName(role, n.Commanders),
@@ -345,9 +318,9 @@ public sealed class GameEngine : IDisposable
     {
         var n = State.PlayerNation;
         if (n.UpkeepAccrued <= 0) return "Nothing due.";
-        if (!n.CanPay(n.UpkeepAccrued)) return "Not enough Silver in the treasury.";
+        if (!n.CanPay(n.UpkeepAccrued)) return "Not enough Gold in the treasury.";
 
-        n.PaySilver(n.UpkeepAccrued);
+        n.PayGold(n.UpkeepAccrued);
         State.Log($"Paid army maintenance early: {Currency.Format(n.UpkeepAccrued)}.");
         n.UpkeepAccrued = 0;
         n.GraceDaysLeft = 0;
@@ -371,9 +344,9 @@ public sealed class GameEngine : IDisposable
         var n = FindNation(nationId);
         if (n is null) return "Nation not found.";
         if (n.AtWarWithPlayer) return "You are at war — they refuse your gift.";
-        if (!State.PlayerNation.CanPay(Balance.GiftCost)) return "Not enough Silver.";
+        if (!State.PlayerNation.CanPay(Balance.GiftCost)) return "Not enough Gold.";
 
-        State.PlayerNation.PaySilver(Balance.GiftCost);
+        State.PlayerNation.PayGold(Balance.GiftCost);
         n.RelationToPlayer = Math.Min(100, n.RelationToPlayer + Balance.GiftRelationGain);
         State.Log($"Sent a gift to {n.Name} (+{Balance.GiftRelationGain} relations).");
         StateChanged?.Invoke();
@@ -399,9 +372,9 @@ public sealed class GameEngine : IDisposable
         var n = FindNation(nationId);
         if (n is null) return "Nation not found.";
         if (!n.AtWarWithPlayer) return "You are not at war.";
-        if (!State.PlayerNation.CanPay(Balance.PeaceTributeCost)) return "Not enough Silver for tribute.";
+        if (!State.PlayerNation.CanPay(Balance.PeaceTributeCost)) return "Not enough Gold for tribute.";
 
-        State.PlayerNation.PaySilver(Balance.PeaceTributeCost);
+        State.PlayerNation.PayGold(Balance.PeaceTributeCost);
         n.AtWarWithPlayer = false;
         n.RelationToPlayer = -20;
         State.Log($"You sued for peace with {n.Name} (tribute {Balance.PeaceTributeCost:N0} gold).");
@@ -416,9 +389,9 @@ public sealed class GameEngine : IDisposable
         if (n.AtWarWithPlayer) return "Cannot trade while at war.";
         if (n.HasTradePactWithPlayer) return "Pact already signed.";
         if (n.RelationToPlayer < 0) return "Relations too poor — send gifts first.";
-        if (!State.PlayerNation.CanPay(Balance.TradePactFee)) return "Not enough Silver.";
+        if (!State.PlayerNation.CanPay(Balance.TradePactFee)) return "Not enough Gold.";
 
-        State.PlayerNation.PaySilver(Balance.TradePactFee);
+        State.PlayerNation.PayGold(Balance.TradePactFee);
         n.HasTradePactWithPlayer = true;
         State.Log($"Signed a trade pact with {n.Name}.");
         StateChanged?.Invoke();
@@ -447,10 +420,10 @@ public sealed class GameEngine : IDisposable
         var player = State.PlayerNation;
         if (player.Soldiers > n.Soldiers * Balance.TributeArmyRatio)
         {
-            double tribute = Math.Min(n.WealthInSilver,
-                Math.Max(100, n.WealthInSilver * Balance.TributeFraction));
-            n.PaySilver(tribute);
-            player.Silver += tribute;
+            double tribute = Math.Min(n.Gold,
+                Math.Max(100, n.Gold * Balance.TributeFraction));
+            n.PayGold(tribute);
+            player.Gold += tribute;
             n.RelationToPlayer = Math.Max(-100, n.RelationToPlayer - 20);
             State.Log($"{n.Name} paid tribute: {Currency.Cost(tribute)}.");
         }
@@ -483,9 +456,9 @@ public sealed class GameEngine : IDisposable
         var net = GetNetwork(nationId);
         if (net is not null && net.Strength >= Balance.MaxNetworkStrength)
             return "Network already at full strength.";
-        if (!State.PlayerNation.CanPay(Balance.EstablishNetworkCost)) return "Not enough Silver.";
+        if (!State.PlayerNation.CanPay(Balance.EstablishNetworkCost)) return "Not enough Gold.";
 
-        State.PlayerNation.PaySilver(Balance.EstablishNetworkCost);
+        State.PlayerNation.PayGold(Balance.EstablishNetworkCost);
         if (net is null)
             State.SpyNetworks.Add(new SpyNetwork
             {
@@ -532,9 +505,9 @@ public sealed class GameEngine : IDisposable
 
         double frac = Balance.StealFractionMin
             + _sim.NextDouble() * (Balance.StealFractionMax - Balance.StealFractionMin);
-        double amount = target!.WealthInSilver * frac;
-        target.PaySilver(amount);
-        State.PlayerNation.Silver += amount;
+        double amount = target!.Gold * frac;
+        target.PayGold(amount);
+        State.PlayerNation.Gold += amount;
         State.Log($"Spies stole {Currency.Cost(amount)} from {target.Name}.");
         if (_sim.RollChance(Balance.StealDiscoveryChance))
             Discover(net!, target, "theft");

@@ -91,7 +91,7 @@ public sealed class SimulationService
 
         // ---- Treasury: taxes in (silver), upkeep accrues towards the next payday ----
         double taxMult = nation.HasCommander(CommanderRole.CommanderInChief) ? Balance.CinCTaxMult : 1.0;
-        nation.Silver += nation.Population * Balance.TaxPerPersonPerDay * taxMult * nation.TaxMult
+        nation.Gold += nation.Population * Balance.TaxPerPersonPerDay * taxMult * nation.TaxMult
                          + Balance.CrownDomainIncomePerDay;
 
         double landUpkeepMult = (nation.HasCommander(CommanderRole.LandCommander) ? Balance.LandCommanderUpkeepMult : 1.0)
@@ -109,7 +109,7 @@ public sealed class SimulationService
         {
             if (nation.CanPay(nation.UpkeepAccrued))
             {
-                nation.PaySilver(nation.UpkeepAccrued);
+                nation.PayGold(nation.UpkeepAccrued);
                 state.Log($"{nation.Name} paid army maintenance: {Currency.Format(nation.UpkeepAccrued)}.");
                 nation.UpkeepAccrued = 0;
                 nation.NextPayday = nation.NextPayday.AddDays(Balance.PaydayIntervalDays);
@@ -118,7 +118,7 @@ public sealed class SimulationService
             {
                 nation.GraceDaysLeft = Balance.GracePeriodDays;
                 Warn(state, nation,
-                    $"ARMY MAINTENANCE DUE in {nation.Name}! Need {Currency.Format(nation.UpkeepAccrued)}, treasury holds {Currency.Format(nation.WealthInSilver)}. " +
+                    $"ARMY MAINTENANCE DUE in {nation.Name}! Need {Currency.Format(nation.UpkeepAccrued)}, treasury holds {Currency.Format(nation.Gold)}. " +
                     $"Pay within {Balance.GracePeriodDays} days or soldiers will desert.");
             }
         }
@@ -128,7 +128,7 @@ public sealed class SimulationService
             if (nation.CanPay(nation.UpkeepAccrued))
             {
                 // Paid during grace.
-                nation.PaySilver(nation.UpkeepAccrued);
+                nation.PayGold(nation.UpkeepAccrued);
                 state.Log($"{nation.Name} paid overdue army maintenance: {Currency.Format(nation.UpkeepAccrued)}.");
                 nation.UpkeepAccrued = 0;
                 nation.NextPayday = state.CurrentDate.AddDays(Balance.PaydayIntervalDays);
@@ -145,7 +145,7 @@ public sealed class SimulationService
             }
         }
 
-        if (nation.Silver < 0) nation.Silver = 0;
+        if (nation.Gold < 0) nation.Gold = 0;
         if (nation.Gold < 0) nation.Gold = 0;
         if (nation.Food < 0) nation.Food = 0;
     }
@@ -207,7 +207,7 @@ public sealed class SimulationService
 
             if (other.HasTradePactWithPlayer)
             {
-                player.Silver += Balance.TradePactDailyIncome * player.TradeIncomeMult;
+                player.Gold += Balance.TradePactDailyIncome * player.TradeIncomeMult;
                 other.RelationToPlayer = Math.Min(100,
                     other.RelationToPlayer + Balance.TradePactRelationPerDay);
             }

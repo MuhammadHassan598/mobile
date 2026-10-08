@@ -94,7 +94,7 @@
                 else
                 {
                     <button class="inline-btn" @onclick="() => Colonize(_selectedFrontier!.Id)">
-                        ⛵ Found colony (@Currency.Cost(Balance.ColonyCostSilver) · @Balance.ColonyCostFood.ToString("N0") food · @Balance.ColonyWarshipsRequired warships)
+                        ⛵ Found colony (@Currency.Cost(Balance.ColonyCostGold) · @Balance.ColonyCostFood.ToString("N0") food · @Balance.ColonyWarshipsRequired warships)
                     </button>
                 }
             }

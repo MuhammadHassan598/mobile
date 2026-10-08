@@ -77,7 +77,7 @@ public sealed class GameState
             new()
             {
                 Id = "ottoman", Name = "Ottoman Empire", ColorHex = "#8B0000",
-                Silver = 5000, Gold = 12, Food = 5000, Wood = 20, Iron = 10,
+                Gold = 62, Food = 5000, Wood = 20, Iron = 10,
                 Units = UnitCatalog.SeedArmy(8_000), Warships = 25,
                 NextPayday = new DateOnly(1600, 7, 1),
                 CapitalName = "Constantinople", MapX = 604, MapY = 382,
@@ -109,7 +109,7 @@ public sealed class GameState
             new()
             {
                 Id = "spain", Name = "Iberian Union", ColorHex = "#E74C3C",
-                Silver = 6000, Gold = 15, Food = 4500, Wood = 25, Iron = 12,
+                Gold = 75, Food = 4500, Wood = 25, Iron = 12,
                 Units = UnitCatalog.SeedArmy(9_000), Warships = 30,
                 NextPayday = new DateOnly(1600, 7, 1),
                 CapitalName = "Castile", MapX = 206, MapY = 368,
@@ -135,7 +135,7 @@ public sealed class GameState
             new()
             {
                 Id = "france", Name = "France", ColorHex = "#2E86C1",
-                Silver = 5500, Gold = 12, Food = 5000, Wood = 20, Iron = 10,
+                Gold = 67, Food = 5000, Wood = 20, Iron = 10,
                 Units = UnitCatalog.SeedArmy(9_000), Warships = 15,
                 NextPayday = new DateOnly(1600, 7, 1),
                 CapitalName = "Paris", MapX = 281, MapY = 308,
@@ -150,7 +150,7 @@ public sealed class GameState
             new()
             {
                 Id = "england", Name = "England", ColorHex = "#7D3C98",
-                Silver = 4000, Gold = 10, Food = 3500, Wood = 25, Iron = 8,
+                Gold = 50, Food = 3500, Wood = 25, Iron = 8,
                 Units = UnitCatalog.SeedArmy(4_000), Warships = 25,
                 NextPayday = new DateOnly(1600, 7, 1),
                 CapitalName = "London", MapX = 221, MapY = 247,
@@ -165,7 +165,7 @@ public sealed class GameState
             new()
             {
                 Id = "dutch", Name = "Netherlands", ColorHex = "#E67E22",
-                Silver = 5000, Gold = 15, Food = 2500, Wood = 30, Iron = 6,
+                Gold = 65, Food = 2500, Wood = 30, Iron = 6,
                 Units = UnitCatalog.SeedArmy(3_000), Warships = 20,
                 NextPayday = new DateOnly(1600, 7, 1),
                 CapitalName = "Holland", MapX = 307, MapY = 256,
@@ -180,7 +180,7 @@ public sealed class GameState
             new()
             {
                 Id = "austria", Name = "Habsburg Monarchy", ColorHex = "#5D6D7E",
-                Silver = 4500, Gold = 10, Food = 4000, Wood = 20, Iron = 12,
+                Gold = 55, Food = 4000, Wood = 20, Iron = 12,
                 Units = UnitCatalog.SeedArmy(7_000), Warships = 5,
                 NextPayday = new DateOnly(1600, 7, 1),
                 CapitalName = "Vienna", MapX = 389, MapY = 297,
@@ -196,7 +196,7 @@ public sealed class GameState
             new()
             {
                 Id = "poland", Name = "Polish-Lithuanian Commonwealth", ColorHex = "#F1948A",
-                Silver = 3500, Gold = 8, Food = 4500, Wood = 25, Iron = 8,
+                Gold = 43, Food = 4500, Wood = 25, Iron = 8,
                 Units = UnitCatalog.SeedArmy(6_000), Warships = 5,
                 NextPayday = new DateOnly(1600, 7, 1),
                 CapitalName = "Krakow", MapX = 555, MapY = 287,
@@ -215,7 +215,7 @@ public sealed class GameState
             new()
             {
                 Id = "russia", Name = "Russia", ColorHex = "#229954",
-                Silver = 3500, Gold = 8, Food = 4500, Wood = 30, Iron = 10,
+                Gold = 43, Food = 4500, Wood = 30, Iron = 10,
                 Units = UnitCatalog.SeedArmy(7_000), Warships = 5,
                 NextPayday = new DateOnly(1600, 7, 1),
                 CapitalName = "Moscow", MapX = 814, MapY = 179,
@@ -232,7 +232,7 @@ public sealed class GameState
             new()
             {
                 Id = "sweden", Name = "Sweden", ColorHex = "#5DADE2",
-                Silver = 3000, Gold = 8, Food = 2500, Wood = 30, Iron = 14,
+                Gold = 38, Food = 2500, Wood = 30, Iron = 14,
                 Units = UnitCatalog.SeedArmy(4_000), Warships = 15,
                 NextPayday = new DateOnly(1600, 7, 1),
                 CapitalName = "Stockholm", MapX = 418, MapY = 156,
@@ -247,7 +247,7 @@ public sealed class GameState
             new()
             {
                 Id = "venice", Name = "Venice", ColorHex = "#17A589",
-                Silver = 4500, Gold = 15, Food = 2000, Wood = 15, Iron = 5,
+                Gold = 60, Food = 2000, Wood = 15, Iron = 5,
                 Units = UnitCatalog.SeedArmy(2_500), Warships = 25,
                 NextPayday = new DateOnly(1600, 7, 1),
                 CapitalName = "Venice", MapX = 372, MapY = 317,
@@ -261,7 +261,7 @@ public sealed class GameState
             new()
             {
                 Id = "persia", Name = "Iran", ColorHex = "#1F6F3A",
-                Silver = 4000, Gold = 10, Food = 3500, Wood = 12, Iron = 8,
+                Gold = 50, Food = 3500, Wood = 12, Iron = 8,
                 Units = UnitCatalog.SeedArmy(5_000), Warships = 8,
                 NextPayday = new DateOnly(1600, 7, 1),
                 CapitalName = "Isfahan", MapX = 783, MapY = 433,
@@ -279,7 +279,7 @@ public sealed class GameState
             new()
             {
                 Id = "mughal", Name = "Mughal Empire", ColorHex = "#B8860B",
-                Silver = 6000, Gold = 15, Food = 6000, Wood = 15, Iron = 8,
+                Gold = 75, Food = 6000, Wood = 15, Iron = 8,
                 Units = UnitCatalog.SeedArmy(8_000), Warships = 12,
                 NextPayday = new DateOnly(1600, 7, 1),
                 CapitalName = "Agra", MapX = 1040, MapY = 515,
@@ -297,7 +297,7 @@ public sealed class GameState
             new()
             {
                 Id = "ming", Name = "Ming Dynasty", ColorHex = "#F1C40F",
-                Silver = 7000, Gold = 20, Food = 8000, Wood = 25, Iron = 15,
+                Gold = 90, Food = 8000, Wood = 25, Iron = 15,
                 Units = UnitCatalog.SeedArmy(12_000), Warships = 20,
                 NextPayday = new DateOnly(1600, 7, 1),
                 CapitalName = "Beijing", MapX = 1299, MapY = 393,
@@ -312,7 +312,7 @@ public sealed class GameState
             new()
             {
                 Id = "japan", Name = "Japan", ColorHex = "#D5D8DC",
-                Silver = 3500, Gold = 10, Food = 3000, Wood = 25, Iron = 12,
+                Gold = 45, Food = 3000, Wood = 25, Iron = 12,
                 Units = UnitCatalog.SeedArmy(5_000), Warships = 15,
                 NextPayday = new DateOnly(1600, 7, 1),
                 CapitalName = "Edo", MapX = 1611, MapY = 407,
@@ -328,7 +328,7 @@ public sealed class GameState
             new()
             {
                 Id = "kazakh", Name = "Kazakh Khanate", ColorHex = "#2F4F6F",
-                Silver = 2500, Gold = 5, Food = 2200, Wood = 8, Iron = 4,
+                Gold = 30, Food = 2200, Wood = 8, Iron = 4,
                 Units = UnitCatalog.SeedArmy(4_000), Warships = 0,
                 NextPayday = new DateOnly(1600, 7, 1),
                 CapitalName = "Turkestan", MapX = 909, MapY = 298,
@@ -342,7 +342,7 @@ public sealed class GameState
             new()
             {
                 Id = "morocco", Name = "Morocco", ColorHex = "#7D6608",
-                Silver = 3000, Gold = 8, Food = 2500, Wood = 10, Iron = 5,
+                Gold = 38, Food = 2500, Wood = 10, Iron = 5,
                 Units = UnitCatalog.SeedArmy(3_500), Warships = 10,
                 NextPayday = new DateOnly(1600, 7, 1),
                 CapitalName = "Marrakesh", MapX = 165, MapY = 465,
@@ -357,7 +357,7 @@ public sealed class GameState
             new()
             {
                 Id = "denmark", Name = "Denmark-Norway", ColorHex = "#AD1457",
-                Silver = 3000, Gold = 8, Food = 2200, Wood = 25, Iron = 8,
+                Gold = 38, Food = 2200, Wood = 25, Iron = 8,
                 Units = UnitCatalog.SeedArmy(3_500), Warships = 18,
                 NextPayday = new DateOnly(1600, 7, 1),
                 CapitalName = "Denmark", MapX = 437, MapY = 127,
@@ -373,7 +373,7 @@ public sealed class GameState
             new()
             {
                 Id = "crimea", Name = "Crimean Khanate", ColorHex = "#00ACC1",
-                Silver = 2000, Gold = 5, Food = 2000, Wood = 8, Iron = 3,
+                Gold = 25, Food = 2000, Wood = 8, Iron = 3,
                 Units = UnitCatalog.SeedArmy(4_500), Warships = 0,
                 NextPayday = new DateOnly(1600, 7, 1),
                 CapitalName = "Crimea", MapX = 593, MapY = 309,
@@ -387,7 +387,7 @@ public sealed class GameState
             new()
             {
                 Id = "ethiopia", Name = "Ethiopia", ColorHex = "#6D4C41",
-                Silver = 2500, Gold = 6, Food = 2500, Wood = 12, Iron = 5,
+                Gold = 31, Food = 2500, Wood = 12, Iron = 5,
                 Units = UnitCatalog.SeedArmy(3_000), Warships = 0,
                 NextPayday = new DateOnly(1600, 7, 1),
                 CapitalName = "Abyssinia", MapX = 646, MapY = 649,
@@ -401,7 +401,7 @@ public sealed class GameState
             new()
             {
                 Id = "siam", Name = "Thailand", ColorHex = "#7CB342",
-                Silver = 3000, Gold = 8, Food = 3000, Wood = 20, Iron = 4,
+                Gold = 38, Food = 3000, Wood = 20, Iron = 4,
                 Units = UnitCatalog.SeedArmy(3_500), Warships = 8,
                 NextPayday = new DateOnly(1600, 7, 1),
                 CapitalName = "Ayutthaya", MapX = 1262, MapY = 611,
@@ -415,7 +415,7 @@ public sealed class GameState
             new()
             {
                 Id = "korea", Name = "Korea", ColorHex = "#BA68C8",
-                Silver = 2500, Gold = 6, Food = 2500, Wood = 18, Iron = 6,
+                Gold = 31, Food = 2500, Wood = 18, Iron = 6,
                 Units = UnitCatalog.SeedArmy(2_500), Warships = 10,
                 NextPayday = new DateOnly(1600, 7, 1),
                 CapitalName = "Hanseong", MapX = 1528, MapY = 363,
@@ -430,7 +430,7 @@ public sealed class GameState
             new()
             {
                 Id = "bukhara", Name = "Bukhara", ColorHex = "#A1887F",
-                Silver = 2500, Gold = 6, Food = 2000, Wood = 8, Iron = 4,
+                Gold = 31, Food = 2000, Wood = 8, Iron = 4,
                 Units = UnitCatalog.SeedArmy(4_000), Warships = 0,
                 NextPayday = new DateOnly(1600, 7, 1),
                 CapitalName = "Bukhara", MapX = 899, MapY = 358,
@@ -447,7 +447,7 @@ public sealed class GameState
             new()
             {
                 Id = "hre", Name = "Holy Roman Empire", ColorHex = "#212121",
-                Silver = 4000, Gold = 10, Food = 3500, Wood = 22, Iron = 12,
+                Gold = 50, Food = 3500, Wood = 22, Iron = 12,
                 Units = UnitCatalog.SeedArmy(5_000), Warships = 5,
                 NextPayday = new DateOnly(1600, 7, 1),
                 CapitalName = "Bavaria", MapX = 356, MapY = 258,
@@ -461,7 +461,7 @@ public sealed class GameState
             new()
             {
                 Id = "scotland", Name = "Scotland", ColorHex = "#1B4F72",
-                Silver = 2000, Gold = 5, Food = 1800, Wood = 18, Iron = 6,
+                Gold = 25, Food = 1800, Wood = 18, Iron = 6,
                 Units = UnitCatalog.SeedArmy(2_500), Warships = 8,
                 NextPayday = new DateOnly(1600, 7, 1),
                 CapitalName = "Edinburgh", MapX = 209, MapY = 209,
@@ -475,7 +475,7 @@ public sealed class GameState
             new()
             {
                 Id = "genoa", Name = "Genoa", ColorHex = "#A93226",
-                Silver = 4000, Gold = 12, Food = 1500, Wood = 12, Iron = 4,
+                Gold = 52, Food = 1500, Wood = 12, Iron = 4,
                 Units = UnitCatalog.SeedArmy(2_000), Warships = 18,
                 NextPayday = new DateOnly(1600, 7, 1),
                 CapitalName = "Genoa", MapX = 334, MapY = 329,
@@ -489,7 +489,7 @@ public sealed class GameState
             new()
             {
                 Id = "papal", Name = "Papal States", ColorHex = "#F9E79F",
-                Silver = 3500, Gold = 10, Food = 1800, Wood = 10, Iron = 3,
+                Gold = 45, Food = 1800, Wood = 10, Iron = 3,
                 Units = UnitCatalog.SeedArmy(2_000), Warships = 5,
                 NextPayday = new DateOnly(1600, 7, 1),
                 CapitalName = "Rome", MapX = 386, MapY = 349,
@@ -503,7 +503,7 @@ public sealed class GameState
             new()
             {
                 Id = "italy", Name = "Italy", ColorHex = "#7E5109",
-                Silver = 3500, Gold = 10, Food = 2200, Wood = 12, Iron = 6,
+                Gold = 45, Food = 2200, Wood = 12, Iron = 6,
                 Units = UnitCatalog.SeedArmy(3_000), Warships = 8,
                 NextPayday = new DateOnly(1600, 7, 1),
                 CapitalName = "Piedmont", MapX = 350, MapY = 320,
@@ -517,7 +517,7 @@ public sealed class GameState
             new()
             {
                 Id = "croatia", Name = "Croatia", ColorHex = "#E59866",
-                Silver = 2000, Gold = 5, Food = 1800, Wood = 14, Iron = 4,
+                Gold = 25, Food = 1800, Wood = 14, Iron = 4,
                 Units = UnitCatalog.SeedArmy(2_500), Warships = 5,
                 NextPayday = new DateOnly(1600, 7, 1),
                 CapitalName = "Croatia", MapX = 412, MapY = 321,
@@ -531,7 +531,7 @@ public sealed class GameState
             new()
             {
                 Id = "vietnam", Name = "Vietnam", ColorHex = "#148F77",
-                Silver = 3000, Gold = 8, Food = 3500, Wood = 18, Iron = 5,
+                Gold = 38, Food = 3500, Wood = 18, Iron = 5,
                 Units = UnitCatalog.SeedArmy(4_000), Warships = 10,
                 NextPayday = new DateOnly(1600, 7, 1),
                 CapitalName = "Tonkin", MapX = 1309, MapY = 582,
@@ -545,7 +545,7 @@ public sealed class GameState
             new()
             {
                 Id = "burma", Name = "Burma", ColorHex = "#6C3483",
-                Silver = 3000, Gold = 8, Food = 3500, Wood = 20, Iron = 4,
+                Gold = 38, Food = 3500, Wood = 20, Iron = 4,
                 Units = UnitCatalog.SeedArmy(4_000), Warships = 5,
                 NextPayday = new DateOnly(1600, 7, 1),
                 CapitalName = "Ava", MapX = 1219, MapY = 544,
@@ -559,7 +559,7 @@ public sealed class GameState
             new()
             {
                 Id = "ahom", Name = "Ahom Kingdom", ColorHex = "#1A5276",
-                Silver = 2000, Gold = 5, Food = 2200, Wood = 16, Iron = 3,
+                Gold = 25, Food = 2200, Wood = 16, Iron = 3,
                 Units = UnitCatalog.SeedArmy(2_500), Warships = 0,
                 NextPayday = new DateOnly(1600, 7, 1),
                 CapitalName = "Ahom", MapX = 1199, MapY = 498,
@@ -573,7 +573,7 @@ public sealed class GameState
             new()
             {
                 Id = "yuan", Name = "Northern Yuan", ColorHex = "#935116",
-                Silver = 2000, Gold = 5, Food = 2000, Wood = 10, Iron = 3,
+                Gold = 25, Food = 2000, Wood = 10, Iron = 3,
                 Units = UnitCatalog.SeedArmy(5_000), Warships = 0,
                 NextPayday = new DateOnly(1600, 7, 1),
                 CapitalName = "Khalkha", MapX = 1296, MapY = 299,
@@ -587,7 +587,7 @@ public sealed class GameState
             new()
             {
                 Id = "nepal", Name = "Nepal", ColorHex = "#CA6F1E",
-                Silver = 1800, Gold = 5, Food = 1800, Wood = 14, Iron = 4,
+                Gold = 23, Food = 1800, Wood = 14, Iron = 4,
                 Units = UnitCatalog.SeedArmy(2_000), Warships = 0,
                 NextPayday = new DateOnly(1600, 7, 1),
                 CapitalName = "Kathmandu", MapX = 1097, MapY = 477,
@@ -601,7 +601,7 @@ public sealed class GameState
             new()
             {
                 Id = "kongo", Name = "Kongo", ColorHex = "#117A65",
-                Silver = 2000, Gold = 5, Food = 2200, Wood = 16, Iron = 3,
+                Gold = 25, Food = 2200, Wood = 16, Iron = 3,
                 Units = UnitCatalog.SeedArmy(2_500), Warships = 0,
                 NextPayday = new DateOnly(1600, 7, 1),
                 CapitalName = "Mbanza Kongo", MapX = 485, MapY = 778,
@@ -618,7 +618,7 @@ public sealed class GameState
             new()
             {
                 Id = "jurchens", Name = "Jianzhou Jurchens", ColorHex = "#4A235A",
-                Silver = 2200, Gold = 6, Food = 2000, Wood = 18, Iron = 8,
+                Gold = 28, Food = 2000, Wood = 18, Iron = 8,
                 Units = UnitCatalog.SeedArmy(4_500), Warships = 0,
                 NextPayday = new DateOnly(1600, 7, 1),
                 CapitalName = "Hetu Ala", MapX = 1464, MapY = 360,
@@ -634,7 +634,7 @@ public sealed class GameState
             new()
             {
                 Id = "cambodia", Name = "Cambodia", ColorHex = "#B7950B",
-                Silver = 2500, Gold = 6, Food = 2800, Wood = 18, Iron = 3,
+                Gold = 31, Food = 2800, Wood = 18, Iron = 3,
                 Units = UnitCatalog.SeedArmy(2_500), Warships = 5,
                 NextPayday = new DateOnly(1600, 7, 1),
                 CapitalName = "Angkor", MapX = 1300, MapY = 617,
@@ -648,7 +648,7 @@ public sealed class GameState
             new()
             {
                 Id = "laos", Name = "Laos", ColorHex = "#884EA0",
-                Silver = 1800, Gold = 5, Food = 2000, Wood = 16, Iron = 3,
+                Gold = 23, Food = 2000, Wood = 16, Iron = 3,
                 Units = UnitCatalog.SeedArmy(2_000), Warships = 0,
                 NextPayday = new DateOnly(1600, 7, 1),
                 CapitalName = "Luang Prabang", MapX = 1288, MapY = 568,
@@ -662,7 +662,7 @@ public sealed class GameState
             new()
             {
                 Id = "malaysia", Name = "Malaysia", ColorHex = "#2874A6",
-                Silver = 3000, Gold = 8, Food = 2200, Wood = 18, Iron = 3,
+                Gold = 38, Food = 2200, Wood = 18, Iron = 3,
                 Units = UnitCatalog.SeedArmy(2_500), Warships = 12,
                 NextPayday = new DateOnly(1600, 7, 1),
                 CapitalName = "Malacca", MapX = 1267, MapY = 693,
@@ -676,7 +676,7 @@ public sealed class GameState
             new()
             {
                 Id = "uae", Name = "United Arab Emirates", ColorHex = "#D4AC0D",
-                Silver = 2500, Gold = 8, Food = 1200, Wood = 8, Iron = 2,
+                Gold = 33, Food = 1200, Wood = 8, Iron = 2,
                 Units = UnitCatalog.SeedArmy(1_500), Warships = 8,
                 NextPayday = new DateOnly(1600, 7, 1),
                 CapitalName = "Julfar", MapX = 796, MapY = 512,
@@ -690,7 +690,7 @@ public sealed class GameState
             new()
             {
                 Id = "micronesia", Name = "Micronesia", ColorHex = "#85C1E9",
-                Silver = 1000, Gold = 3, Food = 800, Wood = 10, Iron = 0,
+                Gold = 13, Food = 800, Wood = 10, Iron = 0,
                 Units = UnitCatalog.SeedArmy(500), Warships = 5,
                 NextPayday = new DateOnly(1600, 7, 1),
                 CapitalName = "Guam", MapX = 1750, MapY = 690,
@@ -704,7 +704,7 @@ public sealed class GameState
             new()
             {
                 Id = "easter", Name = "Easter Island", ColorHex = "#F5CBA7",
-                Silver = 800, Gold = 2, Food = 500, Wood = 6, Iron = 0,
+                Gold = 10, Food = 500, Wood = 6, Iron = 0,
                 Units = UnitCatalog.SeedArmy(300), Warships = 2,
                 NextPayday = new DateOnly(1600, 7, 1),
                 CapitalName = "Rapa Nui", MapX = 2120, MapY = 900,

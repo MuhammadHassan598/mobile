@@ -24,27 +24,24 @@ using (var engine = new GameEngine(new SimulationService(), new SaveService(save
 
     Console.WriteLine("== 2. 200-day simulation (covers the 6-month payday on 01-07-1600) ==");
     var n0 = engine.State.PlayerNation;
-    long pop0 = n0.Population; double tre0 = n0.WealthInSilver; int sol0 = n0.Soldiers;
+    long pop0 = n0.Population; double tre0 = n0.Gold; int sol0 = n0.Soldiers;
     for (int i = 0; i < 200; i++) engine.AdvanceOneDay();
     var n = engine.State.PlayerNation;
     Console.WriteLine($"  day 0:   date=01-01-1600 pop={pop0:N0} treasury={tre0:N0} soldiers={sol0:N0}");
-    Console.WriteLine($"  day 200: date={engine.State.CurrentDate:dd-MM-yyyy} pop={n.Population:N0} treasury={n.WealthInSilver:N0} food={n.Food:N0} soldiers={n.Soldiers:N0}");
+    Console.WriteLine($"  day 200: date={engine.State.CurrentDate:dd-MM-yyyy} pop={n.Population:N0} treasury={n.Gold:N0} food={n.Food:N0} soldiers={n.Soldiers:N0}");
     Check(engine.State.CurrentDate == new DateOnly(1600, 7, 19), "date advanced to 19-07-1600");
-    Check(n.WealthInSilver >= 0 && n.Food >= 0 && n.Population > 0, "no negative stocks, nation survives");
-    Check(double.IsFinite(n.WealthInSilver) && double.IsFinite(n.Food), "stocks are finite numbers");
+    Check(n.Gold >= 0 && n.Food >= 0 && n.Population > 0, "no negative stocks, nation survives");
+    Check(double.IsFinite(n.Gold) && double.IsFinite(n.Food), "stocks are finite numbers");
     Check(n.Population > pop0, "population grows with food surplus");
     Check(engine.State.EventLog.Any(e => e.Contains("paid army maintenance")), "first payday was paid and logged");
 
     Console.WriteLine("== 3. Save / load round-trip ==");
-    double savedSilver = engine.State.PlayerNation.Silver;
     double savedGold = engine.State.PlayerNation.Gold;
     await engine.SaveAsync();
     Check(engine.HasSave, "save file exists");
-    engine.State.PlayerNation.Silver = 1; // mutate...
-    engine.State.PlayerNation.Gold = 2;
+    engine.State.PlayerNation.Gold = 1; // mutate...
     await engine.LoadAsync();             // ...then restore
-    Check(Math.Abs(engine.State.PlayerNation.Silver - savedSilver) < 0.01
-        && Math.Abs(engine.State.PlayerNation.Gold - savedGold) < 0.01, "load restores saved purses");
+    Check(Math.Abs(engine.State.PlayerNation.Gold - savedGold) < 0.01, "load restores saved gold");
 
     Console.WriteLine("== 4. Missed payday -> grace warning -> desertion ==");
     engine.NewGame();
@@ -54,7 +51,7 @@ using (var engine = new GameEngine(new SimulationService(), new SaveService(save
     // Keep the nation broke all the way past the payday (day 182) + grace period.
     for (int i = 0; i < 196; i++)
     {
-        p.Silver = 0; p.Gold = 0;
+        p.Gold = 0; p.Gold = 0;
         engine.AdvanceOneDay();
         if (engine.State.ActiveWarnings.Any(w => w.Contains("MAINTENANCE DUE"))) sawWarning = true;
     }
@@ -84,12 +81,12 @@ using (var engine3 = new GameEngine(new SimulationService(), new SaveService(sav
 {
     var n3 = engine3.State.PlayerNation;
     int farmsBefore = n3.Farms;
-    double goldBefore = n3.WealthInSilver;
+    double goldBefore = n3.Gold;
 
     // 6a. Build a farm: cost deducted upfront, completes after 5 days.
     string? err = engine3.StartConstruction(BuildingType.Farm);
     Check(err is null, "farm construction accepted");
-    Check(Math.Abs(n3.WealthInSilver - (goldBefore - 100)) < 0.01, "farm cost deducted upfront");
+    Check(Math.Abs(n3.Gold - (goldBefore - 1)) < 0.01, "farm cost deducted upfront");
     Check(n3.ConstructionQueue.Count == 1, "project queued");
     for (int i = 0; i < 5; i++) engine3.AdvanceOneDay();
     Check(n3.Farms == farmsBefore + 1, "farm completed after 5 days");
@@ -97,13 +94,13 @@ using (var engine3 = new GameEngine(new SimulationService(), new SaveService(sav
     Check(engine3.State.EventLog.Any(e => e.Contains("Farm completed")), "completion logged");
 
     // 6b. Unaffordable build is rejected.
-    n3.Silver = 0; n3.Gold = 0;
+    n3.Gold = 0; n3.Gold = 0;
     string? err2 = engine3.StartConstruction(BuildingType.Mine);
     Check(err2 is not null, "broke build rejected with error");
     Check(n3.ConstructionQueue.Count == 0, "nothing queued when broke");
 
     // 6c. Workshop chain: wood + iron -> goods.
-    n3.Silver = 5000; n3.Gold = 0; n3.Wood = 50; n3.Iron = 30;
+    n3.Gold = 5000; n3.Gold = 0; n3.Wood = 50; n3.Iron = 30;
     string? err3 = engine3.StartConstruction(BuildingType.Workshop);
     Check(err3 is null, "workshop construction accepted (had wood+iron)");
     for (int i = 0; i < 12; i++) engine3.AdvanceOneDay();
@@ -119,14 +116,14 @@ using (var engine3 = new GameEngine(new SimulationService(), new SaveService(sav
 
     // 6d. Selling goods converts to gold.
     n3.Goods = 10;
-    double tBefore = n3.WealthInSilver;
+    double tBefore = n3.Gold;
     engine3.SellGoods();
     Check(n3.Goods == 0, "goods stockpile emptied by sale");
-    Check(Math.Abs(n3.WealthInSilver - (tBefore + 150)) < 0.01, "sold 10 goods for 150 Silver");
+    Check(Math.Abs(n3.Gold - (tBefore + 150)) < 0.01, "sold 10 goods for 150 Gold");
 
     // 6e. 60-day economy run: stocks stay sane.
     for (int i = 0; i < 60; i++) engine3.AdvanceOneDay();
-    Check(n3.Wood >= 0 && n3.Iron >= 0 && n3.Goods >= 0 && n3.WealthInSilver >= 0, "no negative stocks after 60 days");
+    Check(n3.Wood >= 0 && n3.Iron >= 0 && n3.Goods >= 0 && n3.Gold >= 0, "no negative stocks after 60 days");
 }
 
 Console.WriteLine("== 7. Military: recruitment, commanders, maintenance ==");
@@ -136,17 +133,17 @@ using (var engine4 = new GameEngine(new SimulationService(), new SaveService(sav
 
     // 7a. Recruit musketeers: gold deducted, stack grows.
     int muskBefore = n4.Units.First(u => u.Type == UnitType.Musketeer).Count;
-    double goldBefore = n4.WealthInSilver;
+    double goldBefore = n4.Gold;
     string? rerr = engine4.Recruit(UnitType.Musketeer, 100);
     Check(rerr is null, "recruit 100 musketeers accepted");
     Check(n4.Units.First(u => u.Type == UnitType.Musketeer).Count == muskBefore + 100, "musketeer stack grew by 100");
-    Check(Math.Abs(n4.WealthInSilver - (goldBefore - 2000)) < 0.01, "recruit cost 2000 Silver deducted");
+    Check(Math.Abs(n4.Gold - (goldBefore - 20)) < 0.01, "recruit cost deducted");
 
     // 7b. Cannon costs iron too; broke recruit rejected.
     n4.Iron = 100;
     string? rerr2 = engine4.Recruit(UnitType.Cannon, 10);
     Check(rerr2 is null && Math.Abs(n4.Iron - 50) < 0.01, "10 cannons consumed 50 iron");
-    n4.Silver = 0; n4.Gold = 0;
+    n4.Gold = 0; n4.Gold = 0;
     string? rerr3 = engine4.Recruit(UnitType.Musketeer, 100);
     Check(rerr3 is not null, "broke recruit rejected");
 
@@ -161,28 +158,28 @@ using (var engine4 = new GameEngine(new SimulationService(), new SaveService(sav
 
     // 7d. PayMaintenance resets the cycle.
     for (int i = 0; i < 30; i++) engine4.AdvanceOneDay();
-    n4.Silver = 100_000; n4.Gold = 0;
+    n4.Gold = 100_000; n4.Gold = 0;
     double accrued = n4.UpkeepAccrued;
     string? perr = engine4.PayMaintenance();
     Check(perr is null, "early maintenance payment accepted");
     Check(n4.UpkeepAccrued == 0, "accrual reset after payment");
     Check(n4.NextPayday == engine4.State.CurrentDate.AddDays(180), "payday pushed 180 days out");
-    Check(Math.Abs(n4.WealthInSilver - (100_000 - accrued)) < 0.01, "treasury reduced by accrued amount");
+    Check(Math.Abs(n4.Gold - (100_000 - accrued)) < 0.01, "treasury reduced by accrued amount");
 
     // 7e. Hire land commander: cheaper upkeep afterwards.
-    n4.Silver = 100_000; n4.Gold = 0;
+    n4.Gold = 100_000; n4.Gold = 0;
     string? herr = engine4.HireCommander(CommanderRole.LandCommander);
     Check(herr is null && n4.HasCommander(CommanderRole.LandCommander), "land commander hired");
-    Check(Math.Abs(n4.WealthInSilver - (100_000 - 1200)) < 0.01, "hire cost 1200 Silver deducted");
+    Check(Math.Abs(n4.Gold - (100_000 - 12)) < 0.01, "hire cost deducted");
     n4.UpkeepAccrued = 0;
     for (int i = 0; i < 10; i++) engine4.AdvanceOneDay();
     double withCommander = n4.UpkeepAccrued; // (278.4*0.85 + 12.5) * 10 + wages 2*10
-    Check(withCommander < 2909, $"commander reduces upkeep ({withCommander:N0} < 2909)");
+    Check(withCommander < 29.09, $"commander reduces upkeep ({withCommander:N0} < 29.09)");
     engine4.DismissCommander(CommanderRole.LandCommander);
     Check(!n4.HasCommander(CommanderRole.LandCommander), "commander dismissed");
 
     // 7f. Warships cost wood + iron.
-    n4.Silver = 100_000; n4.Gold = 0; n4.Wood = 500; n4.Iron = 200;
+    n4.Gold = 100_000; n4.Gold = 0; n4.Wood = 500; n4.Iron = 200;
     int shipsBefore = n4.Warships;
     string? werr = engine4.RecruitWarships(10);
     Check(werr is null && n4.Warships == shipsBefore + 10, "10 warships launched");
@@ -192,7 +189,7 @@ using (var engine4 = new GameEngine(new SimulationService(), new SaveService(sav
     engine4.NewGame();
     var p4 = engine4.State.PlayerNation;
     int totalBefore = p4.Soldiers;
-    for (int i = 0; i < 196; i++) { p4.Silver = 0; p4.Gold = 0; engine4.AdvanceOneDay(); }
+    for (int i = 0; i < 196; i++) { p4.Gold = 0; p4.Gold = 0; engine4.AdvanceOneDay(); }
     Check(p4.Soldiers < totalBefore, "unpaid army shrinks");
     Check(p4.Units.Sum(u => u.Count) == p4.Soldiers, "stacks sum to Soldiers total");
     Check(p4.Units.All(u => u.Count > 0), "no empty stacks left behind");
@@ -206,30 +203,30 @@ using (var engine5 = new GameEngine(new SimulationService(seed: 42), new SaveSer
     var mughal = engine5.State.OtherNations.First(n => n.Name == "Mughal Empire");
 
     // 8a. Gift improves relations, costs gold.
-    double g0 = player5.WealthInSilver;
+    double g0 = player5.Gold;
     Check(engine5.SendGift(persia.Id) is null, "gift accepted");
     Check(Math.Abs(persia.RelationToPlayer - 10) < 0.01, "gift +10 relations");
-    Check(Math.Abs(player5.WealthInSilver - (g0 - 500)) < 0.01, "gift cost 500 Silver");
+    Check(Math.Abs(player5.Gold - (g0 - 5)) < 0.01, "gift cost deducted");
 
     // 8b. Trade pact pays daily income; war breaks it.
     Check(engine5.SignTradePact(persia.Id) is null, "trade pact signed");
-    double t0 = player5.WealthInSilver;
+    double t0 = player5.Gold;
     engine5.AdvanceOneDay();
-    Check(player5.WealthInSilver > t0 + 40, "pact pays daily income");
+    Check(player5.Gold > t0, "pact pays daily income");
     Check(engine5.DeclareWar(persia.Id) is null, "war declared");
     Check(persia.AtWarWithPlayer && !persia.HasTradePactWithPlayer, "war breaks the pact");
     Check(persia.RelationToPlayer == -100, "war sets relations to -100");
 
     // 8c. Sue for peace.
-    player5.Silver = 100_000; player5.Gold = 0;
+    player5.Gold = 100_000;
     Check(engine5.SueForPeace(persia.Id) is null, "peace sued");
     Check(!persia.AtWarWithPlayer && persia.RelationToPlayer == -20, "peace ends war, relations -20");
 
     // 8d. Tribute: paid when strong, refused when weak.
-    engine5.Recruit(UnitType.Musketeer, 1000); // ~7000 soldiers vs Persia's 4500
-    double pt0 = player5.WealthInSilver, et0 = persia.WealthInSilver;
+    player5.Gold = 100_000; engine5.Recruit(UnitType.Musketeer, 1000); // ~7000 soldiers vs Persia's 4500
+    double pt0 = player5.Gold, et0 = persia.Gold;
     Check(engine5.DemandTribute(persia.Id) is null, "tribute demanded");
-    Check(player5.WealthInSilver > pt0 && persia.WealthInSilver < et0, "tribute transferred to player");
+    Check(player5.Gold > pt0 && persia.Gold < et0, "tribute transferred to player");
     double mrel = mughal.RelationToPlayer;
     engine5.DemandTribute(mughal.Id); // 7000 vs 7000 -> refused
     Check(mughal.RelationToPlayer < mrel, "refused demand hurts relations");
@@ -240,9 +237,9 @@ using (var engine5 = new GameEngine(new SimulationService(seed: 42), new SaveSer
     Check(net.Strength == 20, "network starts at strength 20");
     for (int i = 0; i < 15; i++) engine5.AdvanceOneDay();
     Check(net.Strength == 35, "network grows +1/day");
-    double pg0 = player5.WealthInSilver, eg1 = persia.WealthInSilver;
+    double pg0 = player5.Gold, eg1 = persia.Gold;
     Check(engine5.SpySteal(persia.Id) is null, "steal executed");
-    double stolen = player5.WealthInSilver - pg0;
+    double stolen = player5.Gold - pg0;
     Check(stolen >= eg1 * 0.049 && stolen <= eg1 * 0.151, "stole 5-15% of target treasury");
     Check(net.Strength == 15 || net.Strength == 7, "steal spent 20 strength (halved if caught)");
     if (net.Strength == 7)
@@ -269,7 +266,7 @@ using (var engine6 = new GameEngine(new SimulationService(seed: 7), new SaveServ
     bool warDeclared = false;
     for (int i = 0; i < 300 && !warDeclared; i++)
     {
-        engine6.State.PlayerNation.Silver = 1_000_000; // stay solvent, isolate the war logic
+        engine6.State.PlayerNation.Gold = 1_000_000; // stay solvent, isolate the war logic
         engine6.AdvanceOneDay();
         warDeclared = engine6.State.OtherNations.Any(n => n.AtWarWithPlayer);
     }
@@ -277,31 +274,26 @@ using (var engine6 = new GameEngine(new SimulationService(seed: 7), new SaveServ
     Check(engine6.State.ActiveWarnings.Any(w => w.Contains("DECLARED WAR")), "war declaration warns the player");
 }
 
-Console.WriteLine("== 9. Period currency: Silver and Gold ==");
+Console.WriteLine("== 9. Gold-only currency ==");
 using (var engine7 = new GameEngine(new SimulationService(), new SaveService(saveFolder)))
 {
     var n7 = engine7.State.PlayerNation;
-    Check(Math.Abs(n7.WealthInSilver - 6200) < 0.01, "starting wealth is 6200 silver-equivalent");
+    Check(n7.Gold > 0, "starting gold is positive");
 
-    Check(engine7.ExchangeSilverForGold(500) is null, "exchange to gold accepted");
-    Check(Math.Abs(n7.Silver - 4500) < 0.01 && Math.Abs(n7.Gold - 17) < 0.01,
-        "500 Silver became 5 Gold");
+    // Pay and earn gold.
+    double before = n7.Gold;
+    Check(n7.PayGold(10), "pay 10 gold succeeds");
+    Check(Math.Abs(n7.Gold - (before - 10)) < 0.01, "gold deducted");
+    n7.EarnGold(5);
+    Check(Math.Abs(n7.Gold - (before - 5)) < 0.01, "gold earned");
 
-    Check(engine7.ExchangeGoldForSilver(5) is null, "exchange to silver accepted");
-    Check(Math.Abs(n7.Silver - 5000) < 0.01 && Math.Abs(n7.Gold - 12) < 0.01,
-        "5 Gold became 500 Silver");
-
-    // Auto-convert: payment larger than the silver purse dips into gold.
-    n7.Silver = 50;
-    Check(engine7.Recruit(UnitType.Musketeer, 10) is null, "recruit succeeds via gold conversion");
-    Check(Math.Abs(n7.Silver - 50) < 0.01 && Math.Abs(n7.Gold - 10) < 0.01,
-        "gold auto-converted to cover the 200 Silver payment");
+    // Cannot overpay.
+    Check(!n7.PayGold(n7.Gold + 1000), "overpay fails");
 
     // Display forms.
-    Check(Currency.Format(5230) == "52 Gold · 30 Silver", "wealth formats as Gold + Silver");
-    Check(Currency.Format(99) == "99 Silver", "small amounts stay in Silver");
-    Check(Currency.Cost(1200) == "12 Gold", "round gold costs show as Gold");
-    Check(Currency.Cost(550) == "550 Silver", "silver costs show as Silver");
+    Check(Currency.Format(5230) == "5,230 Gold", "wealth formats as Gold");
+    Check(Currency.Format(99) == "99 Gold", "small amounts show as Gold");
+    Check(Currency.Cost(1200) == "1,200 Gold", "costs show as Gold");
 }
 
 Console.WriteLine("== 10. Warfare: marches, battles, whole-country annexation ==");
@@ -314,7 +306,7 @@ using (var engine8 = new GameEngine(new SimulationService(seed: 11), new SaveSer
     Check(!ok0, "invasion refused without a declaration of war");
 
     engine8.DeclareWar(kazakh.Id);
-    player8.Silver = 1_000_000;
+    player8.Gold = 1_000_000;
     engine8.Recruit(UnitType.Musketeer, 20000);
     // Keep Kazakh strong enough to neither sue for peace nor invade back mid-march.
     kazakh.Units = UnitCatalog.SeedArmy(4000);
@@ -394,7 +386,7 @@ using (var engine9 = new GameEngine(new SimulationService(seed: 23), new SaveSer
     bool invaded = false;
     for (int i = 0; i < 400 && !invaded; i++)
     {
-        engine9.State.PlayerNation.Silver = 1_000_000;
+        engine9.State.PlayerNation.Gold = 1_000_000;
         engine9.AdvanceOneDay();
         invaded = engine9.State.ActiveWarnings.Any(w => w.Contains("invading"));
     }
@@ -405,7 +397,7 @@ Console.WriteLine("== 11. Laws & religion ==");
 using (var engine10 = new GameEngine(new SimulationService(), new SaveService(saveFolder)))
 {
     var n10 = engine10.State.PlayerNation;
-    n10.Silver = 100_000;
+    n10.Gold = 100_000;
 
     Check(engine10.ToggleEdict(EdictType.WarTaxes) is null, "war taxes enacted");
     Check(n10.HasEdict(EdictType.WarTaxes), "edict is active");
@@ -436,7 +428,7 @@ using (var engine11 = new GameEngine(new SimulationService(), new SaveService(sa
     Check(engine11.FoundColony(engine11.State.FrontierRegions[0].Id) is not null,
         "colony refused without warships");
     n11.Warships = 5;
-    n11.Silver = 100_000;
+    n11.Gold = 100_000;
     n11.Food = 100_000;
     var region = engine11.State.FrontierRegions[0];
     Check(engine11.FoundColony(region.Id) is null, "colony expedition launched");
@@ -461,7 +453,7 @@ using (var engine12 = new GameEngine(new SimulationService(seed: 99), new SaveSe
     for (int i = 0; i < 1825; i++) engine12.AdvanceOneDay();
     Check(!n12.IsEliminated, "a passive player keeps their country for 5 years");
     Check(n12.Population > 0, "population survives 5 years");
-    Check(double.IsFinite(n12.WealthInSilver) && n12.WealthInSilver >= 0, "wealth stays sane for 5 years");
+    Check(double.IsFinite(n12.Gold) && n12.Gold >= 0, "wealth stays sane for 5 years");
     Check(n12.Soldiers > 0, "the army survives 5 years");
     Check(!engine12.State.Defeated, "no accidental defeat in 5 quiet years");
 }

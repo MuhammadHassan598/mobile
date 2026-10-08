@@ -53,7 +53,7 @@
         <div class="mil-row">
             <div class="mil-info">
                 <div class="mil-name">@spec.Icon @spec.Name <span class="muted">× @owned.ToString("N0")</span></div>
-                <div class="mil-sub">@UnitCatalog.CostText(spec) · @spec.UpkeepPerDay Silver/day each</div>
+                <div class="mil-sub">@UnitCatalog.CostText(spec) · @spec.UpkeepPerDay Gold/day each</div>
             </div>
             <div class="mil-actions">
                 <button @onclick="() => Recruit(spec.Type, 100)">+100<span class="btn-cost">@BatchCost(spec, 100)</span></button>
@@ -66,7 +66,7 @@
     <div class="mil-row">
         <div class="mil-info">
             <div class="mil-name">@WarshipSpec.Icon @WarshipSpec.Name <span class="muted">× @_nation.Warships.ToString("N0")</span></div>
-            <div class="mil-sub">@WarshipSpec.CostText · @WarshipSpec.UpkeepPerDay Silver/day each</div>
+            <div class="mil-sub">@WarshipSpec.CostText · @WarshipSpec.UpkeepPerDay Gold/day each</div>
         </div>
         <div class="mil-actions">
             <button @onclick="() => RecruitShips(10)">+10<span class="btn-cost">@ShipBatchCost(10)</span></button>
@@ -83,7 +83,7 @@
                 <div class="mil-name">@role.Title</div>
                 @if (cmd is not null)
                 {
-                    <div class="mil-sub">@cmd.Name · wage @cmd.DailyWage Silver/day</div>
+                    <div class="mil-sub">@cmd.Name · wage @cmd.DailyWage Gold/day</div>
                 }
                 else
                 {

@@ -99,7 +99,6 @@ public static class Warfare
         long popLoss = (long)(loser.Population * Balance.BattlePopulationLoss);
         winner.Population += Math.Max(0, loser.Population - popLoss);
 
-        winner.Silver += loser.Silver;
         winner.Gold += loser.Gold;
         winner.Food += loser.Food;
         winner.Wood += loser.Wood;
