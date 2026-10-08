@@ -592,6 +592,11 @@ main.map-full .province-card {
     text-shadow: 1px 1px 3px rgba(0,0,0,.6); box-shadow: 0 4px 10px rgba(0,0,0,.5);
 }
 .start2:active { transform: translateY(2px); }
+.build-tag {
+    font-size: 0.62rem; color: rgba(245, 230, 196, 0.55);
+    white-space: nowrap; user-select: none;
+}
+.select-build { text-align: center; margin: 2px 0 6px; color: rgba(60, 45, 25, 0.6); }
 .backdrop { width: 100%; height: auto; border-radius: 6px; display: block; }
 
 /* ============ Select screen: narrow phones (portrait) ============ */
