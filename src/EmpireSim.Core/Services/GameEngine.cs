@@ -127,11 +127,12 @@ public sealed class GameEngine : IDisposable
         if (nation.ConstructionQueue.Count >= Balance.MaxBuildQueue)
             return $"Build queue is full (max {Balance.MaxBuildQueue}).";
 
-        if (!nation.CanPay(spec.GoldCost) || nation.Wood < spec.WoodCost || nation.Iron < spec.IronCost)
+        if (!nation.CanPay(spec.GoldCost) || nation.Wood < spec.WoodCost || nation.Stone < spec.StoneCost || nation.Iron < spec.IronCost)
             return "Not enough resources.";
 
         nation.PayGold(spec.GoldCost);
         nation.Wood -= spec.WoodCost;
+        nation.Stone -= spec.StoneCost;
         nation.Iron -= spec.IronCost;
         nation.ConstructionQueue.Add(new ConstructionProject
         {

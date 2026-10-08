@@ -35,7 +35,7 @@
         {
             int count = _nation.GetProductionBuilding(spec.Id);
             double output = count * spec.OutputPerDay;
-            bool afford = _nation.CanPay(spec.GoldCost) && _nation.Wood >= spec.WoodCost && _nation.Iron >= spec.IronCost;
+            bool afford = _nation.CanPay(spec.GoldCost) && _nation.Wood >= spec.WoodCost && _nation.Stone >= spec.StoneCost && _nation.Iron >= spec.IronCost;
             <div class="prod-row">
                 <div class="prod-row-icon">@spec.Icon</div>
                 <div class="prod-row-body">
@@ -43,7 +43,7 @@
                     <div class="prod-row-output">@spec.Produces: @output.ToString("N0")</div>
                 </div>
                 <button class="prod-row-btn" disabled="@(!afford)"
-                        @onclick="() => Build(spec.Id)"
+                        @onclick="() => OnBuildClick(spec)"
                         title="@ProductionCatalog.CostText(spec) · @spec.BuildDays days">
                     📐
                 </button>
@@ -55,12 +55,58 @@
     {
         <div class="prod-error">@_error</div>
     }
+
+    <!-- Build confirmation popup (Food & Minerals only) -->
+    @if (_popupSpec is not null)
+    {
+        <div class="popup-overlay" @onclick="ClosePopup">
+            <div class="popup-panel" @onclick:stopPropagation>
+                <div class="popup-header">
+                    <span class="popup-icon">@_popupSpec.Icon</span>
+                    <span class="popup-title">Build @_popupSpec.Name</span>
+                </div>
+
+                <div class="popup-section">
+                    <div class="popup-section-title">Current Balance</div>
+                    <div class="popup-res-row">
+                        <span>🪙 Gold: @_nation.Gold.ToString("N0")</span>
+                        <span>🪵 Wood: @_nation.Wood.ToString("N0")</span>
+                        <span>🪨 Stone: @_nation.Stone.ToString("N0")</span>
+                    </div>
+                </div>
+
+                <div class="popup-section">
+                    <div class="popup-section-title">Required</div>
+                    <div class="popup-res-row">
+                        <span class="@(_nation.Gold >= _popupSpec.GoldCost ? "ok" : "lack")">🪙 @_popupSpec.GoldCost.ToString("N0")</span>
+                        <span class="@(_nation.Wood >= _popupSpec.WoodCost ? "ok" : "lack")">🪵 @_popupSpec.WoodCost.ToString("N0")</span>
+                        <span class="@(_nation.Stone >= _popupSpec.StoneCost ? "ok" : "lack")">🪨 @_popupSpec.StoneCost.ToString("N0")</span>
+                        @if (_popupSpec.IronCost > 0)
+                        {
+                            <span class="@(_nation.Iron >= _popupSpec.IronCost ? "ok" : "lack")">⛓️ @_popupSpec.IronCost.ToString("N0")</span>
+                        }
+                    </div>
+                </div>
+
+                <div class="popup-section">
+                    <div class="popup-section-title">Construction Time</div>
+                    <div class="popup-time">⏱️ @_popupSpec.BuildDays days</div>
+                </div>
+
+                <div class="popup-actions">
+                    <button class="popup-btn cancel" @onclick="ClosePopup">Cancel</button>
+                    <button class="popup-btn confirm" @onclick="ConfirmBuild" disabled="@(!CanAfford(_popupSpec))">Build</button>
+                </div>
+            </div>
+        </div>
+    }
 </div>
 
 @code {
     private Nation _nation => Engine.State.PlayerNation;
     private ProductionCategory _category = ProductionCategory.Food;
     private string? _error;
+    private ProductionBuildingSpec? _popupSpec;
 
     protected override void OnInitialized()
     {
@@ -75,9 +121,36 @@
         _error = null;
     }
 
-    private void Build(string id)
+    private void OnBuildClick(ProductionBuildingSpec spec)
     {
-        _error = Engine.BuildProduction(id);
+        // Popup only for Food & Minerals; Military builds directly
+        if (spec.Category == ProductionCategory.Military)
+        {
+            _error = Engine.BuildProduction(spec.Id);
+        }
+        else
+        {
+            _popupSpec = spec;
+            _error = null;
+        }
+    }
+
+    private void ClosePopup()
+    {
+        _popupSpec = null;
+    }
+
+    private bool CanAfford(ProductionBuildingSpec spec) =>
+        _nation.CanPay(spec.GoldCost) && _nation.Wood >= spec.WoodCost &&
+        _nation.Stone >= spec.StoneCost && _nation.Iron >= spec.IronCost;
+
+    private void ConfirmBuild()
+    {
+        if (_popupSpec is not null)
+        {
+            _error = Engine.BuildProduction(_popupSpec.Id);
+            _popupSpec = null;
+        }
     }
 
     public void Dispose() => Engine.StateChanged -= OnStateChanged;
@@ -163,4 +236,52 @@
     background: #8B0000; color: #fff; padding: 8px; border-radius: 4px;
     margin-top: 8px; text-align: center; font-size: 0.9rem;
 }
+/* Build confirmation popup */
+.popup-overlay {
+    position: fixed; inset: 0; z-index: 100;
+    background: rgba(0,0,0,.6);
+    display: flex; align-items: center; justify-content: center;
+    padding: 20px;
+}
+.popup-panel {
+    background: linear-gradient(#f5e6c4, #e2cb92);
+    border: 3px double #8b6914; border-radius: 10px;
+    padding: 16px; max-width: 340px; width: 100%;
+    box-shadow: 0 8px 24px rgba(0,0,0,.5);
+    font-family: Georgia, serif; color: #3d2b1f;
+}
+.popup-header {
+    display: flex; align-items: center; gap: 10px;
+    margin-bottom: 12px; padding-bottom: 8px;
+    border-bottom: 2px solid #8b6914;
+}
+.popup-icon { font-size: 2rem; }
+.popup-title { font-size: 1.15rem; font-weight: bold; }
+.popup-section { margin-bottom: 12px; }
+.popup-section-title {
+    font-size: 0.85rem; font-weight: bold; color: #8b6914;
+    margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px;
+}
+.popup-res-row {
+    display: flex; gap: 12px; flex-wrap: wrap;
+    font-size: 0.95rem;
+}
+.popup-res-row .ok { color: #2a6b2a; }
+.popup-res-row .lack { color: #8B0000; font-weight: bold; }
+.popup-time { font-size: 1rem; }
+.popup-actions { display: flex; gap: 10px; margin-top: 14px; }
+.popup-btn {
+    flex: 1; padding: 10px; border-radius: 6px; cursor: pointer;
+    font-family: inherit; font-size: 1rem;
+    border: 2px solid #2e1c0c;
+    transition: transform 0.1s;
+}
+.popup-btn:active { transform: translateY(1px); }
+.popup-btn.cancel {
+    background: linear-gradient(#8a8a8a, #5a5a5a); color: #fff;
+}
+.popup-btn.confirm {
+    background: linear-gradient(#7a5230, #4a2e14); color: #f5e6c4;
+}
+.popup-btn.confirm:disabled { opacity: 0.4; cursor: not-allowed; }
 </style>
