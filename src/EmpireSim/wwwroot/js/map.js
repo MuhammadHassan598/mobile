@@ -171,10 +171,11 @@ window.empireMap = (() => {
         try { ctx.letterSpacing = '3px'; } catch (e) { /* older browsers */ }
         for (const [txt, wx, wy] of SEA_LABELS) {
             const [sx, sy] = toScreen(wx, wy);
+            // Antique cartouche: dark umber ink on the parchment sea.
             ctx.lineWidth = 3;
-            ctx.strokeStyle = 'rgba(10,30,55,0.55)';
+            ctx.strokeStyle = 'rgba(235,225,200,0.5)';
             ctx.strokeText(txt, sx, sy);
-            ctx.fillStyle = 'rgba(232,238,244,0.88)';
+            ctx.fillStyle = 'rgba(62,50,36,0.92)';
             ctx.fillText(txt, sx, sy);
         }
         try { ctx.letterSpacing = '0px'; } catch (e) { /* older browsers */ }
