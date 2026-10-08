@@ -4,10 +4,6 @@
 @implements IDisposable
 
 <div class="menu-screen">
-    @if (Engine.State.VictoryAchieved)
-    {
-        <div class="victory">🏆 HEGEMONY! Your empire dominates the known world.</div>
-    }
     @if (Engine.State.Defeated)
     {
         <div class="defeat">💀 Your empire has fallen.</div>

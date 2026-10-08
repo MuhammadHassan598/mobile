@@ -35,7 +35,7 @@ public sealed class SimulationService
         AdvanceDiplomacy(state);
         AdvanceColonisation(state);
         AdvanceMarches(state);
-        CheckVictory(state);
+        CheckDefeat(state);
     }
 
     private void AdvanceNation(GameState state, Nation nation)
@@ -316,17 +316,11 @@ public sealed class SimulationService
         }
     }
 
-    /// <summary>Hegemony victory and elimination defeat.</summary>
-    private static void CheckVictory(GameState state)
+    /// <summary>Defeat: the game is ongoing, there is no victory target —
+    /// it ends only when your country is annexed.</summary>
+    private static void CheckDefeat(GameState state)
     {
         var player = state.PlayerNation;
-
-        if (!state.VictoryAchieved && state.NationsAnnexedByPlayer >= Balance.HegemonyNationCount)
-        {
-            state.VictoryAchieved = true;
-            state.Log("HEGEMONY! Your empire dominates the known world.");
-            state.ActiveWarnings.Add("🏆 HEGEMONY! Your empire dominates the known world.");
-        }
 
         if (!state.Defeated && player.IsEliminated)
         {

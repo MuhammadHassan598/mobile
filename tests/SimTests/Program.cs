@@ -452,7 +452,7 @@ using (var engine11 = new GameEngine(new SimulationService(), new SaveService(sa
     Check(n11.ColoniesFounded == 1, "colony counter increments");
 }
 
-Console.WriteLine("== 13. Balance pass: 5-year autoplay + victory/defeat ==");
+Console.WriteLine("== 13. Balance pass: 5-year autoplay + defeat ==");
 using (var engine12 = new GameEngine(new SimulationService(seed: 99), new SaveService(saveFolder)))
 {
     var n12 = engine12.State.PlayerNation;
@@ -469,9 +469,9 @@ using (var engine13 = new GameEngine(new SimulationService(), new SaveService(sa
     var p13 = engine13.State.PlayerNation;
     foreach (var other in engine13.State.OtherNations.Where(n => !n.IsEliminated).Take(8).ToList())
         Warfare.AnnexNation(engine13.State, p13, other);
-    Check(engine13.State.NationsAnnexedByPlayer == 8, "test setup: player annexed 8 nations");
     engine13.AdvanceOneDay();
-    Check(engine13.State.VictoryAchieved, "hegemony triggers victory");
+    Check(!engine13.State.Defeated, "no victory screen: the game goes on after annexations");
+    Check(engine13.State.NationsAnnexedByPlayer == 8, "annexations are counted as a statistic");
 
     Warfare.AnnexNation(engine13.State, engine13.State.OtherNations.First(n => !n.IsEliminated), p13);
     engine13.AdvanceOneDay();

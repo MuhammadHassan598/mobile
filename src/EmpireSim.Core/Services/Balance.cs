@@ -97,9 +97,6 @@ public static class Balance
     public const int ColonyWarshipsRequired = 5;
     public const long ColonyStartPopulation = 5000;
 
-    // ---- Victory ----
-    public const int HegemonyNationCount = 8;
-
     // ---- Treasury (per in-game day) ----
     // Per-capita rates are rebased for historical 1600 populations: every
     // subject still pays tax and eats food, but the crown domain (royal

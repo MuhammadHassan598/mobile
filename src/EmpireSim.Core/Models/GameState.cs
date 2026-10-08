@@ -29,7 +29,6 @@ public sealed class GameState
     /// <summary>Armies currently marching to invade.</summary>
     public List<MarchingArmy> MarchingArmies { get; set; } = new();
 
-    public bool VictoryAchieved { get; set; }
     public bool Defeated { get; set; }
 
     /// <summary>Whole countries annexed by the player (hegemony victory).</summary>
