@@ -281,10 +281,10 @@ public sealed class GameState
                         (1695,760),(1765,780),(1750,870),(1680,880),(1660,810)),
                 }
             },
-            // ---------------- Ming China ----------------
+            // ---------------- Ming Dynasty ----------------
             new()
             {
-                Id = "ming", Name = "Ming China", ColorHex = "#F1C40F",
+                Id = "ming", Name = "Ming Dynasty", ColorHex = "#F1C40F",
                 Silver = 7000, Gold = 20, Food = 8000, Wood = 25, Iron = 15,
                 Units = UnitCatalog.SeedArmy(12_000), Warships = 20,
                 NextPayday = new DateOnly(1600, 7, 1),
@@ -720,8 +720,28 @@ public sealed class GameState
             },
         };
 
+        ApplyReligions(nations);
+        ApplyHistoricalPopulations(nations);
+        ApplyEmblems(nations);
+
         foreach (var n in nations)
         {
+            // The simulation runs on the historical 1600 population, spread
+            // across the nation's provinces in proportion to their map weights.
+            long oldTotal = n.Provinces.Sum(p => p.Population);
+            if (oldTotal > 0)
+            {
+                long assigned = 0;
+                for (int i = 0; i < n.Provinces.Count; i++)
+                {
+                    var p = n.Provinces[i];
+                    long v = i == n.Provinces.Count - 1
+                        ? n.HistoricalPopulation - assigned
+                        : (long)(p.Population * (double)n.HistoricalPopulation / oldTotal);
+                    p.Population = Math.Max(1, v);
+                    assigned += p.Population;
+                }
+            }
             n.Population = n.Provinces.Sum(p => p.Population);
             // Mineral endowment: deterministic, from the nation's lands.
             n.Stone = 4 * n.Provinces.Count;
@@ -729,10 +749,6 @@ public sealed class GameState
             n.Lead = 2 * mines;
             n.Copper = 2 * mines;
         }
-
-        ApplyReligions(nations);
-        ApplyHistoricalPopulations(nations);
-        ApplyEmblems(nations);
 
         var player = nations.FirstOrDefault(n => n.Id == playerNationId) ?? nations[0];
         player.IsPlayer = true;
@@ -823,7 +839,7 @@ public sealed class GameState
             ["micronesia"] = 100000, ["easter"] = 12000,
         };
         foreach (var n in nations)
-            n.HistoricalPopulation = map.TryGetValue(n.Id, out var p) ? p : n.Population;
+            n.HistoricalPopulation = map.TryGetValue(n.Id, out var p) ? p : n.Provinces.Sum(pr => pr.Population);
     }
 
     /// <summary>Emblem per nation, used for the civilization grid and banner.</summary>

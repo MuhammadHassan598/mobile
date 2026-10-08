@@ -8,7 +8,7 @@ public static class Balance
 {
     // ---- Food (per in-game day) ----
     public const double FoodPerFarmPerDay = 10.0;
-    public const double FoodPerPersonPerDay = 0.008;
+    public const double FoodPerPersonPerDay = 0.000008;
 
     // ---- Raw materials (per in-game day) ----
     public const double IronPerMinePerDay = 2.0;
@@ -101,7 +101,11 @@ public static class Balance
     public const int HegemonyProvinceCount = 20;
 
     // ---- Treasury (per in-game day) ----
-    public const double TaxPerPersonPerDay = 0.002;
+    // Per-capita rates are rebased for historical 1600 populations: every
+    // subject still pays tax and eats food, but the crown domain (royal
+    // demesne) guarantees a base income so small nations stay playable.
+    public const double TaxPerPersonPerDay = 0.00001;
+    public const double CrownDomainIncomePerDay = 20.0;
 
     // ---- Population ----
     public const double GrowthPerDayWithSurplus = 0.00015;   // ~5.6% per year

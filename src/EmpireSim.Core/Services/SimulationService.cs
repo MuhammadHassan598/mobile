@@ -95,7 +95,8 @@ public sealed class SimulationService
 
         // ---- Treasury: taxes in (silver), upkeep accrues towards the next payday ----
         double taxMult = nation.HasCommander(CommanderRole.CommanderInChief) ? Balance.CinCTaxMult : 1.0;
-        nation.Silver += nation.Population * Balance.TaxPerPersonPerDay * taxMult * nation.TaxMult;
+        nation.Silver += nation.Population * Balance.TaxPerPersonPerDay * taxMult * nation.TaxMult
+                         + Balance.CrownDomainIncomePerDay;
 
         double landUpkeepMult = (nation.HasCommander(CommanderRole.LandCommander) ? Balance.LandCommanderUpkeepMult : 1.0)
                               * (nation.HasCommander(CommanderRole.CommanderInChief) ? Balance.CinCUpkeepMult : 1.0);

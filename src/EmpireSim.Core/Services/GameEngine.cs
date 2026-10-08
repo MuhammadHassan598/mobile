@@ -78,7 +78,7 @@ public sealed class GameEngine : IDisposable
 
     /// <summary>Estimated daily tax income, shown on the nation-select screen.</summary>
     public static long EstimateDailyIncome(Nation n) =>
-        (long)(n.Population * Balance.TaxPerPersonPerDay);
+        (long)(n.Population * Balance.TaxPerPersonPerDay + Balance.CrownDomainIncomePerDay);
 
     /// <summary>Whether the player can afford a building right now.</summary>
     public bool CanAfford(BuildingSpec spec)
