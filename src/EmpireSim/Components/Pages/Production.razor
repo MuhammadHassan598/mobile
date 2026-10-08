@@ -4,37 +4,37 @@
 @inject GameEngine Engine
 @implements IDisposable
 
-<div class="parchment-panel prod-competitor">
-    <!-- Category tabs like competitor's top icons -->
-    <div class="prod-tabs">
-        <button class="prod-tab @(_category == ProductionCategory.Military ? "active" : "")"
-                @onclick="() => _category = ProductionCategory.Military">
-            <span class="tab-icon">⚔️</span>
+<div class="prod-wrap">
+    <!-- Top category tabs -->
+    <div class="prod-top-tabs">
+        <button class="top-tab @(_category == ProductionCategory.Military ? "active" : "")"
+                @onclick="() => _category = ProductionCategory.Military" title="Military">
+            ⚔️
         </button>
-        <button class="prod-tab @(_category == ProductionCategory.Food ? "active" : "")"
-                @onclick="() => _category = ProductionCategory.Food">
-            <span class="tab-icon">🌾</span>
+        <button class="top-tab @(_category == ProductionCategory.Food ? "active" : "")"
+                @onclick="() => _category = ProductionCategory.Food" title="Food & Mills">
+            🌾
         </button>
-        <button class="prod-tab @(_category == ProductionCategory.Minerals ? "active" : "")"
-                @onclick="() => _category = ProductionCategory.Minerals">
-            <span class="tab-icon">⛏️</span>
+        <button class="top-tab @(_category == ProductionCategory.Minerals ? "active" : "")"
+                @onclick="() => _category = ProductionCategory.Minerals" title="Minerals">
+            ⛏️
         </button>
     </div>
 
-    <div class="prod-cat-list">
+    <div class="prod-list">
         @foreach (var spec in ProductionCatalog.ByCategory(_category))
         {
             int count = _nation.GetProductionBuilding(spec.Id);
             double output = count * spec.OutputPerDay;
             bool afford = _nation.CanPay(spec.GoldCost) && _nation.Wood >= spec.WoodCost && _nation.Iron >= spec.IronCost;
-            <div class="prod-row">
-                <span class="prod-icon-circle">@spec.Icon</span>
-                <span class="prod-text">
-                    <span class="prod-name-bar">@spec.Name: @count</span>
-                    <span class="prod-sub">@spec.Produces: @output.ToString("N0")</span>
-                </span>
-                <button class="prod-build-btn" disabled="@(!afford)" @onclick="() => Build(spec.Id)" title="@ProductionCatalog.CostText(spec)">
-                    🏗️
+            <div class="prod-item">
+                <div class="prod-item-icon">@spec.Icon</div>
+                <div class="prod-item-body">
+                    <div class="prod-item-name">@spec.Name: @count</div>
+                    <div class="prod-item-prod">@spec.Produces: @output.ToString("N0")</div>
+                </div>
+                <button class="prod-item-btn" disabled="@(!afford)" @onclick="() => Build(spec.Id)" title="@ProductionCatalog.CostText(spec) (@spec.BuildDays days)">
+                    📐
                 </button>
             </div>
         }
@@ -66,68 +66,71 @@
 }
 
 <style>
-.prod-competitor {
-    padding: 10px 8px;
-    min-height: 400px;
+.prod-wrap {
+    background:
+        radial-gradient(ellipse at 50% 0%, rgba(255,255,255,.4), transparent 60%),
+        linear-gradient(#f0e0b0, #e8d090);
+    min-height: 100vh;
+    padding: 10px 8px 20px;
+    font-family: Georgia, 'Times New Roman', serif;
 }
-/* Top tabs - circular icons like competitor */
-.prod-tabs {
-    display: flex; justify-content: center; gap: 12px;
-    margin-bottom: 12px; padding-bottom: 8px;
-    border-bottom: 2px solid #8b6914;
+.prod-top-tabs {
+    display: flex; justify-content: center; gap: 14px;
+    margin-bottom: 10px;
 }
-.prod-tab {
-    width: 56px; height: 56px; border-radius: 50%;
-    background: radial-gradient(circle at 30% 30%, #f5e6c4, #d4b896);
-    border: 3px solid #8b6914;
-    display: flex; align-items: center; justify-content: center;
-    cursor: pointer; padding: 0;
-    box-shadow: 0 2px 5px rgba(0,0,0,.4);
-}
-.prod-tab .tab-icon { font-size: 1.6rem; }
-.prod-tab.active {
-    border-color: #ffd700;
-    box-shadow: 0 0 10px rgba(255,215,0,.7), 0 2px 5px rgba(0,0,0,.4);
-}
-/* Building rows */
-.prod-cat-list { display: flex; flex-direction: column; gap: 8px; }
-.prod-row {
-    display: flex; align-items: center; gap: 10px;
-    padding: 2px;
-}
-.prod-icon-circle {
+.top-tab {
     width: 52px; height: 52px; border-radius: 50%;
-    background: radial-gradient(circle at 30% 30%, #f5e6c4, #c9a876);
-    border: 2px solid #5a4a2a;
+    background: radial-gradient(circle at 35% 30%, #8a6a3a, #4a3520);
+    border: 2px solid #2e1c0c;
+    font-size: 1.5rem; cursor: pointer; padding: 0;
     display: flex; align-items: center; justify-content: center;
-    font-size: 1.6rem; flex-shrink: 0;
-    box-shadow: inset 0 0 8px rgba(0,0,0,.2), 0 2px 4px rgba(0,0,0,.3);
+    box-shadow: 0 2px 6px rgba(0,0,0,.5), inset 0 1px 2px rgba(255,255,255,.3);
+    filter: grayscale(30%);
 }
-.prod-text { flex: 1; display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-.prod-name-bar {
-    background: linear-gradient(#3a3a3a, #1a1a1a);
-    color: #f5e6c4; padding: 5px 12px; border-radius: 2px;
-    font-weight: bold; font-size: 0.95rem;
+.top-tab.active {
+    border-color: #ffd700;
+    filter: none;
+    box-shadow: 0 0 12px rgba(255,215,0,.8), 0 2px 6px rgba(0,0,0,.5);
+}
+.prod-list { display: flex; flex-direction: column; gap: 4px; }
+.prod-item {
+    display: flex; align-items: center; gap: 8px;
+}
+.prod-item-icon {
+    width: 46px; height: 46px; border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, #f7ead0, #d9bd85);
+    border: 2px solid #6b4a2a;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.4rem; flex-shrink: 0;
+    box-shadow: 0 1px 3px rgba(0,0,0,.4);
+}
+.prod-item-body { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.prod-item-name {
+    background: #1a1a1a;
+    color: #ffffff;
+    font-size: 0.92rem; font-weight: bold;
+    padding: 3px 10px;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    border: 1px solid #000;
+    border-radius: 1px;
+}
+.prod-item-prod {
+    color: #2a1f14;
+    font-size: 0.85rem;
+    padding: 1px 4px 0;
+}
+.prod-item-btn {
+    width: 38px; height: 38px; flex-shrink: 0;
+    background: linear-gradient(#3a3a3a, #1f1f1f);
+    border: 1px solid #000; border-radius: 4px;
+    font-size: 1.1rem; cursor: pointer; color: #f5e6c4;
+    display: flex; align-items: center; justify-content: center;
     box-shadow: 0 1px 3px rgba(0,0,0,.5);
 }
-.prod-sub {
-    color: #3d2b1f; font-size: 0.88rem; padding-left: 6px;
-    font-weight: 500;
-}
-.prod-build-btn {
-    width: 44px; height: 44px; flex-shrink: 0;
-    background: linear-gradient(#6b4a2a, #4a2e14);
-    border: 2px solid #2e1c0c; border-radius: 8px;
-    font-size: 1.3rem; cursor: pointer;
-    display: flex; align-items: center; justify-content: center;
-    box-shadow: 0 2px 4px rgba(0,0,0,.4);
-}
-.prod-build-btn:disabled { opacity: 0.35; cursor: not-allowed; }
-.prod-build-btn:not(:disabled):active { transform: translateY(1px); }
+.prod-item-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+.prod-item-btn:not(:disabled):active { transform: translateY(1px); }
 .prod-error {
     background: #8B0000; color: #fff; padding: 8px; border-radius: 4px;
     margin-top: 8px; text-align: center; font-size: 0.9rem;
+    font-family: inherit;
 }
 </style>
