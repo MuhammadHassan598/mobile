@@ -51,7 +51,7 @@ using (var engine = new GameEngine(new SimulationService(), new SaveService(save
     // Keep the nation broke all the way past the payday (day 182) + grace period.
     for (int i = 0; i < 196; i++)
     {
-        p.Gold = 0; p.Gold = 0;
+        p.Gold = 0;
         engine.AdvanceOneDay();
         if (engine.State.ActiveWarnings.Any(w => w.Contains("MAINTENANCE DUE"))) sawWarning = true;
     }
@@ -94,13 +94,13 @@ using (var engine3 = new GameEngine(new SimulationService(), new SaveService(sav
     Check(engine3.State.EventLog.Any(e => e.Contains("Farm completed")), "completion logged");
 
     // 6b. Unaffordable build is rejected.
-    n3.Gold = 0; n3.Gold = 0;
+    n3.Gold = 0;
     string? err2 = engine3.StartConstruction(BuildingType.Mine);
     Check(err2 is not null, "broke build rejected with error");
     Check(n3.ConstructionQueue.Count == 0, "nothing queued when broke");
 
     // 6c. Workshop chain: wood + iron -> goods.
-    n3.Gold = 5000; n3.Gold = 0; n3.Wood = 50; n3.Iron = 30;
+    n3.Gold = 50; n3.Wood = 50; n3.Iron = 30;
     string? err3 = engine3.StartConstruction(BuildingType.Workshop);
     Check(err3 is null, "workshop construction accepted (had wood+iron)");
     for (int i = 0; i < 12; i++) engine3.AdvanceOneDay();
@@ -143,7 +143,7 @@ using (var engine4 = new GameEngine(new SimulationService(), new SaveService(sav
     n4.Iron = 100;
     string? rerr2 = engine4.Recruit(UnitType.Cannon, 10);
     Check(rerr2 is null && Math.Abs(n4.Iron - 50) < 0.01, "10 cannons consumed 50 iron");
-    n4.Gold = 0; n4.Gold = 0;
+    n4.Gold = 0;
     string? rerr3 = engine4.Recruit(UnitType.Musketeer, 100);
     Check(rerr3 is not null, "broke recruit rejected");
 
@@ -151,35 +151,35 @@ using (var engine4 = new GameEngine(new SimulationService(), new SaveService(sav
     using (var eng = new GameEngine(new SimulationService(), new SaveService(saveFolder)))
     {
         for (int i = 0; i < 10; i++) eng.AdvanceOneDay();
-        // 4400*0.03 + 2400*0.025 + 1040*0.06 + 160*0.15 (land) + 25*0.5 (naval), per day x10
-        double expected = (132 + 60 + 62.4 + 24 + 12.5) * 10;
-        Check(Math.Abs(eng.State.PlayerNation.UpkeepAccrued - expected) < 5, $"upkeep accrued ~{expected:N0} over 10 days");
+        // 4400*0.0003 + 2400*0.00025 + 1040*0.0006 + 160*0.0015 (land) + 25*0.005 (naval), per day x10
+        double expected = (1.32 + 0.6 + 0.624 + 0.24 + 0.125) * 10;
+        Check(Math.Abs(eng.State.PlayerNation.UpkeepAccrued - expected) < 0.5, $"upkeep accrued ~{expected:N2} over 10 days");
     }
 
     // 7d. PayMaintenance resets the cycle.
     for (int i = 0; i < 30; i++) engine4.AdvanceOneDay();
-    n4.Gold = 100_000; n4.Gold = 0;
+    n4.Gold = 1000;
     double accrued = n4.UpkeepAccrued;
     string? perr = engine4.PayMaintenance();
     Check(perr is null, "early maintenance payment accepted");
     Check(n4.UpkeepAccrued == 0, "accrual reset after payment");
     Check(n4.NextPayday == engine4.State.CurrentDate.AddDays(180), "payday pushed 180 days out");
-    Check(Math.Abs(n4.Gold - (100_000 - accrued)) < 0.01, "treasury reduced by accrued amount");
+    Check(Math.Abs(n4.Gold - (1000 - accrued)) < 0.01, "treasury reduced by accrued amount");
 
     // 7e. Hire land commander: cheaper upkeep afterwards.
-    n4.Gold = 100_000; n4.Gold = 0;
+    n4.Gold = 1000;
     string? herr = engine4.HireCommander(CommanderRole.LandCommander);
     Check(herr is null && n4.HasCommander(CommanderRole.LandCommander), "land commander hired");
-    Check(Math.Abs(n4.Gold - (100_000 - 12)) < 0.01, "hire cost deducted");
+    Check(Math.Abs(n4.Gold - (1000 - 12)) < 0.01, "hire cost deducted");
     n4.UpkeepAccrued = 0;
     for (int i = 0; i < 10; i++) engine4.AdvanceOneDay();
-    double withCommander = n4.UpkeepAccrued; // (278.4*0.85 + 12.5) * 10 + wages 2*10
-    Check(withCommander < 29.09, $"commander reduces upkeep ({withCommander:N0} < 29.09)");
+    double withCommander = n4.UpkeepAccrued; // (2.784*0.85 + 0.125) * 10 + wages 0.02*10
+    Check(withCommander < 29.09, $"commander reduces upkeep ({withCommander:N2} < 29.09)");
     engine4.DismissCommander(CommanderRole.LandCommander);
     Check(!n4.HasCommander(CommanderRole.LandCommander), "commander dismissed");
 
     // 7f. Warships cost wood + iron.
-    n4.Gold = 100_000; n4.Gold = 0; n4.Wood = 500; n4.Iron = 200;
+    n4.Gold = 1000; n4.Wood = 500; n4.Iron = 200;
     int shipsBefore = n4.Warships;
     string? werr = engine4.RecruitWarships(10);
     Check(werr is null && n4.Warships == shipsBefore + 10, "10 warships launched");
@@ -189,7 +189,7 @@ using (var engine4 = new GameEngine(new SimulationService(), new SaveService(sav
     engine4.NewGame();
     var p4 = engine4.State.PlayerNation;
     int totalBefore = p4.Soldiers;
-    for (int i = 0; i < 196; i++) { p4.Gold = 0; p4.Gold = 0; engine4.AdvanceOneDay(); }
+    for (int i = 0; i < 196; i++) { p4.Gold = 0; engine4.AdvanceOneDay(); }
     Check(p4.Soldiers < totalBefore, "unpaid army shrinks");
     Check(p4.Units.Sum(u => u.Count) == p4.Soldiers, "stacks sum to Soldiers total");
     Check(p4.Units.All(u => u.Count > 0), "no empty stacks left behind");

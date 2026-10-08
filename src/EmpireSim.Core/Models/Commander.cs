@@ -25,13 +25,13 @@ public static class CommanderCatalog
     {
         new(CommanderRole.CommanderInChief, "Commander-in-Chief",
             "−5% all upkeep, +5% taxes",
-            HireCost: 2000, DailyWage: 3),
+            HireCost: 20, DailyWage: 0.03),
         new(CommanderRole.LandCommander, "Land Commander",
             "−15% land upkeep, −10% land recruit cost",
-            HireCost: 1200, DailyWage: 2),
+            HireCost: 12, DailyWage: 0.02),
         new(CommanderRole.FleetCommander, "Fleet Commander",
             "−15% naval upkeep, −10% warship recruit cost",
-            HireCost: 1200, DailyWage: 2),
+            HireCost: 12, DailyWage: 0.02),
     };
 
     private static readonly Dictionary<CommanderRole, string[]> NamePools = new()
