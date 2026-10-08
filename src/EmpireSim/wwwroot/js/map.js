@@ -88,6 +88,7 @@ window.empireMap = (() => {
 
     function render(newData) {
         data = newData || { shapes: [], selectedId: null };
+        wobbledShapes = null;  // re-bake hand-drawn wobble for new data
         draw();
     }
 
@@ -97,8 +98,37 @@ window.empireMap = (() => {
 
     function poly(p) { return p.polygon || p.Polygon || []; }
     function polys(p) { return p.polygons || p.Polygons || [poly(p)]; }
-    function ptX(pt) { return Array.isArray(pt) ? pt[0] : (pt.x ?? pt.X); }
-    function ptY(pt) { return Array.isArray(pt) ? pt[1] : (pt.y ?? pt.Y); }
+    function ptX(pt) { return !pt ? 0 : (Array.isArray(pt) ? pt[0] : (pt.x ?? pt.X ?? 0)); }
+    function ptY(pt) { return !pt ? 0 : (Array.isArray(pt) ? pt[1] : (pt.y ?? pt.Y ?? 0)); }
+
+    // Hand-drawn wobble: deterministic displacement baked once when data
+    // arrives (never per-frame). Gives copperplate hand-inked line quality.
+    function wobblePt(x, y) {
+        const h1 = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453;
+        const r1 = (h1 - Math.floor(h1)) - 0.5;
+        const h2 = Math.sin(x * 39.425 + y * 11.31) * 24634.6345;
+        const r2 = (h2 - Math.floor(h2)) - 0.5;
+        return [x + r1 * 5, y + r2 * 5];
+    }
+
+    let wobbledShapes = null;
+    function getWobbled() {
+        if (wobbledShapes) return wobbledShapes;
+        wobbledShapes = (data.shapes || []).map(p => {
+            const polysOut = [];
+            for (const pts of polys(p)) {
+                if (!pts || pts.length < 3) continue;
+                const w = [];
+                for (const pt of pts) {
+                    if (!pt) continue;
+                    w.push(wobblePt(ptX(pt), ptY(pt)));
+                }
+                if (w.length >= 3) polysOut.push(w);
+            }
+            return { p, polys: polysOut };
+        });
+        return wobbledShapes;
+    }
 
     // ---- drawing ----
     function draw() {
@@ -118,29 +148,32 @@ window.empireMap = (() => {
         // Sea labels under the territories.
         drawSeaLabels();
 
-        for (const p of (data.shapes || [])) {
+        for (const { p, polys: wpolys } of getWobbled()) {
             const isSel = (p.id ?? p.Id) === (data.selectedId ?? data.SelectedId);
             const baseColor = p.color || p.Color || '#555555';
-            for (const pts of polys(p)) {
-                if (pts.length < 3) continue;
+            for (const pts of wpolys) {
                 ctx.beginPath();
-                const [sx0, sy0] = toScreen(ptX(pts[0]), ptY(pts[0]));
+                const [sx0, sy0] = toScreen(pts[0][0], pts[0][1]);
                 ctx.moveTo(sx0, sy0);
                 for (let i = 1; i < pts.length; i++) {
-                    const [sx, sy] = toScreen(ptX(pts[i]), ptY(pts[i]));
+                    const [sx, sy] = toScreen(pts[i][0], pts[i][1]);
                     ctx.lineTo(sx, sy);
                 }
                 ctx.closePath();
 
-                // Faction tint over the terrain; solid engraved border.
-                ctx.fillStyle = rgba(baseColor, isSel ? 0.62 : 0.42);
+                // Watercolor wash over the painted terrain.
+                ctx.fillStyle = rgba(baseColor, isSel ? 0.55 : 0.38);
                 ctx.fill();
-                ctx.lineWidth = isSel ? 3 : 1.5;
-                ctx.strokeStyle = isSel ? '#FFD700' : darkened(baseColor, 70);
+                // Engraved double-stroke border: dark casing + inner color line.
+                ctx.lineWidth = isSel ? 4 : 2.6;
+                ctx.strokeStyle = isSel ? '#FFD700' : 'rgba(52,38,24,0.9)';
+                ctx.stroke();
+                ctx.lineWidth = isSel ? 1.6 : 1.1;
+                ctx.strokeStyle = isSel ? '#FFE87A' : rgba(baseColor, 0.95);
                 ctx.stroke();
                 if (isSel) {
-                    ctx.lineWidth = 6;
-                    ctx.strokeStyle = 'rgba(255,215,0,0.28)';
+                    ctx.lineWidth = 7;
+                    ctx.strokeStyle = 'rgba(255,215,0,0.25)';
                     ctx.stroke();
                 }
             }
@@ -167,16 +200,24 @@ window.empireMap = (() => {
 
     // Labels with collision detection: biggest territories win, the rest wait
     // until you zoom in. No more unreadable overlapping text.
+    // Set in IM Fell English, the 17th-century typeface.
     function drawNationLabels() {
         if (view.scale < 0.22) return;
         const w = cssW(), h = cssH();
-        const fs = Math.max(9, 11 * Math.min(view.scale, 1.3));
-        ctx.font = `600 ${fs}px Georgia, serif`;
+        const fs = Math.max(10, 12 * Math.min(view.scale, 1.3));
+        ctx.font = `${fs}px 'IM Fell English', Georgia, serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
 
-        const cands = (data.shapes || [])
-            .map(p => ({ p, area: shapeArea(p) }))
+        const cands = getWobbled()
+            .map(({ p, polys: wp }) => {
+                let area = 0;
+                for (const pts of wp) {
+                    for (let i = 0; i < pts.length - 1; i++)
+                        area += Math.abs(pts[i][0] * pts[i+1][1] - pts[i+1][0] * pts[i][1]) / 2;
+                }
+                return { p, area };
+            })
             .filter(c => {
                 const lx = c.p.labelX ?? c.p.LabelX;
                 return lx !== undefined && c.area * view.scale * view.scale > 900;
@@ -204,8 +245,8 @@ window.empireMap = (() => {
 
     function drawSeaLabels() {
         if (view.scale < 0.28) return;
-        const fs = Math.max(9, 15 * Math.min(view.scale, 1.2));
-        ctx.font = `${fs}px Georgia, serif`;
+        const fs = Math.max(10, 16 * Math.min(view.scale, 1.2));
+        ctx.font = `italic ${fs}px 'IM Fell English', Georgia, serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         try { ctx.letterSpacing = '3px'; } catch (e) { /* older browsers */ }
@@ -237,14 +278,27 @@ window.empireMap = (() => {
 
     function shapeAt(sx, sy) {
         const [wx, wy] = toWorld(sx, sy);
-        const shapes = data.shapes || [];
+        const shapes = getWobbled();
         for (let i = shapes.length - 1; i >= 0; i--) {
-            for (const pts of polys(shapes[i])) {
-                if (pts.length >= 3 && pointInPoly(wx, wy, pts))
-                    return shapes[i].id ?? shapes[i].Id;
+            const { p, polys: wpolys } = shapes[i];
+            for (const pts of wpolys) {
+                if (pointInPolyArr(wx, wy, pts))
+                    return p.id ?? p.Id;
             }
         }
         return null;
+    }
+
+    function pointInPolyArr(wx, wy, pts) {
+        let inside = false;
+        for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+            const xi = pts[i][0], yi = pts[i][1];
+            const xj = pts[j][0], yj = pts[j][1];
+            if (((yi > wy) !== (yj > wy)) &&
+                (wx < (xj - xi) * (wy - yi) / (yj - yi) + xi))
+                inside = !inside;
+        }
+        return inside;
     }
 
     // ---- interaction ----

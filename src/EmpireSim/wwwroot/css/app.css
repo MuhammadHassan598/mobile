@@ -1,5 +1,14 @@
 /* EmpireSim starter theme: dark parchment-and-gold, mobile-first. */
 
+/* IM Fell English — 17th-century typeface for the antique map. */
+@font-face {
+    font-family: 'IM Fell English';
+    src: url('../fonts/im-fell-english.woff2') format('woff2');
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+}
+
 :root {
     --bg: #0E1626;
     --panel: #1B2A4A;
