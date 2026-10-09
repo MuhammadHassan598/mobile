@@ -479,6 +479,48 @@ public sealed class GameEngine : IDisposable
         return null;
     }
 
+    /// <summary>Recruit personnel (military/spies/saboteurs). Transfers from civilian workforce.</summary>
+    public string? RecruitPersonnel(string personnelId, long quantity)
+    {
+        var def = PersonnelCatalog.Get(personnelId);
+        if (def is null || quantity <= 0) return "Invalid.";
+        var nation = State.PlayerNation;
+        nation.EnsureTaxationInitialized();
+
+        double totalCost = def.GoldCostPerPerson * quantity;
+        if (!nation.CanPay(totalCost))
+            return $"Insufficient Gold (need {totalCost:N0}).";
+
+        // Find eligible source with enough people
+        string? source = null;
+        foreach (var s in def.EligibleSources)
+        {
+            if (PopulationService.GetGroupCount(nation.Workforce, s) >= quantity)
+            {
+                source = s;
+                break;
+            }
+        }
+        if (source is null)
+            return "Not enough eligible civilian workers.";
+
+        nation.PayGold(totalCost);
+        var err = PopulationService.Transfer(nation.Workforce, source, personnelId, quantity);
+        if (err is not null) return err;
+
+        // Military personnel join reserves
+        if (personnelId == "military")
+        {
+            nation.Reserves += (int)quantity;
+            // Sync workforce military with soldiers + reserves
+            nation.Workforce.MilitaryPersonnel = nation.Soldiers + nation.Reserves;
+        }
+
+        State.Log($"Recruited {quantity:N0} {def.Name} from {source} ({Currency.Cost(totalCost)}).");
+        StateChanged?.Invoke();
+        return null;
+    }
+
     /// <summary>Start a national event. Returns error or null.</summary>
     public string? StartNationalEvent(string eventId)
     {

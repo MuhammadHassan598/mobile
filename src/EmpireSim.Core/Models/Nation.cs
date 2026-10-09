@@ -293,8 +293,11 @@ public sealed class Nation
             Demographics = Demographics.FromPopulation(Population);
         if (Workforce.Peasants == 0 && Population > 0)
             Workforce = Workforce.FromPopulation(Population, Soldiers);
-        // Sync military personnel with actual soldiers
-        Workforce.MilitaryPersonnel = Soldiers;
+        // Sync military personnel with actual soldiers + reserves
+        // (Don't overwrite if personnel were recruited via Population page)
+        long expected = Soldiers + Reserves;
+        if (Workforce.MilitaryPersonnel < expected)
+            Workforce.MilitaryPersonnel = expected;
     }
 
     /// <summary>Buildings currently under construction.</summary>
