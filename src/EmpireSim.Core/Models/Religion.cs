@@ -22,16 +22,16 @@ public static class ReligionCatalog
     {
         new("islam", "Islam", "☪️", "The faith of the Ottoman Empire and Mughals.",
             "+0.005% population growth rate",
-            5000, 365, 0.005, 1.0, 1.0, 1.0),
+            500000, 365, 0.005, 1.0, 1.0, 1.0),
         new("hinduism", "Hinduism", "🕉️", "The faith of India.",
             "Factory and mine construction time -5%",
-            5000, 365, 0, 0.95, 1.0, 1.0),
+            500000, 365, 0, 0.95, 1.0, 1.0),
         new("christianity", "Christianity", "✝️", "The faith of Europe.",
             "Base selling price +5%",
-            5000, 365, 0, 1.0, 1.05, 1.0),
+            500000, 365, 0, 1.0, 1.05, 1.0),
         new("buddhism", "Buddhism", "☸️", "The faith of Southeast Asia.",
             "Goods production speed +5%",
-            5000, 365, 0, 1.0, 1.0, 1.05),
+            500000, 365, 0, 1.0, 1.0, 1.05),
     };
 
     public static ReligionDefinition? Get(string id) =>
