@@ -479,6 +479,39 @@ public sealed class GameEngine : IDisposable
         return null;
     }
 
+    /// <summary>Start a national event. Returns error or null.</summary>
+    public string? StartNationalEvent(string eventId)
+    {
+        var nation = State.PlayerNation;
+        var def = NationalEventCatalog.Get(eventId);
+        if (def is null) return "Invalid event.";
+
+        // Check if same event already in progress
+        if (nation.NationalEvents.Any(e => e.EventTypeId == eventId && e.Status == NationalEventStatus.InProgress))
+            return "This event is already in progress.";
+
+        if (!nation.CanPay(def.GoldCost))
+            return $"Insufficient Gold (need {def.GoldCost:N0}).";
+        if (def.FoodRequired > 0 && nation.Food < def.FoodRequired)
+            return $"Not enough Food (need {def.FoodRequired:N0}).";
+
+        nation.PayGold(def.GoldCost);
+        if (def.FoodRequired > 0)
+            nation.Food -= def.FoodRequired;
+
+        nation.NationalEvents.Add(new NationalEventInstance
+        {
+            EventTypeId = eventId,
+            StartDate = State.CurrentDate,
+            ExpectedCompletion = State.CurrentDate.AddDays(def.DurationDays),
+            Status = NationalEventStatus.InProgress,
+            PaidCost = def.GoldCost
+        });
+        State.Log($"Started {def.Name} ({def.DurationDays} days).");
+        StateChanged?.Invoke();
+        return null;
+    }
+
     /// <summary>Cast a vote on a proposal.</summary>
     public string? CastVote(string proposalId, bool forProposal)
     {

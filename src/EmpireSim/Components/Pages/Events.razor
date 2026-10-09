@@ -1,22 +1,201 @@
 @page "/events"
+@using EmpireSim.Core.Models
+@using EmpireSim.Core.Services
 @inject GameEngine Engine
 @implements IDisposable
 
-<div class="dashboard">
-    <div class="topbar">
-        <div class="nation-name">Events</div>
+<div class="evt-wrap">
+    <div class="evt-header">
+        <h2>🎆 NATIONAL EVENTS</h2>
+        <div class="evt-ruler">Ruler Rating: <b>@_nation.RulerRating.ToString("N0") / 100</b></div>
     </div>
 
-    <ul class="log">
-        @foreach (var entry in Engine.State.EventLog.AsEnumerable().Reverse())
+    @if (!string.IsNullOrEmpty(_error))
+    {
+        <div class="evt-error">⚠ @_error</div>
+    }
+    @if (!string.IsNullOrEmpty(_msg))
+    {
+        <div class="evt-msg">@_msg</div>
+    }
+
+    <!-- Active events -->
+    @foreach (var evt in _nation.NationalEvents.Where(e => e.Status == NationalEventStatus.InProgress))
+    {
+        var def = NationalEventCatalog.Get(evt.EventTypeId);
+        <div class="evt-active">
+            <span>@def?.Icon</span>
+            <div class="evt-active-info">
+                <div><b>@def?.Name</b> — In Progress</div>
+                <div class="evt-prog"><div class="evt-prog-fill" style="width: @(evt.Progress(Engine.State.CurrentDate) * 100)%"></div></div>
+                <div class="evt-sub">@evt.DaysLeft(Engine.State.CurrentDate) days remaining</div>
+            </div>
+        </div>
+    }
+
+    <!-- Event grid 3x2 -->
+    <div class="evt-grid">
+        @foreach (var def in NationalEventCatalog.All)
         {
-            <li>@entry</li>
+            bool inProgress = _nation.NationalEvents.Any(e => e.EventTypeId == def.Id && e.Status == NationalEventStatus.InProgress);
+            <div class="evt-card">
+                <div class="evt-icon">@def.Icon</div>
+                <div class="evt-name">@def.Name</div>
+                <div class="evt-card-actions">
+                    <button class="evt-info" @onclick="() => _info = def" title="Info">ⓘ</button>
+                    @if (inProgress)
+                    {
+                        <span class="evt-badge">ACTIVE</span>
+                    }
+                    else
+                    {
+                        <button class="evt-select" @onclick="() => _selected = def">SELECT</button>
+                    }
+                </div>
+            </div>
         }
-    </ul>
+    </div>
+
+    <!-- Event history -->
+    @if (_nation.NationalEvents.Any(e => e.Status == NationalEventStatus.Completed))
+    {
+        <h3>COMPLETED EVENTS</h3>
+        @foreach (var evt in _nation.NationalEvents.Where(e => e.Status == NationalEventStatus.Completed).OrderByDescending(e => e.ActualCompletion))
+        {
+            var def = NationalEventCatalog.Get(evt.EventTypeId);
+            <div class="evt-row">
+                <span>@def?.Icon</span>
+                <span class="evt-row-name">@def?.Name</span>
+                <span class="evt-sub">@evt.ActualCompletion?.ToString("dd-MM-yyyy")</span>
+            </div>
+        }
+    }
 </div>
 
+<!-- Info Modal -->
+@if (_info is not null)
+{
+    <div class="popup-overlay" @onclick="() => _info = null">
+        <div class="popup-panel" @onclick:stopPropagation>
+            <div class="evt-modal-icon">@_info.Icon</div>
+            <div class="evt-modal-name">@_info.Name</div>
+            <div class="evt-desc">@_info.Description</div>
+            <div class="c-row"><span>🪙 Cost:</span><b>@_info.GoldCost.ToString("N0") Gold</b></div>
+            <div class="c-row"><span>⏳ Duration:</span><b>@_info.DurationDays days</b></div>
+            <div class="c-row"><span>👑 Effect:</span><b>+@_info.RulerRatingEffect ruler rating</b></div>
+            @if (_info.FoodRequired > 0)
+            {
+                <div class="c-row"><span>🌾 Food:</span><b>@_info.FoodRequired.ToString("N0")</b></div>
+            }
+            <div class="popup-actions">
+                <button class="popup-btn cancel" @onclick="() => _info = null">CLOSE</button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Selection Modal -->
+@if (_selected is not null)
+{
+    var def = _selected;
+    bool canAfford = _nation.Gold >= def.GoldCost;
+    bool hasFood = def.FoodRequired <= 0 || _nation.Food >= def.FoodRequired;
+    bool valid = canAfford && hasFood;
+
+    <div class="popup-overlay" @onclick="() => _selected = null">
+        <div class="popup-panel" @onclick:stopPropagation>
+            <div class="evt-modal-icon">@def.Icon</div>
+            <div class="evt-modal-name">@def.Name.ToUpper()</div>
+            <div class="c-row"><span>🪙 Required:</span><b>@def.GoldCost.ToString("N0") Gold</b></div>
+            <div class="c-row"><span>Term:</span><b>@def.DurationDays days</b></div>
+            <div class="evt-desc">@def.Description</div>
+            <div class="evt-section">
+                <div class="evt-sec-title" style="color:#2e7d32">Advantages:</div>
+                <div class="evt-adv">✓ Ruler rating +@def.RulerRatingEffect on completion</div>
+            </div>
+            @if (def.FoodRequired > 0)
+            {
+                <div class="evt-section">
+                    <div class="evt-sec-title">Requirements:</div>
+                    <div class="evt-req">🌾 @def.FoodRequired.ToString("N0") Food (have @_nation.Food.ToString("N0"))</div>
+                </div>
+            }
+            @if (!canAfford)
+            {
+                <div class="evt-insufficient">Insufficient Gold!</div>
+            }
+            @if (!hasFood)
+            {
+                <div class="evt-insufficient">Not enough Food!</div>
+            }
+            <div class="popup-actions">
+                <button class="popup-btn cancel" @onclick="() => _selected = null">CANCEL</button>
+                <button class="popup-btn confirm" disabled="@(!valid)" @onclick="() => DoSelect(def.Id)">SELECT</button>
+            </div>
+        </div>
+    </div>
+}
+
 @code {
+    private Nation _nation => Engine.State.PlayerNation;
+    private string? _error;
+    private string? _msg;
+    private NationalEventDefinition? _info;
+    private NationalEventDefinition? _selected;
+
     protected override void OnInitialized() => Engine.StateChanged += OnStateChanged;
     private void OnStateChanged() => InvokeAsync(StateHasChanged);
     public void Dispose() => Engine.StateChanged -= OnStateChanged;
+
+    private void DoSelect(string id)
+    {
+        _error = Engine.StartNationalEvent(id);
+        if (_error is null)
+        {
+            var def = NationalEventCatalog.Get(id);
+            _msg = $"{def?.Name} started.";
+            _selected = null;
+        }
+    }
 }
+
+<style>
+.evt-wrap { background: linear-gradient(#f0e0b0, #e8d090); min-height: 100vh; padding: 10px 8px 90px; font-family: Georgia, serif; color: #3d2b1f; }
+.evt-header { text-align: center; margin-bottom: 10px; }
+.evt-header h2 { margin: 0; letter-spacing: 2px; }
+.evt-ruler { color: #5a4a2a; font-size: 0.95rem; margin-top: 4px; }
+.evt-error { background: #f8d7da; color: #721c24; border-radius: 6px; padding: 8px; margin-bottom: 8px; font-size: 0.9rem; }
+.evt-msg { background: #d4edda; color: #155724; border-radius: 6px; padding: 8px; margin-bottom: 8px; font-size: 0.9rem; }
+.evt-active { display: flex; gap: 10px; align-items: center; background: rgba(255,255,255,.4); border: 2px solid #8b6914; border-radius: 8px; padding: 10px; margin-bottom: 8px; font-size: 1.2rem; }
+.evt-active-info { flex: 1; font-size: 0.9rem; }
+.evt-prog { height: 8px; background: #d4b896; border-radius: 4px; overflow: hidden; margin: 4px 0; }
+.evt-prog-fill { height: 100%; background: linear-gradient(#4caf50, #2e7d32); }
+.evt-sub { font-size: 0.8rem; color: #5a4a2a; }
+.evt-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 12px; }
+.evt-card { background: linear-gradient(#f5e6c4, #e2cb92); border: 2px solid #8b6914; border-radius: 8px; padding: 12px 6px; text-align: center; display: flex; flex-direction: column; gap: 6px; }
+.evt-icon { font-size: 2.2rem; }
+.evt-name { font-size: 0.78rem; font-weight: bold; min-height: 2.2em; }
+.evt-card-actions { display: flex; align-items: center; justify-content: center; gap: 4px; margin-top: auto; }
+.evt-info { background: #4a7a8a; color: #fff; border: none; border-radius: 50%; width: 24px; height: 24px; cursor: pointer; font-size: 0.8rem; }
+.evt-select { background: linear-gradient(#7a5230, #4a2e14); color: #f5e6c4; border: 1px solid #2e1c0c; border-radius: 4px; padding: 4px 10px; cursor: pointer; font-family: inherit; font-size: 0.72rem; font-weight: bold; }
+.evt-badge { background: #2e7d32; color: #fff; font-size: 0.65rem; padding: 3px 8px; border-radius: 4px; font-weight: bold; }
+.evt-wrap h3 { color: #5a3a1a; font-size: 0.9rem; letter-spacing: 1px; margin: 12px 0 6px; border-bottom: 2px solid #8b6914; padding-bottom: 4px; }
+.evt-row { display: flex; align-items: center; gap: 8px; background: rgba(255,255,255,.3); border: 1px solid #c9b98a; border-radius: 6px; padding: 8px; margin-bottom: 4px; }
+.evt-row-name { flex: 1; font-weight: bold; font-size: 0.9rem; }
+.popup-overlay { position: fixed; inset: 0; z-index: 100; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; padding: 12px; }
+.popup-panel { background: linear-gradient(#f5e6c4, #e2cb92); border: 3px double #8b6914; border-radius: 10px; padding: 16px; max-width: 360px; width: 100%; font-family: Georgia, serif; color: #3d2b1f; text-align: center; }
+.evt-modal-icon { font-size: 3rem; margin-bottom: 4px; }
+.evt-modal-name { font-size: 1.2rem; font-weight: bold; letter-spacing: 1px; margin-bottom: 8px; }
+.evt-desc { font-size: 0.9rem; color: #5a4a2a; margin: 8px 0; }
+.c-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #c9b98a; font-size: 0.92rem; text-align: left; }
+.evt-section { margin: 10px 0; text-align: left; }
+.evt-sec-title { font-weight: bold; font-size: 0.9rem; margin-bottom: 4px; }
+.evt-adv { color: #2e7d32; font-size: 0.88rem; }
+.evt-req { font-size: 0.88rem; }
+.evt-insufficient { color: #8B0000; font-weight: bold; margin-top: 8px; }
+.popup-actions { display: flex; gap: 10px; margin-top: 12px; }
+.popup-btn { flex: 1; padding: 10px; border-radius: 6px; cursor: pointer; font-family: inherit; border: 2px solid #2e1c0c; font-weight: bold; }
+.popup-btn.cancel { background: linear-gradient(#8a8a8a, #5a5a5a); color: #fff; }
+.popup-btn.confirm { background: linear-gradient(#7a5230, #4a2e14); color: #f5e6c4; }
+.popup-btn.confirm:disabled { opacity: 0.4; }
+</style>

@@ -280,6 +280,12 @@ public sealed class Nation
     /// <summary>Assembly voting power (derived from population).</summary>
     public int VotingPower => AssemblyService.VotingPower(this);
 
+    /// <summary>Ruler rating 0-100 (improved by national events).</summary>
+    public double RulerRating { get; set; } = 50;
+
+    /// <summary>National events (active and completed).</summary>
+    public List<NationalEventInstance> NationalEvents { get; set; } = new();
+
     /// <summary>Ensure demographics/workforce are initialized (for existing saves).</summary>
     public void EnsureTaxationInitialized()
     {

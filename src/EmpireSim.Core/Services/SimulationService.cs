@@ -201,6 +201,21 @@ public sealed class SimulationService
             state.Log($"Trade delivered: {tc.Quantity:N0} {product.Name} ({Currency.Cost(tc.TotalValue)}).");
         }
 
+        // ---- National events: complete on date, apply ruler rating ----
+        foreach (var evt in nation.NationalEvents.Where(e => e.Status == NationalEventStatus.InProgress).ToList())
+        {
+            if (state.CurrentDate < evt.ExpectedCompletion) continue;
+            var def = NationalEventCatalog.Get(evt.EventTypeId);
+            if (def is not null && !evt.CompletionApplied)
+            {
+                nation.RulerRating = Math.Clamp(nation.RulerRating + def.RulerRatingEffect, 0, 100);
+                evt.CompletionApplied = true;
+                state.Log($"{def.Name} completed. Ruler rating +{def.RulerRatingEffect}.");
+            }
+            evt.Status = NationalEventStatus.Completed;
+            evt.ActualCompletion = state.CurrentDate;
+        }
+
         // ---- Assembly: resolve voting deadlines, expire policies ----
         foreach (var prop in state.AssemblyProposals.Where(p => p.Status == ProposalStatus.VotingOpen).ToList())
         {
