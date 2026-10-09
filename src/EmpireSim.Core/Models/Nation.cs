@@ -274,6 +274,9 @@ public sealed class Nation
     /// <summary>Active religion conversion (null if none).</summary>
     public ReligionConversion? ReligionConversion { get; set; }
 
+    /// <summary>Active national law IDs.</summary>
+    public List<string> ActiveLaws { get; set; } = new();
+
     /// <summary>Ensure demographics/workforce are initialized (for existing saves).</summary>
     public void EnsureTaxationInitialized()
     {

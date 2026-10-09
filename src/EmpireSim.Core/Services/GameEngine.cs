@@ -81,12 +81,12 @@ public sealed class GameEngine : IDisposable
         (long)(n.Population * Balance.TaxPerPersonPerDay + Balance.CrownDomainIncomePerDay);
 
     /// <summary>Whether the player can afford a building right now.</summary>
-    public bool CanAfford(BuildingSpec spec)
+    public bool CanAfford(BuildingSpec spec, double costMult = 1.0)
     {
         var n = State.PlayerNation;
-        return n.Gold >= spec.GoldCost
-            && n.Wood >= spec.WoodCost
-            && n.Iron >= spec.IronCost;
+        return n.Gold >= spec.GoldCost * costMult
+            && n.Wood >= spec.WoodCost * costMult
+            && n.Iron >= spec.IronCost * costMult;
     }
 
     /// <summary>
@@ -102,12 +102,13 @@ public sealed class GameEngine : IDisposable
         if (nation.ConstructionQueue.Count >= Balance.MaxBuildQueue)
             return $"Build queue is full (max {Balance.MaxBuildQueue}).";
 
-        if (!CanAfford(spec)) return "Not enough resources.";
+        double costMult = LawService.ConstructionCostMult(nation);
+        if (!CanAfford(spec, costMult)) return "Not enough resources.";
 
-        nation.PayGold(spec.GoldCost);
-        nation.Wood -= spec.WoodCost;
-        nation.Iron -= spec.IronCost;
-        int buildDays = Math.Max(1, (int)Math.Ceiling(spec.BuildDays * ReligionService.ConstructionTimeMult(nation)));
+        nation.PayGold(spec.GoldCost * costMult);
+        nation.Wood -= spec.WoodCost * costMult;
+        nation.Iron -= spec.IronCost * costMult;
+        int buildDays = Math.Max(1, (int)Math.Ceiling(spec.BuildDays * ReligionService.ConstructionTimeMult(nation) * LawService.ConstructionTimeMult(nation)));
         nation.ConstructionQueue.Add(new ConstructionProject
         {
             Building = type,
@@ -194,7 +195,7 @@ public sealed class GameEngine : IDisposable
         foreach (var kv in equipNeeded)
             n.AddMilitaryItem(kv.Key, -kv.Value);
 
-        double days = Balance.RecruitDaysPerSoldier * count;
+        double days = Balance.RecruitDaysPerSoldier * count * LawService.RecruitmentTimeMult(n);
         days = Math.Max(1, Math.Min(days, Balance.MaxRecruitDays));
         n.RecruitmentQueue.Add(new RecruitmentProject
         {
@@ -326,6 +327,8 @@ public sealed class GameEngine : IDisposable
         if (sellerStock < quantity) return $"Seller only has {sellerStock:N0} available.";
 
         double pricePer1000 = MarketPricing.PricePer1000(productId, sellerId);
+        // Law: import price discount
+        pricePer1000 *= LawService.ImportPriceMult(buyer);
         double total = MarketPricing.TotalValue(pricePer1000, quantity);
         if (!buyer.CanPay(total)) return "Not enough gold.";
 
@@ -408,6 +411,47 @@ public sealed class GameEngine : IDisposable
         State.Log($"Started conversion to {target.Name} ({target.ConversionDays} days).");
         StateChanged?.Invoke();
         return null;
+    }
+
+    /// <summary>Select a national law. Replaces conflicting law in same policy group. Returns error or null.</summary>
+    public string? SelectLaw(string lawId)
+    {
+        var nation = State.PlayerNation;
+        var law = LawCatalog.Get(lawId);
+        if (law is null) return "Invalid law.";
+        if (nation.ActiveLaws.Contains(lawId)) return "Law already active.";
+        if (!nation.CanPay(law.SelectionCost)) return "Insufficient Gold.";
+
+        // Remove conflicting law in same policy group (except 'general' and 'diplomatic' which coexist)
+        if (law.PolicyGroup != "general" && law.PolicyGroup != "diplomatic")
+        {
+            var conflict = nation.ActiveLaws
+                .Select(id => LawCatalog.Get(id))
+                .FirstOrDefault(l => l is not null && l.PolicyGroup == law.PolicyGroup);
+            if (conflict is not null)
+            {
+                nation.ActiveLaws.Remove(conflict.Id);
+                State.Log($"Replaced {conflict.Name} with {law.Name}.");
+            }
+        }
+
+        nation.PayGold(law.SelectionCost);
+        nation.ActiveLaws.Add(lawId);
+        State.Log($"Enacted law: {law.Name} ({Currency.Cost(law.SelectionCost)}).");
+        StateChanged?.Invoke();
+        return null;
+    }
+
+    /// <summary>Repeal an active law.</summary>
+    public void RepealLaw(string lawId)
+    {
+        var nation = State.PlayerNation;
+        if (nation.ActiveLaws.Remove(lawId))
+        {
+            var law = LawCatalog.Get(lawId);
+            State.Log($"Repealed law: {law?.Name ?? lawId}.");
+            StateChanged?.Invoke();
+        }
     }
 
     /// <summary>Cancel active religion conversion (no refund).</summary>

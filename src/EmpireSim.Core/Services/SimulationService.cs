@@ -131,12 +131,19 @@ public sealed class SimulationService
         nation.TaxApproval = Math.Clamp(nation.TaxApproval, 0, 100);
 
         // ---- Production buildings: daily output goes to goods inventory ----
-        // Buddhism: +5% goods production speed
+        // Buddhism: +5% goods production speed; Laws: various modifiers
         double prodMult = ReligionService.ProductionSpeedMult(nation);
+        double foodMult = LawService.FoodOutputMult(nation);
+        double resMult = LawService.ResourceOutputMult(nation);
+        double milMult = LawService.MilitaryGoodsMult(nation);
+        double genMult = LawService.GeneralProdOutputMult(nation);
         foreach (var kvp in nation.ProductionBuildings)
         {
             var spec = ProductionCatalog.Get(kvp.Key);
-            double dailyOutput = kvp.Value * spec.OutputPerDay * prodMult;
+            double catMult = spec.Category == ProductionCategory.Food ? foodMult
+                           : spec.Category == ProductionCategory.Minerals ? resMult : 1.0;
+            // Military goods (from military recipes) get military modifier
+            double dailyOutput = kvp.Value * spec.OutputPerDay * prodMult * catMult * genMult;
             if (!nation.GoodsInventory.ContainsKey(spec.Produces))
                 nation.GoodsInventory[spec.Produces] = 0;
             nation.GoodsInventory[spec.Produces] += dailyOutput;
@@ -148,7 +155,8 @@ public sealed class SimulationService
             proj.DaysLeft -= 1;
             if (proj.DaysLeft > 0) continue;
             var recipe = MilitaryRecipes.Get(proj.RecipeId);
-            nation.AddMilitaryItem(proj.RecipeId, 10);
+            double craftAmount = 10 * LawService.MilitaryGoodsMult(nation);
+            nation.AddMilitaryItem(proj.RecipeId, craftAmount);
             state.Log($"{nation.Name}: Crafted 10x {recipe.Name}.");
             nation.MilitaryCraftQueue.Remove(proj);
         }
@@ -171,11 +179,12 @@ public sealed class SimulationService
             }
             else
             {
-                // Player sold: deduct buyer gold, credit player gold
+                // Player sold: deduct buyer gold, credit player gold (with export law bonus)
                 if (buyer.Gold >= tc.TotalValue)
                 {
                     buyer.Gold -= tc.TotalValue;
-                    if (seller is not null) seller.Gold += tc.TotalValue;
+                    if (seller is not null)
+                        seller.Gold += tc.TotalValue * LawService.ExportRevenueMult(seller);
                 }
                 else
                 {
@@ -228,7 +237,9 @@ public sealed class SimulationService
         double landUpkeep = nation.Units.Sum(u => u.Count * UnitCatalog.Get(u.Type).UpkeepPerDay) * landUpkeepMult * nation.UpkeepMultExtra;
         double navalUpkeep = nation.Warships * WarshipSpec.UpkeepPerDay * navalUpkeepMult;
         double wages = nation.Commanders.Sum(c => c.DailyWage);
-        nation.UpkeepAccrued += landUpkeep + navalUpkeep + wages;
+        // Laws: military maintenance modifier
+        double maintMult = LawService.MilitaryMaintenanceMult(nation);
+        nation.UpkeepAccrued += (landUpkeep + navalUpkeep + wages) * maintMult;
 
         // ---- 6-month payday ----
         if (state.CurrentDate >= nation.NextPayday && !nation.IsInGracePeriod)
