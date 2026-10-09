@@ -40,6 +40,8 @@ public sealed class SimulationService
 
     private void AdvanceNation(GameState state, Nation nation)
     {
+        nation.MigrateGoodsInventory();
+
         // ---- Food ----
         double produced = nation.Farms * Balance.FoodPerFarmPerDay;
         double consumed = nation.Population * Balance.FoodPerPersonPerDay;
@@ -145,10 +147,15 @@ public sealed class SimulationService
             // Assembly: production ban reduces output by 50%
             double assemblyMult = AssemblyService.HasActivePolicy(state.ActiveAssemblyPolicies, "production_ban", nation.Id, state.CurrentDate) ? 0.5 : 1.0;
             double dailyOutput = kvp.Value * spec.OutputPerDay * prodMult * catMult * genMult * assemblyMult;
-            if (!nation.GoodsInventory.ContainsKey(spec.Produces))
-                nation.GoodsInventory[spec.Produces] = 0;
-            nation.GoodsInventory[spec.Produces] += dailyOutput;
+            nation.AddProduct(spec.Produces, dailyOutput);
         }
+
+        // ---- Population consumption: fixed per-person daily usage of each item ----
+        var shortage = ConsumptionService.Apply(nation);
+        ConsumptionService.ApplyShortageEffects(nation, shortage);
+        if (shortage.ShortItems.Any())
+            Warn(state, nation, $"Shortage in {nation.Name}: {string.Join(", ", shortage.ShortItems)} — " +
+                $"{nation.LastShortageDeaths:N1} deaths/day, ruler rating -{nation.LastRatingDrop:N3}/day.");
 
         // ---- Military crafting: progress projects, add 10 units on completion ----
         foreach (var proj in nation.MilitaryCraftQueue.ToList())

@@ -241,6 +241,46 @@ public sealed class Nation
         GoodsInventory[goodName] = Math.Max(0, GoodsInventory[goodName] + amount);
     }
 
+    /// <summary>
+    /// Adds a produced item to its single stock: minerals go to their scalar
+    /// stockpile, Gold to the treasury, everything else to <see cref="GoodsInventory"/>.
+    /// </summary>
+    public void AddProduct(string productName, double amount)
+    {
+        switch (productName.ToLowerInvariant())
+        {
+            case "wood": Wood += amount; break;
+            case "stone": Stone += amount; break;
+            case "iron": Iron += amount; break;
+            case "copper": Copper += amount; break;
+            case "lead": Lead += amount; break;
+            case "gold": Gold += amount; break;
+            default: AddGood(productName, amount); break;
+        }
+    }
+
+    /// <summary>Current stock of a produced item by name (counterpart of <see cref="AddProduct"/>).</summary>
+    public double GetProduct(string productName) => productName.ToLowerInvariant() switch
+    {
+        "wood" => Wood,
+        "stone" => Stone,
+        "iron" => Iron,
+        "copper" => Copper,
+        "lead" => Lead,
+        "gold" => Gold,
+        _ => GetGood(productName)
+    };
+
+    /// <summary>Moves legacy mineral/gold entries out of <see cref="GoodsInventory"/> (old saves).</summary>
+    public void MigrateGoodsInventory()
+    {
+        foreach (var key in new[] { "Wood", "Stone", "Iron", "Copper", "Lead", "Gold" })
+        {
+            if (!GoodsInventory.Remove(key, out double v)) continue;
+            AddProduct(key, v);
+        }
+    }
+
     /// <summary>Military item batches currently in production.</summary>
     public List<MilitaryCraftProject> MilitaryCraftQueue { get; set; } = new();
 
@@ -299,6 +339,20 @@ public sealed class Nation
         if (Workforce.MilitaryPersonnel < expected)
             Workforce.MilitaryPersonnel = expected;
     }
+
+    // ---- Item shortage effects (see ConsumptionService) ----
+
+    /// <summary>Fractional deaths from shortages carried over until they reach a whole person.</summary>
+    public double ShortageDeathCarry { get; set; }
+
+    /// <summary>Unmet share (percentage points) of each item's need on the last day.</summary>
+    public Dictionary<string, double> ShortagePct { get; set; } = new();
+
+    /// <summary>Deaths caused by shortages on the last day (fractional).</summary>
+    public double LastShortageDeaths { get; set; }
+
+    /// <summary>Ruler Rating lost to shortages on the last day.</summary>
+    public double LastRatingDrop { get; set; }
 
     /// <summary>Buildings currently under construction.</summary>
     public List<ConstructionProject> ConstructionQueue { get; set; } = new();

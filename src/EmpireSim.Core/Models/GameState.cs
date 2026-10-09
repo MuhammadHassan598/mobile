@@ -738,6 +738,8 @@ public sealed class GameState
             n.Stone = 4 * n.Territory.Count;
             n.Lead = 2 * n.Mines;
             n.Copper = 2 * n.Mines;
+            // Every item (food and minerals) starts at one week of the population's need.
+            ConsumptionService.SeedStock(n, Services.Balance.StartingStockDays);
         }
 
         var player = nations.FirstOrDefault(n => n.Id == playerNationId) ?? nations[0];
@@ -849,7 +851,12 @@ public sealed class GameState
 
         // Seed historically-accurate starting production buildings (1600 economies)
         foreach (var nation in nations)
+        {
             SeedProductionBuildings(nation);
+            // The historical list above keeps only the gold mines: every consumed item's mills are
+            // re-sized so the nation starts 30% (big) / 15% (mid) / 10% (small) short of its need.
+            ConsumptionService.SeedMills(nation);
+        }
 
         state.Log($"The campaign begins. Long live {player.Name}!");
         return state;

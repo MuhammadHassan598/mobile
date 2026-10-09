@@ -10,6 +10,28 @@ public static class Balance
     public const double FoodPerFarmPerDay = 10.0;
     public const double FoodPerPersonPerDay = 0.000008;
 
+    /// <summary>Every nation starts with this many days of need in each item (food and minerals).</summary>
+    public const int StartingStockDays = 7;
+
+    // ---- Production buildings (food + mineral side) ----
+    /// <summary>+100% output: 5/day becomes 10/day.</summary>
+    public const double ProductionOutputMult = 2.0;
+    /// <summary>+150,000% build cost: 6 becomes 9,006 (x1501). Applies to gold, wood, stone and iron.</summary>
+    public const double ProductionCostMult = 1501.0;
+
+    // ---- Starting mills: share of each item's need left unmet at game start, by nation size ----
+    public const double StartShortageBig = 0.30;
+    public const double StartShortageMid = 0.15;
+    public const double StartShortageSmall = 0.10;
+    public const long StartBigPopulation = 10_000_000;
+    public const long StartMidPopulation = 2_000_000;
+
+    // ---- Shortage effects: per 1% of an item's daily need left unmet ----
+    public const double ShortageRatingDropFoodPerPct = 0.0001;
+    public const double ShortageRatingDropMineralPerPct = 0.00003;
+    public const double ShortageDeathsFoodPerPct = 1.0;
+    public const double ShortageDeathsMineralPerPct = 0.5;
+
     // ---- Raw materials (per in-game day) ----
     public const double IronPerMinePerDay = 2.0;
     public const double WoodPerSawmillPerDay = 3.0;

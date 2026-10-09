@@ -109,7 +109,8 @@ using (var engine3 = new GameEngine(new SimulationService(), new SaveService(sav
     for (int i = 0; i < 12; i++) engine3.AdvanceOneDay();
     Check(n3.Workshops == 1, "workshop completed after 12 days");
     // Isolate the chain: remove mines/sawmills so stocks move only via the workshop.
-    n3.Mines = 0; n3.Sawmills = 0;
+    n3.Mines = 0; n3.Sawmills = 0; n3.ProductionBuildings.Clear();
+    n3.Population = 0; // isolate from population consumption
     n3.Wood = 50; n3.Iron = 30;
     double woodBefore = n3.Wood, ironBefore = n3.Iron, goodsBefore = n3.Goods;
     for (int i = 0; i < 3; i++) engine3.AdvanceOneDay();
@@ -491,6 +492,164 @@ using (var engine14 = new GameEngine(new SimulationService(), new SaveService(sa
     Check(all.All(n => n.HistoricalPopulation >= n.Population), "historical pop >= sim pop");
     Check(engine14.State.PlayerNation.ColoniesFounded == 0, "colonies counter starts at 0");
     Check(engine14.State.PlayerNation.BattlesWon == 0, "battles-won counter starts at 0");
+}
+
+Console.WriteLine("== 15. Per-item stock: mineral output feeds the single mineral stock ==");
+using (var engine15 = new GameEngine(new SimulationService(), new SaveService(saveFolder)))
+{
+    var n15 = engine15.State.PlayerNation;
+    n15.Population = 0; // isolate from population consumption
+    n15.ProductionBuildings["sawmill"] = 2;
+    n15.ProductionBuildings["farm"] = 1;
+    n15.GoodsInventory["Iron"] = 7; // legacy-save entry
+    double wood0 = n15.Wood, iron0 = n15.Iron;
+    engine15.AdvanceOneDay();
+    Check(n15.Wood > wood0, "built sawmill adds to Wood stock");
+    Check(n15.Iron >= iron0 + 7, "legacy GoodsInventory Iron migrated into Iron stock");
+    Check(!n15.GoodsInventory.ContainsKey("Wood") && !n15.GoodsInventory.ContainsKey("Iron"),
+          "no duplicate mineral keys in GoodsInventory");
+    Check(n15.GetGood("Wheat") > 0, "farm output tracked as its own Wheat stock");
+}
+
+Console.WriteLine("== 16. Population-driven item consumption ==");
+using (var engine16 = new GameEngine(new SimulationService(), new SaveService(saveFolder)))
+{
+    var n16 = engine16.State.PlayerNation;
+    n16.ProductionBuildings.Clear();
+    n16.Population = 1_000_000;
+    n16.GoodsInventory["Wheat"] = 1000;
+    n16.GoodsInventory["Salt"] = 0;
+    n16.Wood = 500;
+    var wheat = ConsumptionCatalog.All.First(c => c.Item == "Wheat");
+    Check(Math.Abs(ConsumptionService.DailyNeed(wheat, 1_000_000) - 46.46) < 0.01, "wheat need = 46.46/day per 1M people");
+    Check(Math.Abs(ConsumptionService.DailyNeed(wheat, 2_000_000) - 92.92) < 0.01, "need doubles with population");
+    ConsumptionService.Apply(n16);
+    Check(Math.Abs(n16.GetGood("Wheat") - (1000 - 46.46)) < 0.01, "wheat stock reduced by daily need");
+    Check(n16.GetGood("Salt") == 0, "empty stock stays at 0 (no negative)");
+    Check(Math.Abs(n16.Wood - (500 - 40)) < 0.01, "wood usage drawn from the Wood stockpile");
+    n16.GoodsInventory["Wheat"] = 10;
+    ConsumptionService.Apply(n16);
+    Check(n16.GetGood("Wheat") == 0, "consumption clamps at available stock");
+}
+
+Console.WriteLine("== 17. Starting stock = 1 week of need ==");
+using (var engine17 = new GameEngine(new SimulationService(), new SaveService(saveFolder)))
+{
+    bool allSeeded = engine17.State.AllNations().All(nat =>
+        ConsumptionCatalog.All.All(spec =>
+            Math.Abs(nat.GetProduct(spec.Item) - ConsumptionService.DailyNeed(spec, nat.Population) * 7) < 0.001));
+    Check(allSeeded, "every nation holds exactly 7 days of need of every item");
+    var p17 = engine17.State.PlayerNation;
+    for (int i = 0; i < 6; i++) engine17.AdvanceOneDay();
+    Check(ConsumptionCatalog.All.All(s => p17.GetProduct(s.Item) > 0), "after 6 days nothing has run out yet");
+}
+
+Console.WriteLine("== 18. Shortage effects: deaths + ruler rating ==");
+using (var engine18 = new GameEngine(new SimulationService(), new SaveService(saveFolder)))
+{
+    var n18 = engine18.State.PlayerNation;
+    ShortageReport Report(double foodPct, double mineralPct)
+    {
+        var r = new ShortageReport();
+        foreach (var s in ConsumptionCatalog.All)
+            r.UnmetPct[s.Item] = s.Group == ItemGroup.Food ? foodPct : mineralPct;
+        return r;
+    }
+
+    // (a) one food item 50% short, 1M people
+    n18.Population = 1_000_000;
+    foreach (var s in ConsumptionCatalog.All) n18.AddProduct(s.Item, ConsumptionService.DailyNeed(s, n18.Population) * 3 - n18.GetProduct(s.Item));
+    var wheat18 = ConsumptionCatalog.All.First(c => c.Item == "Wheat");
+    n18.AddProduct("Wheat", ConsumptionService.DailyNeed(wheat18, n18.Population) * 0.5 - n18.GetProduct("Wheat") );
+    var repA = ConsumptionService.Apply(n18);
+    Check(Math.Abs(repA.UnmetPct["Wheat"] - 50) < 0.001, "wheat at half its need is 50% short");
+    Check(Math.Abs(ConsumptionService.Deaths(repA) - 50) < 0.001, "50% food shortage = 50 deaths/day");
+    Check(Math.Abs(ConsumptionService.RatingDrop(repA) - 0.005) < 1e-9, "50% food shortage = 0.005 rating drop");
+
+    // (b) every item 2% short: food 12 x 2 x 0.0001 + minerals 5 x 2 x 0.00003
+    var rep2 = Report(2, 2);
+    Check(Math.Abs(ConsumptionService.RatingDrop(rep2) - (0.0024 + 0.0003)) < 1e-9, "all items 2% short = 0.0027 rating drop");
+    Check(Math.Abs(ConsumptionService.Deaths(rep2) - (24 + 5)) < 1e-9, "all items 2% short = 29 deaths/day");
+
+    // (c) fractional deaths accumulate: one mineral 1% short = 0.5/day
+    var oneMineral = new ShortageReport();
+    foreach (var s in ConsumptionCatalog.All) oneMineral.UnmetPct[s.Item] = s.Item == "Wood" ? 1 : 0;
+    n18.Population = 1_000_000; n18.ShortageDeathCarry = 0;
+    ConsumptionService.ApplyShortageEffects(n18, oneMineral);
+    Check(n18.Population == 1_000_000, "0.5 death/day: nobody dies on day 1");
+    ConsumptionService.ApplyShortageEffects(n18, oneMineral);
+    Check(n18.Population == 999_999, "0.5 death/day: one person dies after 2 days");
+
+    // (d) no shortage = no effect
+    n18.RulerRating = 50; n18.Population = 1_000_000; n18.ShortageDeathCarry = 0;
+    ConsumptionService.ApplyShortageEffects(n18, Report(0, 0));
+    Check(n18.RulerRating == 50 && n18.Population == 1_000_000, "no shortage: no deaths, no rating drop");
+
+    // (e) rating clamps at 0, population never negative
+    n18.RulerRating = 0.001; n18.Population = 10;
+    ConsumptionService.ApplyShortageEffects(n18, Report(100, 100));
+    Check(n18.RulerRating == 0, "ruler rating clamps at 0");
+    Check(n18.Population == 0, "population never goes negative");
+
+    // (f) end-to-end: first shortage appears after the 7-day starting stock
+    using var engine18b = new GameEngine(new SimulationService(), new SaveService(saveFolder));
+    var p18 = engine18b.State.PlayerNation;
+    p18.ProductionBuildings.Clear();
+    for (int i = 0; i < 6; i++) engine18b.AdvanceOneDay();
+    Check(p18.LastRatingDrop == 0, "no shortage during the first 6 days (7 days of stock; population growth eats the margin on day 7)");
+    for (int i = 0; i < 3; i++) engine18b.AdvanceOneDay();
+    Check(p18.LastRatingDrop > 0 && p18.RulerRating < 50, "shortage cuts ruler rating once the week of stock is gone");
+}
+
+Console.WriteLine("== 19. Production buildings: output x2, build cost x1501 ==");
+{
+    var farm = ProductionCatalog.Get("farm");     // base: 1 gold, 0 wood, 0 stone, 10/day
+    Check(farm.OutputPerDay == 20, "farm output doubled (10 -> 20)");
+    Check(ProductionCatalog.Get("saltmine").OutputPerDay == 10, "salt mine output doubled (5 -> 10)");
+    Check(farm.GoldCost == 1501, "farm gold cost 1 -> 1,501");
+    var gm = ProductionCatalog.Get("goldmine");   // base: 5 gold, 3 wood, 8 stone
+    Check(gm.GoldCost == 7505 && gm.WoodCost == 4503 && gm.StoneCost == 12008, "gold mine costs x1501 on gold, wood and stone");
+    Check(farm.WoodCost == 0 && farm.StoneCost == 0 && farm.IronCost == 0, "zero costs stay zero");
+    Check(ProductionCatalog.All.Count == 18 && ProductionCatalog.All.All(s => s.BuildDays > 0), "18 buildings, build times unchanged");
+}
+
+Console.WriteLine("== 20. Starting mills: 30/15/10% shortage by nation size ==");
+using (var engine20 = new GameEngine(new SimulationService(), new SaveService(saveFolder)))
+{
+    var all20 = engine20.State.AllNations().ToList();
+    Nation ById(string id) => all20.First(x => x.Id == id);
+    Check(ConsumptionService.StartShortage(ById("ottoman").Population) == 0.30, "Ottomans (30M) are big: 30%");
+    Check(ConsumptionService.StartShortage(ById("england").Population) == 0.15, "England (6.1M) is mid: 15%");
+    Check(ConsumptionService.StartShortage(ById("sweden").Population) == 0.10, "Sweden (1M) is small: 10%");
+    Check(ConsumptionService.StartShortage(10_000_000) == 0.30 && ConsumptionService.StartShortage(2_000_000) == 0.15
+          && ConsumptionService.StartShortage(1_999_999) == 0.10, "tier edges: 10M big, 2M mid, below 2M small");
+
+    var ott = ById("ottoman");
+    Check(ott.GetProductionBuilding("saltmine") == 25, "Ottoman salt mines = 25");
+    Check(ott.GetProductionBuilding("farm") == 49, "Ottoman farms = 49");
+    Check(ott.GetProductionBuilding("goldmine") == 0, "gold mine is not seeded");
+
+    // Every nation, every item: output is the closest mill count to need x (1 - tier shortage).
+    bool closest = true; string firstBad = "";
+    foreach (var nat in all20)
+    foreach (var spec in ConsumptionCatalog.All)
+    {
+        var mill = ProductionCatalog.All.First(b => b.Produces == spec.Item);
+        double perMill = ConsumptionService.OutputPerMill(nat, mill);
+        double target = ConsumptionService.DailyNeed(spec, nat.Population) * (1 - ConsumptionService.StartShortage(nat.Population));
+        double produced = nat.GetProductionBuilding(mill.Id) * perMill;
+        if (Math.Abs(produced - target) > perMill / 2 + 1e-9) { closest = false; firstBad = $"{nat.Id}/{spec.Item}"; }
+    }
+    Check(closest, "every item's starting output is the closest mill count to its target " + firstBad);
+
+    // Production covers 70% of need, so the 7-day stock drains at 30%/day and lasts ~23 days.
+    // Once it is gone the Ottomans are roughly 30% short.
+    var p20 = engine20.State.PlayerNation;
+    for (int i = 0; i < 10; i++) engine20.AdvanceOneDay();
+    Check(p20.LastRatingDrop == 0, "no shortage effects while the starting stock lasts (day 10)");
+    for (int i = 0; i < 30; i++) engine20.AdvanceOneDay();
+    double wheatShort = p20.ShortagePct.TryGetValue("Wheat", out var ws) ? ws : -1;
+    Check(wheatShort > 25 && wheatShort < 35, $"Ottoman wheat about 30% short once stock is gone (got {wheatShort:N1}%)");
 }
 
 Console.WriteLine(failures == 0 ? "\nALL CHECKS PASSED" : $"\n{failures} CHECK(S) FAILED");

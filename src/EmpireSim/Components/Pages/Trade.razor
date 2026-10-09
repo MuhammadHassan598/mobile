@@ -99,10 +99,6 @@
             </div>
         }
         <h3>FOOD & GOODS</h3>
-        <div class="stock-row">
-            <span>🌾</span><span class="sname">Food</span>
-            <span>@_nation.Food.ToString("N0")</span>
-        </div>
         @foreach (var kv in _nation.GoodsInventory.OrderByDescending(kv => kv.Value))
         {
             <div class="stock-row">

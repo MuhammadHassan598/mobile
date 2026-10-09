@@ -6,7 +6,7 @@
     <button class="home-btn" @onclick='() => Nav.NavigateTo("/")' title="Menu">🏠</button>
     <div class="wood-pills">
         <span class="wood-pill" title="Gold">🪙 @_gold<em>+@_income</em></span>
-        <span class="wood-pill" title="Food">🍞 @_food</span>
+        <span class="wood-pill" title="Ruler Rating">👑 @_rating</span>
         <span class="wood-pill" title="Population">👥 @_pop</span>
     </div>
     <span class="build-tag" title="App build number — compare with the latest pushed build to spot a stale deploy">#@AppVersion.Build</span>
@@ -15,7 +15,7 @@
 @code {
     private Nation _nation => Engine.State.PlayerNation;
     private string _gold => _nation.Gold.ToString("N0");
-    private string _food => _nation.Food.ToString("N0");
+    private string _rating => _nation.RulerRating.ToString("N0");
     private string _pop => _nation.Population.ToString("N0");
     private string _income => GameEngine.EstimateDailyIncome(_nation).ToString("N0");
 

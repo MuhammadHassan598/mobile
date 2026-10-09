@@ -128,6 +128,23 @@
             <div class="stat-row"><span>Food stock:</span><b>@_nation.Food.ToString("N0")</b></div>
         </div>
         <div class="stat-section">
+            <div class="stat-sec-title">DAILY USAGE (BY POPULATION)</div>
+            @foreach (var spec in ConsumptionCatalog.All)
+            {
+                _nation.ShortagePct.TryGetValue(spec.Item, out double unmet);
+                <div class="stat-row">
+                    <span>@ConsumptionCatalog.Icon(spec.Item) @spec.Item</span>
+                    <b>@ConsumptionService.DailyNeed(spec, _nation.Population).ToString("N1") / @_nation.GetProduct(spec.Item).ToString("N0")
+                        @if (unmet > 0) { <span class="neg"> short @unmet.ToString("N1")%</span> }
+                    </b>
+                </div>
+            }
+            <div class="stat-note">Daily usage / current stock.</div>
+            <div class="stat-row"><span>Deaths today (shortage):</span><b class="@(_nation.LastShortageDeaths > 0 ? "neg" : "")">@_nation.LastShortageDeaths.ToString("N1")</b></div>
+            <div class="stat-row"><span>Ruler rating change today:</span><b class="@(_nation.LastRatingDrop > 0 ? "neg" : "")">-@_nation.LastRatingDrop.ToString("N4")</b></div>
+            <div class="stat-row"><span>Ruler rating:</span><b>@_nation.RulerRating.ToString("N3") / 100</b></div>
+        </div>
+        <div class="stat-section">
             <div class="stat-sec-title">TAX TOLERANCE</div>
             <div class="tolerance-grid">
                 @foreach (var (name, icon, tol) in tolerance)

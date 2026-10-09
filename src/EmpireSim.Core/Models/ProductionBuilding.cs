@@ -1,3 +1,5 @@
+using EmpireSim.Core.Services;
+
 namespace EmpireSim.Core.Models;
 
 /// <summary>Production building categories.</summary>
@@ -28,7 +30,8 @@ public sealed record ProductionBuildingSpec(
 /// <summary>All production buildings, grouped by category.</summary>
 public static class ProductionCatalog
 {
-    public static readonly IReadOnlyList<ProductionBuildingSpec> All = new List<ProductionBuildingSpec>
+    // Base (unscaled) values. Declared before All: static initializers run in textual order.
+    private static readonly IReadOnlyList<ProductionBuildingSpec> BaseSpecs = new List<ProductionBuildingSpec>
     {
         // ---- Military ----
 
@@ -54,6 +57,22 @@ public static class ProductionCatalog
         new("sawmill", "Sawmill", "🪵", "Wood", ProductionCategory.Minerals, 2, 0, 3, 0, 5, 8),
         new("stonequarry", "Stone Quarry", "🪨", "Stone", ProductionCategory.Minerals, 2, 2, 0, 0, 5, 6),
     };
+
+    /// <summary>
+    /// Every building's output is scaled by <see cref="Balance.ProductionOutputMult"/> and every
+    /// cost (gold/wood/stone/iron) by <see cref="Balance.ProductionCostMult"/>. Everything else
+    /// in the game reads this scaled list.
+    /// </summary>
+    public static readonly IReadOnlyList<ProductionBuildingSpec> All = BaseSpecs
+        .Select(s => s with
+        {
+            GoldCost = s.GoldCost * Balance.ProductionCostMult,
+            WoodCost = s.WoodCost * Balance.ProductionCostMult,
+            StoneCost = s.StoneCost * Balance.ProductionCostMult,
+            IronCost = s.IronCost * Balance.ProductionCostMult,
+            OutputPerDay = s.OutputPerDay * Balance.ProductionOutputMult,
+        })
+        .ToList();
 
     public static ProductionBuildingSpec Get(string id) =>
         All.First(s => s.Id == id);
