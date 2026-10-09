@@ -1,32 +1,190 @@
 @page "/statistics"
+@using EmpireSim.Core.Models
+@using EmpireSim.Core.Services
 @inject GameEngine Engine
 @implements IDisposable
 
-<div class="dashboard">
-    <div class="topbar">
-        <div class="nation-name">Statistics</div>
+<div class="stat-wrap">
+    <div class="stat-header">
+        <h2>📊 STATISTICS</h2>
     </div>
 
-    <div class="cards">
-        <div class="card"><div class="label">Treasury</div><div class="value gold">@Currency.Format(_nation.Gold)</div></div>
-        <div class="card"><div class="label">Income / day</div><div class="value">@GameEngine.EstimateDailyIncome(_nation).ToString("N0") Gold</div></div>
-        <div class="card"><div class="label">Countries annexed</div><div class="value">@Engine.State.NationsAnnexedByPlayer</div></div>
-        <div class="card"><div class="label">Population</div><div class="value">@_nation.Population.ToString("N0")</div></div>
-        <div class="card"><div class="label">Soldiers</div><div class="value">@_nation.Soldiers.ToString("N0")</div></div>
-        <div class="card"><div class="label">Warships</div><div class="value">@_nation.Warships.ToString("N0")</div></div>
-        <div class="card"><div class="label">Buildings</div><div class="value">@(_nation.Farms + _nation.Mines + _nation.Sawmills + _nation.Workshops)</div></div>
-        <div class="card"><div class="label">Trade pacts</div><div class="value">@Engine.State.OtherNations.Count(n => n.HasTradePactWithPlayer)</div></div>
-        <div class="card"><div class="label">Wars</div><div class="value">@Engine.State.OtherNations.Count(n => n.AtWarWithPlayer)</div></div>
-        <div class="card"><div class="label">Spy networks</div><div class="value">@Engine.State.SpyNetworks.Count</div></div>
-        <div class="card"><div class="label">Colonies</div><div class="value">@_nation.ColoniesFounded</div></div>
-        <div class="card"><div class="label">Battles won</div><div class="value">@_nation.BattlesWon</div></div>
+    <div class="stat-tabs">
+        <button class="@(_tab == 0 ? "active" : "")" @onclick="() => _tab = 0" title="Victory Progress"><span class="tab-ico">🏆</span></button>
+        <button class="@(_tab == 1 ? "active" : "")" @onclick="() => _tab = 1" title="Gold Income/Expenses"><span class="tab-ico">💰</span></button>
+        <button class="@(_tab == 2 ? "active" : "")" @onclick="() => _tab = 2" title="Production"><span class="tab-ico">🏭</span></button>
+        <button class="@(_tab == 3 ? "active" : "")" @onclick="() => _tab = 3" title="Market Prices"><span class="tab-ico">📈</span></button>
+        <button class="@(_tab == 4 ? "active" : "")" @onclick="() => _tab = 4" title="Population & Food"><span class="tab-ico">👥</span></button>
     </div>
+
+    @if (_tab == 0)
+    {
+        var (cap, capT, rel, relT, col, colT) = StatisticsService.VictoryProgress(Engine.State);
+        <h3>VICTORY PROGRESS</h3>
+        <div class="stat-section">
+            <div class="stat-sec-title">MILITARY VICTORY</div>
+            <div class="stat-row"><span>Captured countries:</span><b>@cap / @capT</b></div>
+        </div>
+        <div class="stat-section">
+            <div class="stat-sec-title">RELIGIOUS VICTORY</div>
+            <div class="stat-row"><span>Countries confessing our religion:</span><b>@rel / @relT</b></div>
+            <div class="stat-row"><span>Colonies confessing our religion:</span><b>@col / @colT</b></div>
+        </div>
+    }
+    else if (_tab == 1)
+    {
+        var income = StatisticsService.IncomeBreakdown(_nation);
+        var expenses = StatisticsService.ExpenseBreakdown(_nation);
+        double totalIn = income.Sum(i => i.Amount);
+        double totalEx = expenses.Sum(e => e.Amount);
+
+        <div class="stat-section">
+            <div class="stat-sec-title gold">GOLD INCOME</div>
+            @foreach (var (icon, name, amt) in income)
+            {
+                <div class="stat-row"><span>@icon @name</span><b class="pos">+@amt.ToString("N1") 🪙/day</b></div>
+            }
+        </div>
+        <div class="stat-section">
+            <div class="stat-sec-title gold">GOLD EXPENSES</div>
+            @foreach (var (icon, name, amt) in expenses)
+            {
+                <div class="stat-row"><span>@icon @name</span><b class="neg">-@amt.ToString("N1") 🪙/day</b></div>
+            }
+        </div>
+        <div class="stat-section">
+            <div class="stat-row"><span>Total Income:</span><b class="pos">@totalIn.ToString("N1") 🪙</b></div>
+            <div class="stat-row"><span>Total Expenses:</span><b class="neg">@totalEx.ToString("N1") 🪙</b></div>
+            <div class="stat-row"><span>Net Daily:</span><b class="@(totalIn - totalEx >= 0 ? "pos" : "neg")">@((totalIn - totalEx).ToString("N1")) 🪙</b></div>
+        </div>
+    }
+    else if (_tab == 2)
+    {
+        var prod = StatisticsService.DailyProduction(_nation);
+        <h3>PRODUCTION</h3>
+        <div class="stat-caption">Production values are shown per day.</div>
+        @foreach (var cat in new[] { "Resources", "Food", "Military", "Other" })
+        {
+            var items = prod.Where(p => p.Category == cat).ToList();
+            if (!items.Any()) continue;
+            <div class="stat-section">
+                <div class="stat-sec-title">@cat.ToUpper()</div>
+                <div class="prod-grid">
+                    @foreach (var (icon, name, perDay, _) in items)
+                    {
+                        <div class="prod-item">
+                            <span class="prod-icon">@icon</span>
+                            <div><div class="prod-name">@name</div><div class="prod-val">@perDay.ToString("N1")/day</div></div>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+    }
+    else if (_tab == 3)
+    {
+        var prices = StatisticsService.AveragePrices(Engine.State);
+        <h3>AVERAGE MARKET PRICE</h3>
+        <div class="stat-caption">The average price per 1,000 units of the product.</div>
+        @foreach (var cat in new[] { "Resource", "FoodGoods", "Equipment" })
+        {
+            var items = prices.Where(p => p.Category == cat).ToList();
+            if (!items.Any()) continue;
+            <div class="stat-section">
+                <div class="stat-sec-title">@cat.ToUpper()</div>
+                <div class="price-grid">
+                    @foreach (var (icon, name, price, _) in items)
+                    {
+                        <div class="price-item">
+                            <span>@icon</span><span class="pname">@name</span><b>@price.ToString("N0") 🪙</b>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+    }
+    else if (_tab == 4)
+    {
+        var deficits = StatisticsService.FoodDeficits(_nation);
+        var tolerance = StatisticsService.TaxTolerance(_nation);
+        double growthRate = Balance.GrowthPerDayWithSurplus * 100;
+
+        <div class="stat-section">
+            <div class="stat-sec-title">BIRTH / MORTALITY RATE</div>
+            <div class="stat-row"><span>Daily growth rate:</span><b>@growthRate.ToString("N4")%</b></div>
+            <div class="stat-row"><span>Population:</span><b>@_nation.Population.ToString("N0")</b></div>
+            <div class="stat-note">Excess food affects your population and population growth rate.</div>
+        </div>
+        <div class="stat-section">
+            <div class="stat-sec-title">FOOD DEFICIT</div>
+            @if (!deficits.Any())
+            {
+                <div class="stat-row"><span>No deficits — food supply adequate.</span></div>
+            }
+            @foreach (var (icon, name, def) in deficits)
+            {
+                <div class="stat-row"><span>@icon @name</span><b class="neg">@def.ToString("N0")</b></div>
+            }
+            <div class="stat-row"><span>Food stock:</span><b>@_nation.Food.ToString("N0")</b></div>
+        </div>
+        <div class="stat-section">
+            <div class="stat-sec-title">TAX TOLERANCE</div>
+            <div class="tolerance-grid">
+                @foreach (var (name, icon, tol) in tolerance)
+                {
+                    string cls = tol >= 70 ? "tol-high" : tol >= 40 ? "tol-mid" : "tol-low";
+                    <div class="tol-item @cls">
+                        <span class="tol-icon">@icon</span>
+                        <div class="tol-name">@name</div>
+                        <div class="tol-val">@tol.ToString("N0")</div>
+                    </div>
+                }
+            </div>
+            <div class="stat-row"><span>Overall approval:</span><b>@_nation.TaxApproval.ToString("N0") / 100</b></div>
+        </div>
+    }
 </div>
 
 @code {
     private Nation _nation => Engine.State.PlayerNation;
+    private int _tab = 0;
 
     protected override void OnInitialized() => Engine.StateChanged += OnStateChanged;
     private void OnStateChanged() => InvokeAsync(StateHasChanged);
     public void Dispose() => Engine.StateChanged -= OnStateChanged;
 }
+
+<style>
+.stat-wrap { background: linear-gradient(#f0e0b0, #e8d090); min-height: 100vh; padding: 10px 8px 90px; font-family: Georgia, serif; color: #3d2b1f; }
+.stat-header h2 { text-align: center; letter-spacing: 2px; margin: 0 0 10px; }
+.stat-tabs { display: flex; gap: 10px; justify-content: center; margin-bottom: 12px; }
+.stat-tabs button { width: 56px; height: 56px; border-radius: 50%; background: linear-gradient(#4a7a8a, #2e4a5a); border: 3px solid #1a2a3a; color: #fff; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+.stat-tabs button.active { border-color: #ffd700; box-shadow: 0 0 10px rgba(255,215,0,.6); }
+.tab-ico { font-size: 1.5rem; }
+.stat-wrap h3 { text-align: center; letter-spacing: 2px; color: #3d2b1f; margin: 0 0 8px; }
+.stat-caption { text-align: center; font-size: 0.85rem; color: #5a4a2a; margin-bottom: 8px; font-style: italic; }
+.stat-section { background: rgba(255,255,255,.35); border: 2px solid #8b6914; border-radius: 8px; margin-bottom: 10px; overflow: hidden; }
+.stat-sec-title { background: linear-gradient(#7a5230, #4a2e14); color: #f5e6c4; padding: 8px 12px; font-weight: bold; letter-spacing: 1px; font-size: 0.88rem; }
+.stat-sec-title.gold { background: linear-gradient(#8b6914, #5a4a0a); }
+.stat-row { display: flex; justify-content: space-between; padding: 8px 12px; border-bottom: 1px solid #c9b98a; font-size: 0.92rem; }
+.stat-row:last-child { border-bottom: none; }
+.pos { color: #2e7d32; }
+.neg { color: #b71c1c; }
+.stat-note { font-size: 0.82rem; color: #5a4a2a; padding: 6px 12px; font-style: italic; }
+.prod-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; padding: 8px; }
+.prod-item { display: flex; gap: 8px; align-items: center; background: rgba(255,255,255,.4); border-radius: 6px; padding: 6px; }
+.prod-icon { font-size: 1.4rem; }
+.prod-name { font-size: 0.82rem; font-weight: bold; }
+.prod-val { font-size: 0.8rem; color: #2e7d32; }
+.price-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; padding: 8px; }
+.price-item { display: flex; gap: 6px; align-items: center; background: rgba(255,255,255,.4); border-radius: 6px; padding: 6px 8px; font-size: 0.85rem; }
+.price-item .pname { flex: 1; }
+.tolerance-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; padding: 10px; }
+.tol-item { text-align: center; border-radius: 50%; width: 80px; height: 80px; margin: 0 auto; display: flex; flex-direction: column; align-items: center; justify-content: center; border: 3px solid; }
+.tol-high { border-color: #2e7d32; background: rgba(46,125,50,.15); }
+.tol-mid { border-color: #f9a825; background: rgba(249,168,37,.15); }
+.tol-low { border-color: #b71c1c; background: rgba(183,28,28,.15); }
+.tol-icon { font-size: 1.4rem; }
+.tol-name { font-size: 0.65rem; }
+.tol-val { font-size: 0.85rem; font-weight: bold; }
+</style>
