@@ -1,0 +1,257 @@
+@page "/assembly"
+@using EmpireSim.Core.Models
+@using EmpireSim.Core.Services
+@inject GameEngine Engine
+@implements IDisposable
+
+<div class="asm-wrap">
+    <div class="asm-header">
+        <h2>🏛️ INTERNATIONAL ASSEMBLY</h2>
+    </div>
+
+    <div class="asm-tabs">
+        <button class="@(_tab == 0 ? "active" : "")" @onclick="() => _tab = 0">
+            <span class="tab-ico">🗳️</span><span>VOTES</span>
+        </button>
+        <button class="@(_tab == 1 ? "active" : "")" @onclick="() => _tab = 1">
+            <span class="tab-ico">📜</span><span>SUGGESTIONS</span>
+        </button>
+    </div>
+
+    @if (!string.IsNullOrEmpty(_error))
+    {
+        <div class="asm-error">⚠ @_error</div>
+    }
+    @if (!string.IsNullOrEmpty(_msg))
+    {
+        <div class="asm-msg">@_msg</div>
+    }
+
+    @if (_tab == 0)
+    {
+        <!-- VOTES -->
+        <div class="asm-list-head"><span>STATE</span><span>VOTES</span></div>
+        @foreach (var n in Engine.State.AllNations().OrderByDescending(n => n.VotingPower))
+        {
+            <div class="asm-row">
+                <span class="asm-flag">@n.Emblem</span>
+                <span class="asm-name">@n.Name</span>
+                <span class="asm-votes">@n.VotingPower</span>
+            </div>
+        }
+    }
+    else
+    {
+        <!-- SUGGESTIONS -->
+        <div style="text-align:center; margin-bottom:10px">
+            <button class="asm-btn" @onclick="() => _proposalOpen = true">MAKE A SUGGESTION</button>
+        </div>
+
+        @if (!Engine.State.AssemblyProposals.Any())
+        {
+            <div class="asm-empty">
+                <div style="font-size:3rem">🏛️</div>
+                <div>No proposals yet. Make a suggestion to shape international policy.</div>
+            </div>
+        }
+        @foreach (var p in Engine.State.AssemblyProposals.OrderByDescending(p => p.CreatedDate))
+        {
+            var type = AssemblyProposalTypes.Get(p.TypeId);
+            var target = Engine.State.AllNations().FirstOrDefault(n => n.Id == p.TargetId);
+            var proposer = Engine.State.AllNations().FirstOrDefault(n => n.Id == p.ProposerId);
+            var nations = Engine.State.AllNations().ToList();
+            int forV = p.VotesFor(nations);
+            int againstV = p.VotesAgainst(nations);
+            int daysLeft = Math.Max(0, p.VotingDeadline.DayNumber - Engine.State.CurrentDate.DayNumber);
+
+            <div class="prop-card">
+                <div class="prop-head">
+                    <span>@type?.Icon</span>
+                    <div>
+                        <div class="prop-name">@type?.Name</div>
+                        <div class="prop-sub">Target: @target?.Emblem @target?.Name · By @proposer?.Name</div>
+                    </div>
+                    <span class="prop-status @p.Status.ToString().ToLower()">@p.Status</span>
+                </div>
+                <div class="prop-votes">
+                    <span class="for">FOR: @forV</span>
+                    <span class="against">AGAINST: @againstV</span>
+                    @if (p.Status == ProposalStatus.VotingOpen)
+                    {
+                        <span>@daysLeft days left</span>
+                    }
+                </div>
+                @if (p.Status == ProposalStatus.VotingOpen && !p.Votes.ContainsKey(_nation.Id))
+                {
+                    <div class="prop-actions">
+                        <button class="asm-btn small" @onclick="() => Vote(p.Id, true)">VOTE FOR</button>
+                        <button class="asm-btn small against" @onclick="() => Vote(p.Id, false)">VOTE AGAINST</button>
+                    </div>
+                }
+            </div>
+        }
+    }
+</div>
+
+<!-- Make a Suggestion Modal -->
+@if (_proposalOpen)
+{
+    var type = AssemblyProposalTypes.Get(_propTypeId);
+    var target = Engine.State.AllNations().FirstOrDefault(n => n.Id == _propTargetId);
+    var estimate = EstimateVotes();
+
+    <div class="popup-overlay" @onclick="() => _proposalOpen = false">
+        <div class="popup-panel" @onclick:stopPropagation>
+            <div class="popup-header"><span class="popup-title">Make a Suggestion</span></div>
+
+            <div class="popup-section">
+                <div class="popup-section-title">Assembly type:</div>
+                <select class="asm-input" @bind="_propTypeId">
+                    @foreach (var t in AssemblyProposalTypes.All)
+                    {
+                        <option value="@t.Id">@t.Icon @t.Name</option>
+                    }
+                </select>
+                <div class="asm-desc">@type?.EffectDescription</div>
+            </div>
+
+            <div class="popup-section">
+                <div class="popup-section-title">Choose a state:</div>
+                <select class="asm-input" @bind="_propTargetId">
+                    <option value="">-- Select --</option>
+                    @foreach (var n in Engine.State.OtherNations.OrderBy(n => n.Name))
+                    {
+                        <option value="@n.Id">@n.Emblem @n.Name</option>
+                    }
+                </select>
+            </div>
+
+            <div class="popup-section">
+                <div class="popup-section-title">Choose a timeframe:</div>
+                <select class="asm-input" @bind="_propDuration">
+                    <option value="30">1 month</option>
+                    <option value="60">2 months</option>
+                    <option value="180">6 months</option>
+                    <option value="270">9 months</option>
+                    <option value="365">1 year</option>
+                    <option value="730">2 years</option>
+                    <option value="1095">3 years</option>
+                </select>
+            </div>
+
+            <div class="popup-section">
+                <div class="popup-section-title">Voting timeframe:</div>
+                <div>@_propVotingDays days</div>
+            </div>
+
+            <div class="popup-section">
+                <div class="popup-section-title">Estimated number of votes:</div>
+                <div class="est-row">
+                    <span class="for">FOR: @estimate.forVotes</span>
+                    <span class="against">AGAINST: @estimate.againstVotes</span>
+                </div>
+                <div class="asm-note">Improving your relations with other states may influence the voting results.</div>
+            </div>
+
+            <div class="popup-actions">
+                <button class="popup-btn cancel" @onclick="() => _proposalOpen = false">CANCEL</button>
+                <button class="popup-btn confirm" disabled="@(string.IsNullOrEmpty(_propTargetId))" @onclick="Submit">ADD</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private Nation _nation => Engine.State.PlayerNation;
+    private int _tab = 0;
+    private string? _error;
+    private string? _msg;
+    private bool _proposalOpen = false;
+    private string _propTypeId = "military_restriction";
+    private string _propTargetId = "";
+    private int _propDuration = 365;
+    private int _propVotingDays = 30;
+
+    protected override void OnInitialized() => Engine.StateChanged += OnStateChanged;
+    private void OnStateChanged() => InvokeAsync(StateHasChanged);
+    public void Dispose() => Engine.StateChanged -= OnStateChanged;
+
+    private (int forVotes, int againstVotes) EstimateVotes()
+    {
+        var prop = new AssemblyProposal
+        {
+            Id = "estimate",
+            TypeId = _propTypeId,
+            TargetId = _propTargetId,
+            ProposerId = _nation.Id
+        };
+        return AssemblyService.EstimateVotes(prop, Engine.State.AllNations(), _nation.Id);
+    }
+
+    private void Submit()
+    {
+        _error = Engine.SubmitProposal(_propTypeId, _propTargetId, _propDuration, _propVotingDays);
+        if (_error is null)
+        {
+            _msg = $"Proposal submitted. Voting closes in {_propVotingDays} days.";
+            _proposalOpen = false;
+            _propTargetId = "";
+        }
+    }
+
+    private void Vote(string proposalId, bool forProposal)
+    {
+        _error = Engine.CastVote(proposalId, forProposal);
+        if (_error is null) _msg = "Vote cast.";
+    }
+}
+
+<style>
+.asm-wrap { background: linear-gradient(#f0e0b0, #e8d090); min-height: 100vh; padding: 10px 8px 90px; font-family: Georgia, serif; color: #3d2b1f; }
+.asm-header h2 { text-align: center; letter-spacing: 2px; margin: 0 0 10px; }
+.asm-tabs { display: flex; gap: 12px; justify-content: center; margin-bottom: 12px; }
+.asm-tabs button { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 90px; height: 90px; border-radius: 50%; background: linear-gradient(#4a7a8a, #2e4a5a); border: 3px solid #1a2a3a; color: #fff; cursor: pointer; font-family: inherit; justify-content: center; }
+.asm-tabs button.active { border-color: #ffd700; box-shadow: 0 0 12px rgba(255,215,0,.6); }
+.tab-ico { font-size: 1.8rem; }
+.asm-tabs button span:last-child { font-size: 0.7rem; font-weight: bold; }
+.asm-error { background: #f8d7da; color: #721c24; border-radius: 6px; padding: 8px; margin-bottom: 8px; font-size: 0.9rem; }
+.asm-msg { background: #d4edda; color: #155724; border-radius: 6px; padding: 8px; margin-bottom: 8px; font-size: 0.9rem; }
+.asm-list-head { display: flex; justify-content: space-between; padding: 6px 10px; font-weight: bold; color: #5a4a2a; font-size: 0.85rem; border-bottom: 2px solid #8b6914; margin-bottom: 6px; }
+.asm-row { display: flex; align-items: center; gap: 8px; background: rgba(255,255,255,.3); border: 1px solid #c9b98a; border-radius: 6px; padding: 8px; margin-bottom: 4px; }
+.asm-flag { font-size: 1.5rem; width: 36px; text-align: center; }
+.asm-name { flex: 1; font-weight: bold; font-size: 0.92rem; }
+.asm-votes { font-weight: bold; color: #5a3a1a; font-size: 1.1rem; }
+.asm-btn { background: linear-gradient(#7a5230, #4a2e14); color: #f5e6c4; border: 2px solid #2e1c0c; border-radius: 8px; padding: 12px 24px; cursor: pointer; font-family: inherit; font-weight: bold; letter-spacing: 1px; }
+.asm-btn.small { padding: 8px 16px; font-size: 0.85rem; }
+.asm-btn.against { background: linear-gradient(#8B0000, #5a0000); }
+.asm-empty { text-align: center; padding: 30px 10px; color: #5a4a2a; }
+.prop-card { background: rgba(255,255,255,.35); border: 2px solid #8b6914; border-radius: 8px; padding: 10px; margin-bottom: 8px; }
+.prop-head { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
+.prop-name { font-weight: bold; font-size: 0.95rem; }
+.prop-sub { font-size: 0.8rem; color: #5a4a2a; }
+.prop-status { margin-left: auto; font-size: 0.75rem; font-weight: bold; padding: 3px 8px; border-radius: 4px; background: #d4b896; }
+.prop-status.votingopen { background: #fff3cd; color: #856404; }
+.prop-status.approved, .prop-status.active { background: #d4edda; color: #155724; }
+.prop-status.rejected, .prop-status.expired { background: #f8d7da; color: #721c24; }
+.prop-votes { display: flex; gap: 12px; font-size: 0.88rem; margin-bottom: 6px; }
+.prop-votes .for { color: #2e7d32; font-weight: bold; }
+.prop-votes .against { color: #b71c1c; font-weight: bold; }
+.prop-actions { display: flex; gap: 8px; }
+.popup-overlay { position: fixed; inset: 0; z-index: 100; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; padding: 12px; }
+.popup-panel { background: linear-gradient(#f5e6c4, #e2cb92); border: 3px double #8b6914; border-radius: 10px; padding: 14px; max-width: 380px; width: 100%; max-height: 88vh; overflow-y: auto; font-family: Georgia, serif; color: #3d2b1f; }
+.popup-header { margin-bottom: 10px; text-align: center; }
+.popup-title { font-size: 1.15rem; font-weight: bold; }
+.popup-section { margin-bottom: 10px; }
+.popup-section-title { font-size: 0.82rem; font-weight: bold; color: #8b6914; margin-bottom: 5px; }
+.asm-input { width: 100%; padding: 8px; border: 2px solid #8b6914; border-radius: 6px; background: #fffdf5; font-family: inherit; font-size: 0.95rem; color: #3d2b1f; }
+.asm-desc { font-size: 0.85rem; color: #5a4a2a; margin-top: 4px; font-style: italic; }
+.est-row { display: flex; gap: 16px; font-size: 1rem; font-weight: bold; }
+.est-row .for { color: #2e7d32; }
+.est-row .against { color: #b71c1c; }
+.asm-note { font-size: 0.8rem; color: #5a4a2a; margin-top: 4px; font-style: italic; }
+.popup-actions { display: flex; gap: 10px; margin-top: 12px; }
+.popup-btn { flex: 1; padding: 10px; border-radius: 6px; cursor: pointer; font-family: inherit; border: 2px solid #2e1c0c; font-weight: bold; }
+.popup-btn.cancel { background: linear-gradient(#8a8a8a, #5a5a5a); color: #fff; }
+.popup-btn.confirm { background: linear-gradient(#7a5230, #4a2e14); color: #f5e6c4; }
+.popup-btn.confirm:disabled { opacity: 0.4; }
+</style>

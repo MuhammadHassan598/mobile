@@ -142,8 +142,9 @@ public sealed class SimulationService
             var spec = ProductionCatalog.Get(kvp.Key);
             double catMult = spec.Category == ProductionCategory.Food ? foodMult
                            : spec.Category == ProductionCategory.Minerals ? resMult : 1.0;
-            // Military goods (from military recipes) get military modifier
-            double dailyOutput = kvp.Value * spec.OutputPerDay * prodMult * catMult * genMult;
+            // Assembly: production ban reduces output by 50%
+            double assemblyMult = AssemblyService.HasActivePolicy(state.ActiveAssemblyPolicies, "production_ban", nation.Id, state.CurrentDate) ? 0.5 : 1.0;
+            double dailyOutput = kvp.Value * spec.OutputPerDay * prodMult * catMult * genMult * assemblyMult;
             if (!nation.GoodsInventory.ContainsKey(spec.Produces))
                 nation.GoodsInventory[spec.Produces] = 0;
             nation.GoodsInventory[spec.Produces] += dailyOutput;
@@ -198,6 +199,59 @@ public sealed class SimulationService
             tc.Status = TradeStatus.Delivered;
             tc.ActualDeliveryDate = state.CurrentDate;
             state.Log($"Trade delivered: {tc.Quantity:N0} {product.Name} ({Currency.Cost(tc.TotalValue)}).");
+        }
+
+        // ---- Assembly: resolve voting deadlines, expire policies ----
+        foreach (var prop in state.AssemblyProposals.Where(p => p.Status == ProposalStatus.VotingOpen).ToList())
+        {
+            if (state.CurrentDate < prop.VotingDeadline) continue;
+            // AI votes (deterministic)
+            var allNations = state.AllNations().ToList();
+            foreach (var n in allNations)
+            {
+                if (prop.Votes.ContainsKey(n.Id)) continue;
+                if (n.Id == prop.TargetId) continue;
+                // Simple AI: vote based on relation to proposer
+                int hash = (n.Id + prop.Id).GetHashCode();
+                bool voteFor = (Math.Abs(hash) % 100) < 50;
+                if (n.Id == prop.ProposerId) voteFor = true;
+                prop.Votes[n.Id] = voteFor;
+            }
+            int forV = prop.VotesFor(allNations);
+            int againstV = prop.VotesAgainst(allNations);
+            var ptype = AssemblyProposalTypes.Get(prop.TypeId);
+            if (forV > againstV)
+            {
+                prop.Status = ProposalStatus.Approved;
+                // Activate policy
+                state.ActiveAssemblyPolicies.Add(new ActiveAssemblyPolicy
+                {
+                    ProposalId = prop.Id,
+                    TypeId = prop.TypeId,
+                    TargetId = prop.TargetId,
+                    ActivationDate = state.CurrentDate,
+                    ExpirationDate = state.CurrentDate.AddDays(prop.EffectDurationDays)
+                });
+                prop.Status = ProposalStatus.Active;
+                prop.ActiveUntil = state.CurrentDate.AddDays(prop.EffectDurationDays);
+                state.Log($"Assembly APPROVED: {ptype?.Name} against {prop.TargetId} ({forV} vs {againstV}).");
+            }
+            else
+            {
+                prop.Status = ProposalStatus.Rejected;
+                state.Log($"Assembly REJECTED: {ptype?.Name} ({forV} vs {againstV}).");
+            }
+        }
+        // Expire policies
+        foreach (var pol in state.ActiveAssemblyPolicies.ToList())
+        {
+            if (state.CurrentDate >= pol.ExpirationDate)
+            {
+                state.ActiveAssemblyPolicies.Remove(pol);
+                var prop = state.AssemblyProposals.FirstOrDefault(p => p.Id == pol.ProposalId);
+                if (prop is not null) prop.Status = ProposalStatus.Expired;
+                state.Log($"Assembly policy expired: {pol.TypeId}.");
+            }
         }
 
         // ---- Religion conversion: advance, complete on date ----

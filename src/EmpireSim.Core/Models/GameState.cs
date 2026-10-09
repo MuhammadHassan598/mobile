@@ -53,6 +53,12 @@ public sealed class GameState
     /// <summary>All trade contracts (buy and sell).</summary>
     public List<TradeContract> TradeContracts { get; set; } = new();
 
+    /// <summary>Assembly proposals.</summary>
+    public List<AssemblyProposal> AssemblyProposals { get; set; } = new();
+
+    /// <summary>Active assembly policy effects.</summary>
+    public List<ActiveAssemblyPolicy> ActiveAssemblyPolicies { get; set; } = new();
+
     public void Log(string message)
     {
         EventLog.Add($"{CurrentDate:dd-MM-yyyy}: {message}");

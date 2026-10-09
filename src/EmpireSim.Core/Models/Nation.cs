@@ -277,6 +277,9 @@ public sealed class Nation
     /// <summary>Active national law IDs.</summary>
     public List<string> ActiveLaws { get; set; } = new();
 
+    /// <summary>Assembly voting power (derived from population).</summary>
+    public int VotingPower => AssemblyService.VotingPower(this);
+
     /// <summary>Ensure demographics/workforce are initialized (for existing saves).</summary>
     public void EnsureTaxationInitialized()
     {

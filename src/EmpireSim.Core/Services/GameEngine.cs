@@ -196,6 +196,9 @@ public sealed class GameEngine : IDisposable
             n.AddMilitaryItem(kv.Key, -kv.Value);
 
         double days = Balance.RecruitDaysPerSoldier * count * LawService.RecruitmentTimeMult(n);
+        // Assembly: military restriction doubles recruitment time
+        if (AssemblyService.HasActivePolicy(State.ActiveAssemblyPolicies, "military_restriction", n.Id, State.CurrentDate))
+            days *= 2.0;
         days = Math.Max(1, Math.Min(days, Balance.MaxRecruitDays));
         n.RecruitmentQueue.Add(new RecruitmentProject
         {
@@ -321,6 +324,13 @@ public sealed class GameEngine : IDisposable
         if (seller is null || seller.Id == buyer.Id) return "Invalid seller.";
         var product = TradeCatalog.Get(productId);
         if (product is null || !product.CanBuy) return "Cannot buy this product.";
+        // Assembly: weapon embargo blocks equipment purchases from/to target
+        if (product.Category == "Equipment")
+        {
+            if (AssemblyService.HasActivePolicy(State.ActiveAssemblyPolicies, "weapon_sales_ban", sellerId, State.CurrentDate) ||
+                AssemblyService.HasActivePolicy(State.ActiveAssemblyPolicies, "weapon_embargo", sellerId, State.CurrentDate))
+                return "Weapon sales to this country are prohibited by Assembly.";
+        }
 
         // Check seller stock (they won't sell more than 50%)
         double sellerStock = seller.GetProductStock(productId) * 0.5;
@@ -438,6 +448,49 @@ public sealed class GameEngine : IDisposable
         nation.PayGold(law.SelectionCost);
         nation.ActiveLaws.Add(lawId);
         State.Log($"Enacted law: {law.Name} ({Currency.Cost(law.SelectionCost)}).");
+        StateChanged?.Invoke();
+        return null;
+    }
+
+    /// <summary>Submit an assembly proposal. Returns error or null.</summary>
+    public string? SubmitProposal(string typeId, string targetId, int effectDays, int votingDays = 30)
+    {
+        var proposer = State.PlayerNation;
+        var type = AssemblyProposalTypes.Get(typeId);
+        if (type is null) return "Invalid proposal type.";
+        var target = State.AllNations().FirstOrDefault(n => n.Id == targetId);
+        if (target is null || target.Id == proposer.Id) return "Invalid target.";
+
+        var proposal = new AssemblyProposal
+        {
+            TypeId = typeId,
+            ProposerId = proposer.Id,
+            TargetId = targetId,
+            EffectDurationDays = effectDays,
+            CreatedDate = State.CurrentDate,
+            VotingDeadline = State.CurrentDate.AddDays(votingDays),
+            Status = ProposalStatus.VotingOpen
+        };
+        // Proposer auto-votes FOR
+        proposal.Votes[proposer.Id] = true;
+        State.AssemblyProposals.Add(proposal);
+        State.Log($"Proposal submitted: {type.Name} against {target.Name}. Voting closes in {votingDays}d.");
+        StateChanged?.Invoke();
+        return null;
+    }
+
+    /// <summary>Cast a vote on a proposal.</summary>
+    public string? CastVote(string proposalId, bool forProposal)
+    {
+        var nation = State.PlayerNation;
+        var proposal = State.AssemblyProposals.FirstOrDefault(p => p.Id == proposalId);
+        if (proposal is null) return "Not found.";
+        if (proposal.Status != ProposalStatus.VotingOpen) return "Voting closed.";
+        if (State.CurrentDate > proposal.VotingDeadline) return "Deadline passed.";
+        if (proposal.Votes.ContainsKey(nation.Id)) return "Already voted.";
+
+        proposal.Votes[nation.Id] = forProposal;
+        State.Log($"{nation.Name} voted {(forProposal ? "FOR" : "AGAINST")} proposal.");
         StateChanged?.Invoke();
         return null;
     }
