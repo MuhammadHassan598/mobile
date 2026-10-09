@@ -652,5 +652,25 @@ using (var engine20 = new GameEngine(new SimulationService(), new SaveService(sa
     Check(wheatShort > 25 && wheatShort < 35, $"Ottoman wheat about 30% short once stock is gone (got {wheatShort:N1}%)");
 }
 
+Console.WriteLine("== 21. One account per item: lookup + conquest ==");
+using (var engine21 = new GameEngine(new SimulationService(), new SaveService(saveFolder)))
+{
+    var win = engine21.State.PlayerNation;
+    var lose = engine21.State.OtherNations.First();
+    win.Wood = 123; win.Gold = 777;
+    Check(win.GetProduct("Wood") == 123 && win.GetGood("Wood") == 0, "Wood lives in the Wood stockpile, not the goods dictionary");
+    Check(win.GetProduct("Gold") == 777, "Gold lookup is the treasury");
+
+    win.GoodsInventory.Clear(); win.GoodsInventory["Wheat"] = 10; win.ProductionBuildings.Clear(); win.ProductionBuildings["farm"] = 5;
+    lose.GoodsInventory.Clear(); lose.GoodsInventory["Wheat"] = 40; lose.GoodsInventory["Bread"] = 7;
+    lose.ProductionBuildings.Clear(); lose.ProductionBuildings["farm"] = 3; lose.ProductionBuildings["bakery"] = 2;
+    double woodBefore = win.Wood, loseWood = lose.Wood;
+    Warfare.AnnexNation(engine21.State, win, lose);
+    Check(win.GetGood("Wheat") == 50 && win.GetGood("Bread") == 7, "annexation moves the loser's food items");
+    Check(win.GetProductionBuilding("farm") == 8 && win.GetProductionBuilding("bakery") == 2, "annexation moves the loser's mills (added to existing)");
+    Check(Math.Abs(win.Wood - (woodBefore + loseWood)) < 0.001, "loser's wood counted once");
+    Check(!win.GoodsInventory.ContainsKey("Wood"), "no mineral keys in goods dictionary after annexation");
+}
+
 Console.WriteLine(failures == 0 ? "\nALL CHECKS PASSED" : $"\n{failures} CHECK(S) FAILED");
 return failures;

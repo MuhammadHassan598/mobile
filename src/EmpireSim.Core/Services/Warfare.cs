@@ -108,6 +108,12 @@ public static class Warfare
         winner.Lead += loser.Lead;
         winner.Goods += loser.Goods;
 
+        // Food/goods items (one account per item) and the mills that make them.
+        foreach (var (item, amount) in loser.GoodsInventory)
+            winner.AddProduct(item, amount);
+        foreach (var (millId, count) in loser.ProductionBuildings)
+            winner.ProductionBuildings[millId] = winner.GetProductionBuilding(millId) + count;
+
         winner.Farms += loser.Farms;
         winner.Mines += loser.Mines;
         winner.Sawmills += loser.Sawmills;

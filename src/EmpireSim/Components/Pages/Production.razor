@@ -65,7 +65,7 @@
         @foreach (var spec in ProductionCatalog.ByCategory(_category))
         {
             int built = _nation.GetProductionBuilding(spec.Id);
-            double inventory = _nation.GetGood(spec.Produces);
+            double inventory = _nation.GetProduct(spec.Produces);
             double perDay = built * spec.OutputPerDay;
             var inProgress = _nation.ConstructionQueue
                 .Where(p => p.ProductionBuildingId == spec.Id)
@@ -130,7 +130,7 @@
                     <div class="info-line">1 mill produces: <b>@_infoSpec.OutputPerDay.ToString("N0") @_infoSpec.Produces</b> per day</div>
                     <div class="info-line">You own: <b>@built</b> mills</div>
                     <div class="info-line">Total per day: <b>@((built * _infoSpec.OutputPerDay).ToString("N0")) @_infoSpec.Produces</b></div>
-                    <div class="info-line">In stock: <b>@_nation.GetGood(_infoSpec.Produces).ToString("N0") @_infoSpec.Produces</b></div>
+                    <div class="info-line">In stock: <b>@_nation.GetProduct(_infoSpec.Produces).ToString("N0") @_infoSpec.Produces</b></div>
                 </div>
                 <div class="popup-section">
                     <div class="popup-section-title">Build Cost (each)</div>
