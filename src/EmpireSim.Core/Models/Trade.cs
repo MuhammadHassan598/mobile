@@ -1,0 +1,90 @@
+namespace EmpireSim.Core.Models;
+
+/// <summary>Tradeable product definition.</summary>
+public sealed record TradeProduct(
+    string Id,
+    string Name,
+    string Icon,
+    string Category, // "Equipment", "Resource", "FoodGoods"
+    double BasePricePer1000,
+    bool CanBuy = true,
+    bool CanSell = true);
+
+/// <summary>Catalogue of tradeable products.</summary>
+public static class TradeCatalog
+{
+    public static readonly IReadOnlyList<TradeProduct> All = new List<TradeProduct>
+    {
+        // Equipment
+        new("helmet", "Helmet", "🪖", "Equipment", 500),
+        new("dagger", "Dagger", "🗡️", "Equipment", 300),
+        new("pike", "Pike", "🔱", "Equipment", 400),
+        new("shotgun", "Shotgun", "🔫", "Equipment", 800),
+        new("arquebus", "Arquebus", "🎯", "Equipment", 1000),
+        new("shipparts", "Ship Parts", "🔧", "Equipment", 2000),
+        // Resources
+        new("wood", "Wood", "🪵", "Resource", 100),
+        new("stone", "Stone", "🪨", "Resource", 80),
+        new("iron", "Iron", "⛓️", "Resource", 300),
+        new("copper", "Copper", "🟤", "Resource", 250),
+        new("lead", "Lead", "⚫", "Resource", 200),
+        // Food & Goods
+        new("food", "Food", "🌾", "FoodGoods", 50),
+    };
+
+    public static TradeProduct? Get(string id) => All.FirstOrDefault(p => p.Id == id);
+}
+
+/// <summary>Trade contract status.</summary>
+public enum TradeStatus
+{
+    Confirmed,
+    InTransit,
+    Delivered,
+    Cancelled
+}
+
+/// <summary>A buy/sell contract between countries.</summary>
+public sealed class TradeContract
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+    public string BuyerId { get; set; } = "";
+    public string SellerId { get; set; } = "";
+    public string ProductId { get; set; } = "";
+    public double Quantity { get; set; }
+    public double PricePer1000 { get; set; }
+    public double TotalValue { get; set; }
+    public DateOnly CreatedDate { get; set; }
+    public DateOnly DeliveryDate { get; set; }
+    public DateOnly? ActualDeliveryDate { get; set; }
+    public TradeStatus Status { get; set; }
+    public bool IsPlayerBuyer { get; set; }
+}
+
+/// <summary>Market pricing: base prices with deterministic country modifiers.</summary>
+public static class MarketPricing
+{
+    /// <summary>Price per 1000 units for a product from a specific country.</summary>
+    public static double PricePer1000(string productId, string countryId)
+    {
+        var product = TradeCatalog.Get(productId);
+        if (product is null) return 0;
+        // Deterministic modifier 0.85 - 1.15 based on IDs
+        int hash = (productId + "|" + countryId).GetHashCode();
+        double mod = 0.85 + (Math.Abs(hash) % 31) / 100.0;
+        return Math.Round(product.BasePricePer1000 * mod, 2);
+    }
+
+    /// <summary>Total value = pricePer1000 * quantity / 1000.</summary>
+    public static double TotalValue(double pricePer1000, double quantity)
+    {
+        return Math.Round(pricePer1000 * quantity / 1000, 2);
+    }
+
+    /// <summary>Delivery days based on deterministic "distance".</summary>
+    public static int DeliveryDays(string buyerId, string sellerId)
+    {
+        int hash = (buyerId + "|" + sellerId).GetHashCode();
+        return 3 + (Math.Abs(hash) % 5); // 3-7 days
+    }
+}

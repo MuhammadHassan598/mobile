@@ -310,6 +310,79 @@ public sealed class GameEngine : IDisposable
         return $"{ally.Name} sends {contingent:N0} troops!";
     }
 
+    /// <summary>Buy product from another country. Gold paid now, goods delivered later.</summary>
+    public string? BuyProduct(string sellerId, string productId, double quantity)
+    {
+        if (quantity <= 0) return "Invalid quantity.";
+        var buyer = State.PlayerNation;
+        var seller = State.AllNations().FirstOrDefault(n => n.Id == sellerId);
+        if (seller is null || seller.Id == buyer.Id) return "Invalid seller.";
+        var product = TradeCatalog.Get(productId);
+        if (product is null || !product.CanBuy) return "Cannot buy this product.";
+
+        // Check seller stock (they won't sell more than 50%)
+        double sellerStock = seller.GetProductStock(productId) * 0.5;
+        if (sellerStock < quantity) return $"Seller only has {sellerStock:N0} available.";
+
+        double pricePer1000 = MarketPricing.PricePer1000(productId, sellerId);
+        double total = MarketPricing.TotalValue(pricePer1000, quantity);
+        if (!buyer.CanPay(total)) return "Not enough gold.";
+
+        // Deduct gold now, reserve seller stock
+        buyer.PayGold(total);
+        seller.AdjustProductStock(productId, -quantity);
+
+        int days = MarketPricing.DeliveryDays(buyer.Id, sellerId);
+        var contract = new TradeContract
+        {
+            BuyerId = buyer.Id, SellerId = sellerId, ProductId = productId,
+            Quantity = quantity, PricePer1000 = pricePer1000, TotalValue = total,
+            CreatedDate = State.CurrentDate,
+            DeliveryDate = State.CurrentDate.AddDays(days),
+            Status = TradeStatus.InTransit, IsPlayerBuyer = true
+        };
+        State.TradeContracts.Add(contract);
+        State.Log($"Bought {quantity:N0} {product.Name} from {seller.Name} for {Currency.Cost(total)}. Delivery in {days}d.");
+        StateChanged?.Invoke();
+        return null;
+    }
+
+    /// <summary>Sell product to another country. Goods deducted now, gold paid on delivery.</summary>
+    public string? SellProduct(string buyerId, string productId, double quantity, double pricePer1000)
+    {
+        if (quantity <= 0) return "Invalid quantity.";
+        if (pricePer1000 <= 0) return "Invalid price.";
+        var seller = State.PlayerNation;
+        var buyer = State.AllNations().FirstOrDefault(n => n.Id == buyerId);
+        if (buyer is null || buyer.Id == seller.Id) return "Invalid buyer.";
+        var product = TradeCatalog.Get(productId);
+        if (product is null || !product.CanSell) return "Cannot sell this product.";
+
+        double available = seller.GetProductStock(productId);
+        if (available < quantity) return $"Only {available:N0} available.";
+
+        double total = MarketPricing.TotalValue(pricePer1000, quantity);
+        // Buyer must be able to pay (check their gold)
+        if (buyer.Gold < total) return $"{buyer.Name} cannot afford this.";
+
+        // Deduct goods now
+        seller.AdjustProductStock(productId, -quantity);
+
+        int days = MarketPricing.DeliveryDays(seller.Id, buyerId);
+        var contract = new TradeContract
+        {
+            BuyerId = buyerId, SellerId = seller.Id, ProductId = productId,
+            Quantity = quantity, PricePer1000 = pricePer1000, TotalValue = total,
+            CreatedDate = State.CurrentDate,
+            DeliveryDate = State.CurrentDate.AddDays(days),
+            Status = TradeStatus.InTransit, IsPlayerBuyer = false
+        };
+        State.TradeContracts.Add(contract);
+        State.Log($"Sold {quantity:N0} {product.Name} to {buyer.Name} for {Currency.Cost(total)}. Delivery in {days}d.");
+        StateChanged?.Invoke();
+        return null;
+    }
+
     /// <summary>Starts crafting a batch (10 units) of a military item.</summary>
     public string? StartMilitaryCraft(string recipeId)
     {

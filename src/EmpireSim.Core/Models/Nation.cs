@@ -84,6 +84,46 @@ public sealed class Nation
         _ => 0
     };
 
+    /// <summary>Gets tradable stock for a product ID (for trade system).</summary>
+    public double GetProductStock(string productId) => productId switch
+    {
+        "wood" => Wood,
+        "stone" => Stone,
+        "iron" => Iron,
+        "copper" => Copper,
+        "lead" => Lead,
+        "food" => Food,
+        "helmet" => Helmets,
+        "dagger" => Daggers,
+        "pike" => Pikes,
+        "shotgun" => Shotguns,
+        "arquebus" => Arquebuses,
+        "shipparts" => ShipParts,
+        _ => GetGood(productId)
+    };
+
+    /// <summary>Adds to product stock (negative to remove). Returns false if insufficient.</summary>
+    public bool AdjustProductStock(string productId, double delta)
+    {
+        double current = GetProductStock(productId);
+        if (current + delta < -0.001) return false;
+        switch (productId)
+        {
+            case "wood": Wood += delta; break;
+            case "stone": Stone += delta; break;
+            case "iron": Iron += delta; break;
+            case "copper": Copper += delta; break;
+            case "lead": Lead += delta; break;
+            case "food": Food += delta; break;
+            case "helmet": case "dagger": case "pike":
+            case "shotgun": case "arquebus": case "shipparts":
+                AddMilitaryItem(productId, delta); break;
+            default:
+                AddGood(productId, delta); break;
+        }
+        return true;
+    }
+
     /// <summary>Adds to a military item stockpile by recipe ID.</summary>
     public void AddMilitaryItem(string recipeId, double amount)
     {
@@ -193,6 +233,13 @@ public sealed class Nation
     /// <summary>Gets the amount of a produced good, 0 if none.</summary>
     public double GetGood(string goodName) =>
         GoodsInventory.TryGetValue(goodName, out double v) ? v : 0;
+
+    public void AddGood(string goodName, double amount)
+    {
+        if (!GoodsInventory.ContainsKey(goodName))
+            GoodsInventory[goodName] = 0;
+        GoodsInventory[goodName] = Math.Max(0, GoodsInventory[goodName] + amount);
+    }
 
     /// <summary>Military item batches currently in production.</summary>
     public List<MilitaryCraftProject> MilitaryCraftQueue { get; set; } = new();

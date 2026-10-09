@@ -127,6 +127,44 @@ public sealed class SimulationService
             nation.MilitaryCraftQueue.Remove(proj);
         }
 
+        // ---- Trade contracts: deliver on delivery date ----
+        foreach (var tc in state.TradeContracts.Where(c => c.Status == TradeStatus.InTransit).ToList())
+        {
+            if (state.CurrentDate < tc.DeliveryDate) continue;
+            var buyer = state.AllNations().FirstOrDefault(n => n.Id == tc.BuyerId);
+            var seller = state.AllNations().FirstOrDefault(n => n.Id == tc.SellerId);
+            var product = TradeCatalog.Get(tc.ProductId);
+            if (buyer is null || product is null) { tc.Status = TradeStatus.Cancelled; continue; }
+
+            // Deliver goods to buyer
+            buyer.AdjustProductStock(tc.ProductId, tc.Quantity);
+            if (tc.IsPlayerBuyer)
+            {
+                // Player bought: gold already paid at confirmation, AI seller gets it now
+                if (seller is not null) seller.Gold += tc.TotalValue;
+            }
+            else
+            {
+                // Player sold: deduct buyer gold, credit player gold
+                if (buyer.Gold >= tc.TotalValue)
+                {
+                    buyer.Gold -= tc.TotalValue;
+                    if (seller is not null) seller.Gold += tc.TotalValue;
+                }
+                else
+                {
+                    // Buyer can't pay - cancel, return goods to player
+                    if (seller is not null) seller.AdjustProductStock(tc.ProductId, tc.Quantity);
+                    tc.Status = TradeStatus.Cancelled;
+                    state.Log($"Trade failed: buyer could not pay for {product.Name}.");
+                    continue;
+                }
+            }
+            tc.Status = TradeStatus.Delivered;
+            tc.ActualDeliveryDate = state.CurrentDate;
+            state.Log($"Trade delivered: {tc.Quantity:N0} {product.Name} ({Currency.Cost(tc.TotalValue)}).");
+        }
+
         // ---- Recruitment queue: progress, add soldiers on completion ----
         foreach (var rec in nation.RecruitmentQueue.ToList())
         {

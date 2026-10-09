@@ -1,0 +1,435 @@
+@page "/trade"
+@using EmpireSim.Core.Models
+@using EmpireSim.Core.Services
+@inject GameEngine Engine
+@implements IDisposable
+
+<div class="trade-wrap">
+    <div class="trade-header">
+        <h2>TRADE</h2>
+    </div>
+
+    <div class="trade-tabs">
+        <button class="@(_tab == 0 ? "active" : "")" @onclick="() => _tab = 0">BUY</button>
+        <button class="@(_tab == 1 ? "active" : "")" @onclick="() => _tab = 1">SELL</button>
+        <button class="@(_tab == 2 ? "active" : "")" @onclick="() => _tab = 2">STOCK</button>
+    </div>
+
+    @if (!string.IsNullOrEmpty(_error))
+    {
+        <div class="trade-error">⚠ @_error</div>
+    }
+    @if (!string.IsNullOrEmpty(_msg))
+    {
+        <div class="trade-msg">@_msg</div>
+    }
+
+    @if (_tab == 0)
+    {
+        <!-- BUY -->
+        <div class="trade-desc">Review products and purchase from other countries.</div>
+        <div class="trade-table-head">
+            <span>Product</span><span>Qty</span><span>Cost</span><span>Seller</span><span>Delivery</span>
+        </div>
+        @foreach (var c in BuyHistory)
+        {
+            var p = TradeCatalog.Get(c.ProductId);
+            var seller = Engine.State.AllNations().FirstOrDefault(n => n.Id == c.SellerId);
+            <div class="trade-row">
+                <span>@(p?.Icon) @(p?.Name)</span>
+                <span>@c.Quantity.ToString("N0")</span>
+                <span>@c.TotalValue.ToString("N0") 🪙</span>
+                <span>@(seller?.Emblem) @(seller?.Name)</span>
+                <span>@c.DeliveryDate.ToString("dd-MM-yy") (@c.Status)</span>
+            </div>
+        }
+        @if (!BuyHistory.Any())
+        {
+            <div class="trade-empty">No purchase history yet.</div>
+        }
+        <div class="trade-actions">
+            <button class="trade-btn" @onclick="OpenBuySelect">BUY</button>
+            <button class="trade-btn" @onclick="() => _tab = 2">STOCK</button>
+        </div>
+    }
+    else if (_tab == 1)
+    {
+        <!-- SELL -->
+        <div class="trade-table-head">
+            <span>Product</span><span>Qty</span><span>Revenue</span><span>Buyer</span>
+        </div>
+        @foreach (var c in SellHistory)
+        {
+            var p = TradeCatalog.Get(c.ProductId);
+            var buyer = Engine.State.AllNations().FirstOrDefault(n => n.Id == c.BuyerId);
+            <div class="trade-row">
+                <span>@(p?.Icon) @(p?.Name)</span>
+                <span>@c.Quantity.ToString("N0")</span>
+                <span>@c.TotalValue.ToString("N0") 🪙</span>
+                <span>@(buyer?.Emblem) @(buyer?.Name)</span>
+            </div>
+        }
+        @if (!SellHistory.Any())
+        {
+            <div class="trade-empty">No sale history yet.</div>
+        }
+        <div class="trade-actions">
+            <button class="trade-btn" @onclick="() => _sellAllOpen = true">SELL EVERYTHING</button>
+            <button class="trade-btn" @onclick="OpenSellSelect">SELL</button>
+            <button class="trade-btn" @onclick="() => _tab = 2">STOCK</button>
+        </div>
+    }
+    else
+    {
+        <!-- STOCK -->
+        <h3>EQUIPMENT</h3>
+        @foreach (var p in TradeCatalog.All.Where(x => x.Category == "Equipment"))
+        {
+            <div class="stock-row">
+                <span>@p.Icon</span><span class="sname">@p.Name</span>
+                <span>@_nation.GetProductStock(p.Id).ToString("N0")</span>
+            </div>
+        }
+        <h3>RESOURCES</h3>
+        @foreach (var p in TradeCatalog.All.Where(x => x.Category == "Resource"))
+        {
+            <div class="stock-row">
+                <span>@p.Icon</span><span class="sname">@p.Name</span>
+                <span>@_nation.GetProductStock(p.Id).ToString("N0")</span>
+            </div>
+        }
+        <h3>FOOD & GOODS</h3>
+        <div class="stock-row">
+            <span>🌾</span><span class="sname">Food</span>
+            <span>@_nation.Food.ToString("N0")</span>
+        </div>
+        @foreach (var kv in _nation.GoodsInventory.OrderByDescending(kv => kv.Value))
+        {
+            <div class="stock-row">
+                <span>📦</span><span class="sname">@kv.Key</span>
+                <span>@kv.Value.ToString("N0")</span>
+            </div>
+        }
+    }
+</div>
+
+<!-- Buy: Product Selection -->
+@if (_buyStep == 1)
+{
+    <div class="popup-overlay" @onclick="() => _buyStep = 0">
+        <div class="popup-panel" @onclick:stopPropagation>
+            <div class="popup-header"><span class="popup-title">Select Product to Buy</span></div>
+            @foreach (var p in TradeCatalog.All.Where(x => x.CanBuy))
+            {
+                <button class="prod-btn" @onclick="() => SelectBuyProduct(p.Id)">
+                    <span>@p.Icon</span> @p.Name
+                </button>
+            }
+            <div class="popup-actions">
+                <button class="popup-btn cancel" @onclick="() => _buyStep = 0">CANCEL</button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Buy: Country Selection (price list) -->
+@if (_buyStep == 2)
+{
+    var prod = TradeCatalog.Get(_buyProductId);
+    <div class="popup-overlay" @onclick="() => _buyStep = 0">
+        <div class="popup-panel" @onclick:stopPropagation>
+            <div class="popup-header"><span class="popup-title">Select Seller — @prod?.Name</span></div>
+            <div class="price-note">Price is per 1,000 units.</div>
+            @foreach (var n in Engine.State.OtherNations.OrderBy(n => n.Name))
+            {
+                double stock = n.GetProductStock(_buyProductId) * 0.5;
+                double price = MarketPricing.PricePer1000(_buyProductId, n.Id);
+                bool atWar = n.AtWarWithPlayer;
+                <button class="country-btn" disabled="@(atWar || stock < 1)" @onclick="() => SelectBuySeller(n.Id)">
+                    <span>@n.Emblem</span> <span class="cname">@n.Name</span>
+                    <span class="cprice">@price.ToString("N0") 🪙</span>
+                    @if (atWar) { <span class="cwar">WAR</span> }
+                </button>
+            }
+            <div class="popup-actions">
+                <button class="popup-btn cancel" @onclick="() => _buyStep = 0">CANCEL</button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Buy: Contract Modal -->
+@if (_buyStep == 3)
+{
+    var prod = TradeCatalog.Get(_buyProductId);
+    var seller = Engine.State.AllNations().FirstOrDefault(n => n.Id == _buySellerId);
+    double sellerStock = (seller?.GetProductStock(_buyProductId) ?? 0) * 0.5;
+    double pricePer1000 = MarketPricing.PricePer1000(_buyProductId, _buySellerId);
+    double total = MarketPricing.TotalValue(pricePer1000, _buyQty);
+    int days = MarketPricing.DeliveryDays(_nation.Id, _buySellerId);
+    bool valid = _buyQty > 0 && _buyQty <= sellerStock && _nation.Gold >= total;
+
+    <div class="popup-overlay" @onclick="() => _buyStep = 0">
+        <div class="popup-panel" @onclick:stopPropagation>
+            <div class="popup-header"><span class="popup-title">Buy @prod?.Name</span></div>
+            <div class="c-row"><span>Product:</span><b>@prod?.Icon @prod?.Name</b></div>
+            <div class="c-row"><span>Seller:</span><b>@seller?.Emblem @seller?.Name</b></div>
+            <div class="c-row"><span>Available:</span><b>@sellerStock.ToString("N0")</b></div>
+            <div class="c-row"><span>Quantity:</span>
+                <div class="qty-row">
+                    <button @onclick="() => _buyQty = Math.Max(10, _buyQty - 100)">−100</button>
+                    <input type="number" @bind="_buyQty" min="1" class="qty-input" />
+                    <button @onclick="() => _buyQty += 100">+100</button>
+                </div>
+            </div>
+            <div class="c-row"><span>Price per 1,000:</span><b>@pricePer1000.ToString("N0") 🪙</b></div>
+            <div class="c-row total"><span>Total:</span><b>@total.ToString("N0") 🪙</b></div>
+            <div class="c-row"><span>Delivery:</span><b>@Engine.State.CurrentDate.AddDays(days).ToString("dd-MM-yyyy") (@days days)</b></div>
+            <div class="popup-actions">
+                <button class="popup-btn cancel" @onclick="() => _buyStep = 0">CANCEL</button>
+                <button class="popup-btn confirm" disabled="@(!valid)" @onclick="DoBuy">BUY</button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Sell: Product Selection -->
+@if (_sellStep == 1)
+{
+    <div class="popup-overlay" @onclick="() => _sellStep = 0">
+        <div class="popup-panel" @onclick:stopPropagation>
+            <div class="popup-header"><span class="popup-title">Select Product to Sell</span></div>
+            @foreach (var p in TradeCatalog.All.Where(x => x.CanSell && _nation.GetProductStock(x.Id) > 0))
+            {
+                <button class="prod-btn" @onclick="() => SelectSellProduct(p.Id)">
+                    <span>@p.Icon</span> @p.Name (@_nation.GetProductStock(p.Id).ToString("N0"))
+                </button>
+            }
+            <div class="popup-actions">
+                <button class="popup-btn cancel" @onclick="() => _sellStep = 0">CANCEL</button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Sell: Country Selection -->
+@if (_sellStep == 2)
+{
+    var prod = TradeCatalog.Get(_sellProductId);
+    <div class="popup-overlay" @onclick="() => _sellStep = 0">
+        <div class="popup-panel" @onclick:stopPropagation>
+            <div class="popup-header"><span class="popup-title">Select Buyer — @prod?.Name</span></div>
+            <div class="price-note">Price is per 1,000 units.</div>
+            @foreach (var n in Engine.State.OtherNations.OrderBy(n => n.Name))
+            {
+                double price = MarketPricing.PricePer1000(_sellProductId, n.Id);
+                bool atWar = n.AtWarWithPlayer;
+                <button class="country-btn" disabled="@atWar" @onclick="() => SelectSellBuyer(n.Id)">
+                    <span>@n.Emblem</span> <span class="cname">@n.Name</span>
+                    <span class="cprice">@price.ToString("N0") 🪙</span>
+                    @if (atWar) { <span class="cwar">WAR</span> }
+                </button>
+            }
+            <div class="popup-actions">
+                <button class="popup-btn cancel" @onclick="() => _sellStep = 0">CANCEL</button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Sell: Contract Modal -->
+@if (_sellStep == 3)
+{
+    var prod = TradeCatalog.Get(_sellProductId);
+    var buyer = Engine.State.AllNations().FirstOrDefault(n => n.Id == _sellBuyerId);
+    double available = _nation.GetProductStock(_sellProductId);
+    double total = MarketPricing.TotalValue(_sellPrice, _sellQty);
+    int days = MarketPricing.DeliveryDays(_nation.Id, _sellBuyerId);
+    bool valid = _sellQty > 0 && _sellQty <= available && _sellPrice > 0 && (buyer?.Gold ?? 0) >= total;
+
+    <div class="popup-overlay" @onclick="() => _sellStep = 0">
+        <div class="popup-panel" @onclick:stopPropagation>
+            <div class="popup-header"><span class="popup-title">Sell @prod?.Name</span></div>
+            <div class="c-row"><span>Product:</span><b>@prod?.Icon @prod?.Name</b></div>
+            <div class="c-row"><span>Buyer:</span><b>@buyer?.Emblem @buyer?.Name</b></div>
+            <div class="c-row"><span>Available:</span><b>@available.ToString("N0")</b></div>
+            <div class="c-row"><span>Quantity:</span>
+                <div class="qty-row">
+                    <button @onclick="() => _sellQty = Math.Max(10, _sellQty - 100)">−100</button>
+                    <input type="number" @bind="_sellQty" min="1" class="qty-input" />
+                    <button @onclick="() => _sellQty += 100">+100</button>
+                </div>
+            </div>
+            <div class="c-row"><span>Price per 1,000:</span>
+                <input type="number" @bind="_sellPrice" min="1" class="qty-input" /> 🪙
+            </div>
+            <div class="c-row total"><span>Total:</span><b>@total.ToString("N0") 🪙</b></div>
+            <div class="c-row"><span>Delivery:</span><b>@Engine.State.CurrentDate.AddDays(days).ToString("dd-MM-yyyy")</b></div>
+            <div class="popup-actions">
+                <button class="popup-btn cancel" @onclick="() => _sellStep = 0">CANCEL</button>
+                <button class="popup-btn confirm" disabled="@(!valid)" @onclick="DoSell">SELL</button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Sell Everything -->
+@if (_sellAllOpen)
+{
+    <div class="popup-overlay" @onclick="() => _sellAllOpen = false">
+        <div class="popup-panel" @onclick:stopPropagation>
+            <div class="popup-header"><span class="popup-title">Sell Everything</span></div>
+            <div class="price-note">Sells all tradable stock at market price. Military equipment is protected.</div>
+            @{
+                double grandTotal = 0;
+            }
+            @foreach (var p in TradeCatalog.All.Where(x => x.CanSell && x.Category != "Equipment"))
+            {
+                double qty = _nation.GetProductStock(p.Id);
+                if (qty <= 0) continue;
+                double price = MarketPricing.PricePer1000(p.Id, _nation.Id);
+                double val = MarketPricing.TotalValue(price, qty);
+                grandTotal += val;
+                <div class="c-row"><span>@p.Icon @p.Name (@qty.ToString("N0"))</span><b>@val.ToString("N0") 🪙</b></div>
+            }
+            <div class="c-row total"><span>Estimated Total:</span><b>@grandTotal.ToString("N0") 🪙</b></div>
+            <div class="popup-actions">
+                <button class="popup-btn cancel" @onclick="() => _sellAllOpen = false">CANCEL</button>
+                <button class="popup-btn confirm" disabled="@(grandTotal <= 0)" @onclick="DoSellAll">CONFIRM SALE</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private Nation _nation => Engine.State.PlayerNation;
+    private int _tab = 0;
+    private string? _error;
+    private string? _msg;
+
+    // Buy flow
+    private int _buyStep = 0;
+    private string _buyProductId = "";
+    private string _buySellerId = "";
+    private double _buyQty = 100;
+
+    // Sell flow
+    private int _sellStep = 0;
+    private string _sellProductId = "";
+    private string _sellBuyerId = "";
+    private double _sellQty = 100;
+    private double _sellPrice = 100;
+    private bool _sellAllOpen = false;
+
+    protected override void OnInitialized() => Engine.StateChanged += OnStateChanged;
+    private void OnStateChanged() => InvokeAsync(StateHasChanged);
+    public void Dispose() => Engine.StateChanged -= OnStateChanged;
+
+    private IEnumerable<TradeContract> BuyHistory =>
+        Engine.State.TradeContracts
+            .Where(c => c.IsPlayerBuyer && c.BuyerId == _nation.Id)
+            .Where(c => c.CreatedDate <= Engine.State.CurrentDate && Engine.State.CurrentDate.DayNumber - c.CreatedDate.DayNumber <= 180)
+            .OrderByDescending(c => c.CreatedDate);
+
+    private IEnumerable<TradeContract> SellHistory =>
+        Engine.State.TradeContracts
+            .Where(c => !c.IsPlayerBuyer && c.SellerId == _nation.Id)
+            .Where(c => c.CreatedDate <= Engine.State.CurrentDate && Engine.State.CurrentDate.DayNumber - c.CreatedDate.DayNumber <= 180)
+            .OrderByDescending(c => c.CreatedDate);
+
+    private void OpenBuySelect() { _buyStep = 1; _error = null; _msg = null; }
+    private void SelectBuyProduct(string id) { _buyProductId = id; _buyStep = 2; }
+    private void SelectBuySeller(string id) { _buySellerId = id; _buyQty = 100; _buyStep = 3; }
+
+    private void DoBuy()
+    {
+        _error = Engine.BuyProduct(_buySellerId, _buyProductId, _buyQty);
+        if (_error is null)
+        {
+            _msg = "Purchase confirmed. Delivery scheduled.";
+            _buyStep = 0;
+        }
+    }
+
+    private void OpenSellSelect() { _sellStep = 1; _error = null; _msg = null; }
+    private void SelectSellProduct(string id)
+    {
+        _sellProductId = id;
+        _sellPrice = MarketPricing.PricePer1000(id, _nation.Id);
+        _sellStep = 2;
+    }
+    private void SelectSellBuyer(string id) { _sellBuyerId = id; _sellQty = 100; _sellStep = 3; }
+
+    private void DoSell()
+    {
+        _error = Engine.SellProduct(_sellBuyerId, _sellProductId, _sellQty, _sellPrice);
+        if (_error is null)
+        {
+            _msg = "Sale confirmed. Delivery scheduled.";
+            _sellStep = 0;
+        }
+    }
+
+    private void DoSellAll()
+    {
+        int count = 0;
+        // Sell to a wealthy AI buyer (first with enough gold)
+        foreach (var p in TradeCatalog.All.Where(x => x.CanSell && x.Category != "Equipment"))
+        {
+            double qty = _nation.GetProductStock(p.Id);
+            if (qty <= 0) continue;
+            double price = MarketPricing.PricePer1000(p.Id, _nation.Id);
+            double total = MarketPricing.TotalValue(price, qty);
+            // Find buyer
+            var buyer = Engine.State.OtherNations
+                .Where(n => !n.AtWarWithPlayer && n.Gold >= total)
+                .OrderByDescending(n => n.Gold)
+                .FirstOrDefault();
+            if (buyer is null) continue;
+            var err = Engine.SellProduct(buyer.Id, p.Id, qty, price);
+            if (err is null) count++;
+        }
+        _sellAllOpen = false;
+        _msg = count > 0 ? $"Sold {count} product types." : "No buyers available.";
+    }
+}
+
+<style>
+.trade-wrap { background: linear-gradient(#f0e0b0, #e8d090); min-height: 100vh; padding: 10px 8px 90px; font-family: Georgia, serif; color: #3d2b1f; }
+.trade-header h2 { text-align: center; letter-spacing: 3px; color: #3d2b1f; margin: 0 0 10px; }
+.trade-tabs { display: flex; gap: 8px; margin-bottom: 10px; }
+.trade-tabs button { flex: 1; padding: 12px; background: linear-gradient(#d4b896, #b89868); border: 2px solid #8b6914; border-radius: 8px; cursor: pointer; font-family: inherit; font-weight: bold; letter-spacing: 1px; color: #3d2b1f; }
+.trade-tabs button.active { background: linear-gradient(#7a5230, #4a2e14); color: #f5e6c4; }
+.trade-error { background: #f8d7da; color: #721c24; border-radius: 6px; padding: 8px; margin-bottom: 8px; font-size: 0.9rem; }
+.trade-msg { background: #d4edda; color: #155724; border-radius: 6px; padding: 8px; margin-bottom: 8px; font-size: 0.9rem; }
+.trade-desc { font-size: 0.88rem; color: #5a4a2a; margin-bottom: 8px; text-align: center; }
+.trade-table-head { display: grid; grid-template-columns: 1.4fr 0.7fr 0.8fr 1fr 1fr; gap: 4px; font-size: 0.72rem; font-weight: bold; color: #5a4a2a; border-bottom: 2px solid #8b6914; padding: 4px 6px; }
+.trade-row { display: grid; grid-template-columns: 1.4fr 0.7fr 0.8fr 1fr 1fr; gap: 4px; font-size: 0.78rem; background: rgba(255,255,255,.3); border: 1px solid #c9b98a; border-radius: 4px; padding: 6px; margin-top: 4px; align-items: center; }
+.trade-empty { text-align: center; color: #5a4a2a; padding: 20px; font-size: 0.9rem; }
+.trade-actions { display: flex; gap: 8px; margin-top: 12px; }
+.trade-btn { flex: 1; padding: 12px; background: linear-gradient(#7a5230, #4a2e14); color: #f5e6c4; border: 2px solid #2e1c0c; border-radius: 8px; cursor: pointer; font-family: inherit; font-weight: bold; letter-spacing: 1px; }
+.trade-wrap h3 { color: #5a3a1a; font-size: 0.9rem; letter-spacing: 1px; margin: 12px 0 6px; border-bottom: 2px solid #8b6914; padding-bottom: 4px; }
+.stock-row { display: flex; align-items: center; gap: 8px; background: rgba(255,255,255,.3); border: 1px solid #c9b98a; border-radius: 6px; padding: 8px; margin-bottom: 4px; font-size: 0.92rem; }
+.stock-row .sname { flex: 1; font-weight: bold; }
+.popup-overlay { position: fixed; inset: 0; z-index: 100; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; padding: 12px; }
+.popup-panel { background: linear-gradient(#f5e6c4, #e2cb92); border: 3px double #8b6914; border-radius: 10px; padding: 14px; max-width: 380px; width: 100%; max-height: 88vh; overflow-y: auto; font-family: Georgia, serif; color: #3d2b1f; }
+.popup-header { margin-bottom: 10px; }
+.popup-title { font-size: 1.1rem; font-weight: bold; }
+.price-note { font-size: 0.82rem; color: #5a4a2a; margin-bottom: 8px; text-align: center; }
+.prod-btn, .country-btn { display: flex; align-items: center; gap: 8px; width: 100%; padding: 10px; margin-bottom: 4px; background: rgba(255,255,255,.4); border: 1px solid #c9b98a; border-radius: 6px; cursor: pointer; font-family: inherit; font-size: 0.92rem; color: #3d2b1f; text-align: left; }
+.prod-btn:hover, .country-btn:hover { background: rgba(255,255,255,.6); }
+.country-btn:disabled { opacity: 0.5; }
+.country-btn .cname { flex: 1; font-weight: bold; }
+.country-btn .cprice { color: #5a4a2a; }
+.cwar { background: #8B0000; color: #fff; font-size: 0.7rem; padding: 2px 6px; border-radius: 4px; }
+.c-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid #c9b98a; font-size: 0.92rem; }
+.c-row.total { font-size: 1.05rem; border-bottom: 2px solid #8b6914; }
+.qty-row { display: flex; align-items: center; gap: 6px; }
+.qty-row button { background: #d4b896; border: 1px solid #8b6914; border-radius: 4px; padding: 4px 10px; cursor: pointer; font-family: inherit; }
+.qty-input { width: 80px; padding: 6px; border: 2px solid #8b6914; border-radius: 6px; background: #fffdf5; font-family: inherit; text-align: center; }
+.popup-actions { display: flex; gap: 10px; margin-top: 12px; }
+.popup-btn { flex: 1; padding: 10px; border-radius: 6px; cursor: pointer; font-family: inherit; border: 2px solid #2e1c0c; font-weight: bold; }
+.popup-btn.cancel { background: linear-gradient(#8a8a8a, #5a5a5a); color: #fff; }
+.popup-btn.confirm { background: linear-gradient(#7a5230, #4a2e14); color: #f5e6c4; }
+.popup-btn.confirm:disabled { opacity: 0.4; }
+</style>

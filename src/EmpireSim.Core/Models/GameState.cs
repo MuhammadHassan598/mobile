@@ -50,6 +50,9 @@ public sealed class GameState
     /// <summary>Rolling log, newest entries appended at the end.</summary>
     public List<string> EventLog { get; set; } = new();
 
+    /// <summary>All trade contracts (buy and sell).</summary>
+    public List<TradeContract> TradeContracts { get; set; } = new();
+
     public void Log(string message)
     {
         EventLog.Add($"{CurrentDate:dd-MM-yyyy}: {message}");
