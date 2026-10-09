@@ -22,6 +22,10 @@ public static class Balance
 
     // ---- Construction ----
     public const int MaxBuildQueue = 999;
+    public const int MaxRecruitmentQueue = 5;
+    public const double RecruitDaysPerSoldier = 0.01;
+    public const double MaxRecruitDays = 30;
+    public const double MobilizeCostPerSoldier = 0.1;
 
     // ---- Commanders ----
     public const double LandCommanderUpkeepMult = 0.85;   // -15% land upkeep

@@ -9,7 +9,7 @@ public enum UnitType
     Cannon
 }
 
-/// <summary>Static definition of a unit type: costs, daily upkeep and battle strength.</summary>
+/// <summary>Static definition of a unit type: costs, equipment, daily upkeep and battle strength.</summary>
 public sealed record UnitSpec(
     UnitType Type,
     string Name,
@@ -19,7 +19,11 @@ public sealed record UnitSpec(
     double WoodCost,
     double IronCost,
     double UpkeepPerDay,
-    double Strength);
+    double Strength,
+    IReadOnlyList<UnitEquipment>? Equipment = null);
+
+/// <summary>Equipment required per soldier for a unit type (military item ID -> amount).</summary>
+public sealed record UnitEquipment(string ItemId, double PerSoldier);
 
 /// <summary>A stack of units of one type in a nation's army.</summary>
 public sealed class UnitStack
@@ -34,13 +38,17 @@ public static class UnitCatalog
     public static readonly IReadOnlyList<UnitSpec> All = new List<UnitSpec>
     {
         new(UnitType.Musketeer, "Musketeer", "🎯", "Line infantry with muskets. The backbone of the army.",
-            GoldCost: 0.2, WoodCost: 0, IronCost: 0, UpkeepPerDay: 0.0003, Strength: 1.0),
+            GoldCost: 0.2, WoodCost: 0, IronCost: 0, UpkeepPerDay: 0.0003, Strength: 1.0,
+            Equipment: new List<UnitEquipment> { new("shotgun", 1), new("helmet", 1) }),
         new(UnitType.Pikeman, "Pikeman", "🔱", "Cheap spear infantry. Holds the line.",
-            GoldCost: 0.15, WoodCost: 0, IronCost: 0, UpkeepPerDay: 0.00025, Strength: 0.8),
+            GoldCost: 0.15, WoodCost: 0, IronCost: 0, UpkeepPerDay: 0.00025, Strength: 0.8,
+            Equipment: new List<UnitEquipment> { new("pike", 1), new("helmet", 1) }),
         new(UnitType.Cavalry, "Cavalry", "🐎", "Fast horsemen for flanking.",
-            GoldCost: 0.5, WoodCost: 0, IronCost: 0, UpkeepPerDay: 0.0006, Strength: 1.2),
+            GoldCost: 0.5, WoodCost: 0, IronCost: 0, UpkeepPerDay: 0.0006, Strength: 1.2,
+            Equipment: new List<UnitEquipment> { new("dagger", 1), new("helmet", 1) }),
         new(UnitType.Cannon, "Cannon", "💣", "Siege artillery. Expensive but devastating.",
-            GoldCost: 2, WoodCost: 0, IronCost: 5, UpkeepPerDay: 0.0015, Strength: 2.5),
+            GoldCost: 2, WoodCost: 0, IronCost: 5, UpkeepPerDay: 0.0015, Strength: 2.5,
+            Equipment: new List<UnitEquipment> { new("arquebus", 1) }),
     };
 
     public static UnitSpec Get(UnitType type) => All.First(s => s.Type == type);

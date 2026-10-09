@@ -1,104 +1,274 @@
 @page "/military"
+@using EmpireSim.Core.Models
+@using EmpireSim.Core.Services
 @inject GameEngine Engine
 @implements IDisposable
 
-<div class="dashboard">
-    <div class="topbar">
-        <div class="nation-name">Military</div>
+<div class="mil-wrap">
+    <div class="mil-header">
+        <span class="mil-emblem">@_nation.Emblem</span>
+        <div>
+            <div class="mil-title">Army Management</div>
+            <div class="mil-nation">@_nation.Name</div>
+        </div>
+    </div>
+
+    <!-- Summary -->
+    <div class="mil-summary">
+        <div class="ms-row"><span>Military Power</span><b>@MilitaryPower().ToString("N0")</b></div>
+        <div class="ms-row"><span>Active Soldiers</span><b>@_nation.Soldiers.ToString("N0")</b></div>
+        <div class="ms-row"><span>Reserves</span><b>@_nation.Reserves.ToString("N0")</b></div>
+        <div class="ms-row"><span>Upkeep / day</span><b>@DailyUpkeep().ToString("N2") 🪙</b></div>
+        <div class="ms-row"><span>Warships</span><b>@_nation.Warships.ToString("N0") 🚢</b></div>
     </div>
 
     @if (!string.IsNullOrEmpty(_error))
     {
-        <div class="warning">⚠ @_error</div>
+        <div class="mil-error">⚠ @_error</div>
+    }
+    @if (!string.IsNullOrEmpty(_msg))
+    {
+        <div class="mil-msg">@_msg</div>
     }
 
-    <h2>ARMY MAINTENANCE</h2>
-    <div class="maint-card @MaintenanceClass">
-        <div class="maint-row">
-            <span>Accrued upkeep</span>
-            <strong>@Currency.Format(_nation.UpkeepAccrued)</strong>
-        </div>
-        <div class="maint-row">
-            <span>Next payday</span>
-            <strong>@_nation.NextPayday.ToString("dd-MM-yyyy") (@PaydayText)</strong>
-        </div>
-        @if (_nation.IsInGracePeriod)
-        {
-            <div class="maint-grace">⚠ GRACE PERIOD — @_nation.GraceDaysLeft days left before desertion!</div>
-        }
-        <button class="inline-btn" @onclick="PayNow" disabled="@(_nation.UpkeepAccrued <= 0)">
-            Pay now
-        </button>
+    <!-- Tabs -->
+    <div class="mil-tabs">
+        <button class="@(_tab == 0 ? "active" : "")" @onclick="() => _tab = 0">Overview</button>
+        <button class="@(_tab == 1 ? "active" : "")" @onclick="() => _tab = 1">Recruit</button>
+        <button class="@(_tab == 2 ? "active" : "")" @onclick="() => _tab = 2">Mercenary</button>
+        <button class="@(_tab == 3 ? "active" : "")" @onclick="() => _tab = 3">Reserves</button>
+        <button class="@(_tab == 4 ? "active" : "")" @onclick="() => _tab = 4">Equipment</button>
+        <button class="@(_tab == 5 ? "active" : "")" @onclick="() => _tab = 5">Naval</button>
     </div>
 
-    @if (Engine.State.MarchingArmies.Count > 0)
+    @if (_tab == 0)
     {
-        <h2>CAMPAIGNS</h2>
-        @foreach (var m in Engine.State.MarchingArmies)
+        <!-- OVERVIEW -->
+        <h3>LAND FORCES</h3>
+        @foreach (var spec in UnitCatalog.All)
         {
-            <div class="build-card">
-                <div class="build-row">
-                    <div class="build-name">⚔ March on @m.TargetNationName</div>
-                    <div class="build-days">@((m.Progress * 100).ToString("N0"))% · @m.DaysLeft d left</div>
+            var owned = _nation.Units.FirstOrDefault(u => u.Type == spec.Type)?.Count ?? 0;
+            <div class="mil-row">
+                <span class="mil-ico">@spec.Icon</span>
+                <div class="mil-info">
+                    <div class="mil-name">@spec.Name × @owned.ToString("N0")</div>
+                    <div class="mil-sub">Str @((owned * spec.Strength).ToString("N0")) · @spec.UpkeepPerDay Gold/day each</div>
                 </div>
-                <div class="progress"><div class="progress-fill" style="width:@((m.Progress * 100).ToString("N0"))%"></div></div>
-                <div class="mil-sub">@m.Strength.ToString("N0") soldiers committed</div>
+            </div>
+        }
+
+        @if (_nation.RecruitmentQueue.Count > 0)
+        {
+            <h3>RECRUITMENT QUEUE</h3>
+            @foreach (var r in _nation.RecruitmentQueue)
+            {
+                var spec = UnitCatalog.Get(r.Type);
+                <div class="mil-row">
+                    <span class="mil-ico">@spec.Icon</span>
+                    <div class="mil-info">
+                        <div class="mil-name">@r.Count.ToString("N0") × @spec.Name</div>
+                        <div class="mil-prog"><div class="mil-prog-fill" style="width: @(r.Progress * 100)%"></div></div>
+                        <div class="mil-sub">@r.DaysLeft.ToString("N1")d left</div>
+                    </div>
+                    <button class="mil-cancel" @onclick="() => CancelRec(r.Id)">✕</button>
+                </div>
+            }
+        }
+
+        @if (_nation.MercenaryContracts.Count > 0)
+        {
+            <h3>MERCENARY CONTRACTS</h3>
+            @foreach (var c in _nation.MercenaryContracts)
+            {
+                var co = MercenaryCatalog.Get(c.CompanyId);
+                <div class="mil-row">
+                    <span class="mil-ico">@(co?.Icon ?? "⚔️")</span>
+                    <div class="mil-info">
+                        <div class="mil-name">@(co?.Name ?? c.CompanyId) × @c.Count.ToString("N0")</div>
+                        <div class="mil-sub">Expires @c.Expires.ToString("dd-MM-yyyy")</div>
+                    </div>
+                </div>
+            }
+        }
+
+        <h3>MAINTENANCE</h3>
+        <div class="mil-row">
+            <div class="mil-info">
+                <div class="mil-name">Accrued: @Currency.Format(_nation.UpkeepAccrued)</div>
+                <div class="mil-sub">Payday: @_nation.NextPayday.ToString("dd-MM-yyyy")</div>
+                @if (_nation.IsInGracePeriod)
+                {
+                    <div class="mil-grace">⚠ GRACE — @_nation.GraceDaysLeft days left!</div>
+                }
+            </div>
+            <button class="mil-btn" @onclick="PayNow" disabled="@(_nation.UpkeepAccrued <= 0)">Pay</button>
+        </div>
+    }
+    else if (_tab == 1)
+    {
+        <!-- RECRUIT -->
+        <h3>RECRUIT ARMY</h3>
+        @foreach (var spec in UnitCatalog.All)
+        {
+            <div class="rec-card">
+                <div class="rec-head">
+                    <span class="mil-ico">@spec.Icon</span>
+                    <div>
+                        <div class="mil-name">@spec.Name</div>
+                        <div class="mil-sub">@spec.Description</div>
+                    </div>
+                </div>
+                <div class="rec-costs">
+                    <div>💰 @((spec.GoldCost * _recCount).ToString("N1")) gold</div>
+                    @if (spec.Equipment is not null)
+                    {
+                        @foreach (var eq in spec.Equipment)
+                        {
+                            var have = _nation.GetMilitaryItem(eq.ItemId);
+                            var need = eq.PerSoldier * _recCount;
+                            <div class="@(have >= need ? "ok" : "lack")">
+                                @EquipIcon(eq.ItemId) @need.ToString("N0") (have @have.ToString("N0"))
+                            </div>
+                        }
+                    }
+                    <div>⏱️ @RecruitDays(_recCount).ToString("N1") days</div>
+                    <div>⚔️ +@((_recCount * spec.Strength).ToString("N0")) power</div>
+                </div>
+                <div class="rec-actions">
+                    <div class="qty-row">
+                        <button @onclick="() => _recCount = Math.Max(10, _recCount - 100)">−100</button>
+                        <span>@_recCount</span>
+                        <button @onclick="() => _recCount += 100">+100</button>
+                    </div>
+                    <button class="mil-btn" @onclick="() => DoRecruit(spec.Type)">RECRUIT</button>
+                </div>
             </div>
         }
     }
-
-    <h2>LAND FORCES (@_nation.Soldiers.ToString("N0"))</h2>    @foreach (var spec in UnitCatalog.All)
+    else if (_tab == 2)
     {
-        var owned = _nation.Units.FirstOrDefault(u => u.Type == spec.Type)?.Count ?? 0;
-        <div class="mil-row">
-            <div class="mil-info">
-                <div class="mil-name">@spec.Icon @spec.Name <span class="muted">× @owned.ToString("N0")</span></div>
-                <div class="mil-sub">@UnitCatalog.CostText(spec) · @spec.UpkeepPerDay Gold/day each</div>
+        <!-- MERCENARIES -->
+        <h3>MERCENARY COMPANIES</h3>
+        @foreach (var co in MercenaryCatalog.All)
+        {
+            var spec = UnitCatalog.Get(co.UnitType);
+            <div class="rec-card">
+                <div class="rec-head">
+                    <span class="mil-ico">@co.Icon</span>
+                    <div>
+                        <div class="mil-name">@co.Name</div>
+                        <div class="mil-sub">@spec.Name × @co.Available.ToString("N0") · Morale @((co.Morale * 100).ToString("N0"))%</div>
+                    </div>
+                </div>
+                <div class="rec-costs">
+                    <div>💰 Hire: @((co.HireCostPerSoldier * _mercCount).ToString("N1")) gold</div>
+                    <div>📅 Upkeep: @((co.UpkeepPerSoldierPerDay * _mercCount).ToString("N2"))/day</div>
+                    <div>⏳ Contract: @co.ContractDays days</div>
+                </div>
+                <div class="rec-actions">
+                    <div class="qty-row">
+                        <button @onclick="() => _mercCount = Math.Max(50, _mercCount - 50)">−50</button>
+                        <span>@_mercCount</span>
+                        <button @onclick="() => _mercCount += 50">+50</button>
+                    </div>
+                    <button class="mil-btn" @onclick="() => DoHire(co.Id)">HIRE</button>
+                </div>
             </div>
-            <div class="mil-actions">
-                <button @onclick="() => Recruit(spec.Type, 100)">+100<span class="btn-cost">@BatchCost(spec, 100)</span></button>
-                <button @onclick="() => Recruit(spec.Type, 1000)">+1k<span class="btn-cost">@BatchCost(spec, 1000)</span></button>
-            </div>
-        </div>
+        }
     }
-
-    <h2>NAVY (@_nation.Warships.ToString("N0"))</h2>
-    <div class="mil-row">
-        <div class="mil-info">
-            <div class="mil-name">@WarshipSpec.Icon @WarshipSpec.Name <span class="muted">× @_nation.Warships.ToString("N0")</span></div>
-            <div class="mil-sub">@WarshipSpec.CostText · @WarshipSpec.UpkeepPerDay Gold/day each</div>
-        </div>
-        <div class="mil-actions">
-            <button @onclick="() => RecruitShips(10)">+10<span class="btn-cost">@ShipBatchCost(10)</span></button>
-            <button @onclick="() => RecruitShips(50)">+50<span class="btn-cost">@ShipBatchCost(50)</span></button>
-        </div>
-    </div>
-
-    <h2>COMMANDERS</h2>
-    @foreach (var role in CommanderCatalog.Roles)
+    else if (_tab == 3)
     {
-        var cmd = _nation.Commanders.FirstOrDefault(c => c.Role == role.Role);
-        <div class="mil-row">
-            <div class="mil-info">
-                <div class="mil-name">@role.Title</div>
-                @if (cmd is not null)
-                {
-                    <div class="mil-sub">@cmd.Name · wage @cmd.DailyWage Gold/day</div>
-                }
-                else
-                {
-                    <div class="mil-sub">@role.Effect</div>
-                }
+        <!-- RESERVES & CONSCRIPTION -->
+        <h3>RESERVES (@_nation.Reserves.ToString("N0"))</h3>
+        <div class="rec-card">
+            <div class="rec-costs">
+                <div>💰 Mobilize cost: @((Balance.MobilizeCostPerSoldier * _mobCount).ToString("N1")) gold</div>
+                <div>⚡ Instant — trained soldiers</div>
             </div>
-            <div class="mil-actions">
-                @if (cmd is not null)
-                {
-                    <button @onclick="() => Dismiss(role.Role)">Dismiss</button>
-                }
-                else
-                {
-                    <button @onclick="() => Hire(role.Role)">Hire (@Currency.Cost(role.HireCost))</button>
-                }
+            <div class="rec-actions">
+                <div class="qty-row">
+                    <button @onclick="() => _mobCount = Math.Max(100, _mobCount - 100)">−100</button>
+                    <span>@_mobCount</span>
+                    <button @onclick="() => _mobCount += 100">+100</button>
+                </div>
+                <button class="mil-btn" @onclick="DoMobilize">MOBILIZE</button>
+            </div>
+        </div>
+
+        <h3>EMERGENCY CONSCRIPTION</h3>
+        @foreach (var level in ConscriptionLevels.All)
+        {
+            int count = (int)(_nation.Population * level.PopulationFraction);
+            <div class="rec-card">
+                <div class="rec-head">
+                    <span class="mil-ico">@level.Icon</span>
+                    <div>
+                        <div class="mil-name">@level.Name</div>
+                        <div class="mil-sub">@level.Description</div>
+                    </div>
+                </div>
+                <div class="rec-costs">
+                    <div>👥 @count.ToString("N0") militia</div>
+                    <div>💰 @((level.GoldCostPerSoldier * count).ToString("N0")) gold</div>
+                    <div>😠 Unrest +@level.UnrestPenalty</div>
+                </div>
+                <button class="mil-btn" @onclick="() => DoConscript(level.Id)">CONSCRIPT</button>
+            </div>
+        }
+
+        <h3>ALLIED ASSISTANCE</h3>
+        <div class="mil-sub" style="margin-bottom:6px">Request troops from allies (relations ≥ 70).</div>
+        @foreach (var a in Engine.State.OtherNations.Where(n => DiplomacyService.ToDisplayRating(n.RelationToPlayer) >= 70).OrderBy(n => n.Name).Take(10))
+        {
+            <div class="mil-row">
+                <span class="mil-ico">@a.Emblem</span>
+                <div class="mil-info"><div class="mil-name">@a.Name</div></div>
+                <button class="mil-btn" @onclick="() => DoAlly(a.Id)">REQUEST</button>
+            </div>
+        }
+    }
+    else if (_tab == 4)
+    {
+        <!-- EQUIPMENT -->
+        <h3>MILITARY EQUIPMENT</h3>
+        @foreach (var recipe in MilitaryRecipes.All)
+        {
+            <div class="mil-row">
+                <span class="mil-ico">@recipe.Icon</span>
+                <div class="mil-info">
+                    <div class="mil-name">@recipe.Name</div>
+                    <div class="mil-sub">Stock: @_nation.GetMilitaryItem(recipe.Id).ToString("N0")</div>
+                </div>
+                <button class="mil-btn" @onclick='() => Nav.NavigateTo("/production")'>MAKE</button>
+            </div>
+        }
+        <div class="mil-sub" style="margin-top:8px">Equipment is crafted in Production → Military. Each soldier needs equipment to recruit.</div>
+    }
+    else if (_tab == 5)
+    {
+        <!-- NAVAL -->
+        <h3>NAVAL FORCES (@_nation.Warships.ToString("N0") 🚢)</h3>
+        <div class="rec-card">
+            <div class="rec-head">
+                <span class="mil-ico">🚢</span>
+                <div>
+                    <div class="mil-name">Warship</div>
+                    <div class="mil-sub">Requires Ship Parts + Wood + Gold</div>
+                </div>
+            </div>
+            <div class="rec-costs">
+                <div>💰 @((WarshipSpec.GoldCost * _shipCount).ToString("N1")) gold</div>
+                <div>🪵 @((WarshipSpec.WoodCost * _shipCount).ToString("N0")) wood (have @_nation.Wood.ToString("N0"))</div>
+                <div>⛓️ @((WarshipSpec.IronCost * _shipCount).ToString("N0")) iron (have @_nation.Iron.ToString("N0"))</div>
+                <div>🔧 @((2 * _shipCount).ToString("N0")) ship parts (have @_nation.GetMilitaryItem("shipparts").ToString("N0"))</div>
+            </div>
+            <div class="rec-actions">
+                <div class="qty-row">
+                    <button @onclick="() => _shipCount = Math.Max(1, _shipCount - 5)">−5</button>
+                    <span>@_shipCount</span>
+                    <button @onclick="() => _shipCount += 5">+5</button>
+                </div>
+                <button class="mil-btn" @onclick="DoBuildShips">BUILD</button>
             </div>
         </div>
     }
@@ -106,44 +276,129 @@
 
 @code {
     private Nation _nation => Engine.State.PlayerNation;
+    private int _tab = 0;
     private string? _error;
+    private string? _msg;
+    private int _recCount = 100;
+    private int _mercCount = 100;
+    private int _mobCount = 500;
+    private int _shipCount = 10;
+    [Inject] private NavigationManager Nav { get; set; } = default!;
 
-    private string PaydayText =>
-        _nation.IsInGracePeriod ? "OVERDUE"
-        : Engine.DaysToPayday == 0 ? "today"
-        : Engine.DaysToPayday == 1 ? "tomorrow"
-        : $"in {Engine.DaysToPayday} days";
-
-    private string MaintenanceClass =>
-        _nation.IsInGracePeriod ? "grace" : "";
-
-    protected override void OnInitialized()
-    {
-        Engine.StateChanged += OnStateChanged;
-    }
-
+    protected override void OnInitialized() => Engine.StateChanged += OnStateChanged;
     private void OnStateChanged() => InvokeAsync(StateHasChanged);
+    public void Dispose() => Engine.StateChanged -= OnStateChanged;
 
-    private void Recruit(UnitType type, int count) => _error = Engine.Recruit(type, count);
-    private void RecruitShips(int count) => _error = Engine.RecruitWarships(count);
+    private double MilitaryPower() => DiplomacyService.MilitaryPower(_nation);
 
-    private string BatchCost(UnitSpec spec, int count)
+    private double DailyUpkeep()
     {
-        double mult = _nation.HasCommander(CommanderRole.LandCommander) ? Balance.LandCommanderRecruitMult : 1.0;
-        return Currency.Cost(spec.GoldCost * mult * count);
+        double u = 0;
+        foreach (var s in _nation.Units)
+            u += UnitCatalog.Get(s.Type).UpkeepPerDay * s.Count;
+        u += _nation.Warships * WarshipSpec.UpkeepPerDay;
+        foreach (var c in _nation.MercenaryContracts)
+        {
+            var co = MercenaryCatalog.Get(c.CompanyId);
+            if (co is not null) u += co.UpkeepPerSoldierPerDay * c.Count;
+        }
+        return u;
     }
 
-    private string ShipBatchCost(int count)
+    private double RecruitDays(int count) =>
+        Math.Max(1, Math.Min(Balance.RecruitDaysPerSoldier * count, Balance.MaxRecruitDays));
+
+    private string EquipIcon(string id) => id switch
     {
-        double mult = _nation.HasCommander(CommanderRole.FleetCommander) ? Balance.FleetCommanderRecruitMult : 1.0;
-        return Currency.Cost(WarshipSpec.GoldCost * mult * count);
+        "helmet" => "🪖", "dagger" => "🗡️", "pike" => "🔱",
+        "shotgun" => "🔫", "arquebus" => "🎯", "shipparts" => "🔧",
+        _ => "📦"
+    };
+
+    private void DoRecruit(UnitType t)
+    {
+        _error = Engine.StartRecruitment(t, _recCount);
+        _msg = _error is null ? $"Recruiting {_recCount:N0} {UnitCatalog.Get(t).Name}." : null;
     }
-    private void Hire(CommanderRole role) => _error = Engine.HireCommander(role);
-    private void Dismiss(CommanderRole role) => Engine.DismissCommander(role);
+
+    private void CancelRec(string id)
+    {
+        _error = Engine.CancelRecruitment(id);
+    }
+
+    private void DoHire(string id)
+    {
+        _error = Engine.HireMercenaries(id, _mercCount);
+        _msg = _error is null ? $"Hired {_mercCount:N0} mercenaries." : null;
+    }
+
+    private void DoMobilize()
+    {
+        _error = Engine.MobilizeReserves(_mobCount);
+        _msg = _error is null ? $"Mobilized {_mobCount:N0} reserves." : null;
+    }
+
+    private void DoConscript(string id)
+    {
+        _error = Engine.Conscript(id);
+        _msg = _error is null ? "Conscription complete." : null;
+    }
+
+    private void DoAlly(string id)
+    {
+        _msg = Engine.RequestAlliedAssistance(id);
+        _error = null;
+    }
+
+    private void DoBuildShips()
+    {
+        // Warships need 2 ship parts each
+        double parts = _nation.GetMilitaryItem("shipparts");
+        if (parts < 2 * _shipCount) { _error = "Not enough Ship Parts."; return; }
+        _error = Engine.RecruitWarships(_shipCount);
+        if (_error is null)
+        {
+            _nation.AddMilitaryItem("shipparts", -2 * _shipCount);
+            _msg = $"Building {_shipCount} warships.";
+        }
+    }
+
     private void PayNow() => _error = Engine.PayMaintenance();
-
-    public void Dispose()
-    {
-        Engine.StateChanged -= OnStateChanged;
-    }
 }
+
+<style>
+.mil-wrap { background: linear-gradient(#f0e0b0, #e8d090); min-height: 100vh; padding: 10px 8px 90px; font-family: Georgia, serif; color: #3d2b1f; }
+.mil-header { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.mil-emblem { font-size: 2.5rem; }
+.mil-title { font-size: 1.2rem; font-weight: bold; letter-spacing: 1px; }
+.mil-nation { color: #5a4a2a; font-size: 0.9rem; }
+.mil-summary { background: rgba(255,255,255,.35); border: 2px solid #8b6914; border-radius: 8px; padding: 8px 10px; margin-bottom: 8px; }
+.ms-row { display: flex; justify-content: space-between; font-size: 0.92rem; padding: 2px 0; border-bottom: 1px solid #c9b98a; }
+.ms-row:last-child { border-bottom: none; }
+.mil-error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; border-radius: 6px; padding: 8px; margin-bottom: 8px; font-size: 0.9rem; }
+.mil-msg { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; border-radius: 6px; padding: 8px; margin-bottom: 8px; font-size: 0.9rem; }
+.mil-tabs { display: flex; gap: 4px; margin-bottom: 10px; overflow-x: auto; }
+.mil-tabs button { flex: 1; min-width: 70px; padding: 8px 4px; background: linear-gradient(#d4b896, #b89868); border: 2px solid #8b6914; border-radius: 6px; cursor: pointer; font-family: inherit; font-size: 0.75rem; font-weight: bold; color: #3d2b1f; white-space: nowrap; }
+.mil-tabs button.active { background: linear-gradient(#7a5230, #4a2e14); color: #f5e6c4; }
+.mil-wrap h3 { color: #5a3a1a; font-size: 0.95rem; letter-spacing: 1px; margin: 12px 0 6px; border-bottom: 2px solid #8b6914; padding-bottom: 4px; }
+.mil-row { display: flex; align-items: center; gap: 8px; background: rgba(255,255,255,.3); border: 1px solid #c9b98a; border-radius: 6px; padding: 8px; margin-bottom: 4px; }
+.mil-ico { font-size: 1.6rem; width: 36px; text-align: center; }
+.mil-info { flex: 1; }
+.mil-name { font-weight: bold; font-size: 0.95rem; }
+.mil-sub { font-size: 0.82rem; color: #5a4a2a; }
+.mil-grace { color: #8B0000; font-weight: bold; font-size: 0.85rem; }
+.mil-btn { background: linear-gradient(#7a5230, #4a2e14); color: #f5e6c4; border: 2px solid #2e1c0c; border-radius: 6px; padding: 8px 14px; cursor: pointer; font-family: inherit; font-weight: bold; }
+.mil-btn:disabled { opacity: 0.4; }
+.mil-cancel { background: #8B0000; color: #fff; border: none; border-radius: 50%; width: 28px; height: 28px; cursor: pointer; }
+.mil-prog { height: 8px; background: #d4b896; border-radius: 4px; overflow: hidden; margin: 4px 0; }
+.mil-prog-fill { height: 100%; background: linear-gradient(#4caf50, #2e7d32); }
+.rec-card { background: rgba(255,255,255,.35); border: 2px solid #8b6914; border-radius: 8px; padding: 10px; margin-bottom: 8px; }
+.rec-head { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
+.rec-costs { display: flex; flex-direction: column; gap: 2px; font-size: 0.88rem; margin-bottom: 8px; }
+.rec-costs .ok { color: #2e7d32; }
+.rec-costs .lack { color: #b71c1c; font-weight: bold; }
+.rec-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.qty-row { display: flex; align-items: center; gap: 8px; }
+.qty-row button { background: #d4b896; border: 1px solid #8b6914; border-radius: 4px; padding: 4px 10px; cursor: pointer; font-family: inherit; }
+.qty-row span { min-width: 50px; text-align: center; font-weight: bold; }
+</style>

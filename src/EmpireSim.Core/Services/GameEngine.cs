@@ -155,6 +155,161 @@ public sealed class GameEngine : IDisposable
         return null;
     }
 
+    /// <summary>Queue timed recruitment with equipment. Returns error or null.</summary>
+    public string? StartRecruitment(UnitType type, int count)
+    {
+        if (count <= 0) return "Invalid count.";
+        var spec = UnitCatalog.Get(type);
+        var n = State.PlayerNation;
+
+        if (n.RecruitmentQueue.Count >= Balance.MaxRecruitmentQueue)
+            return "Recruitment capacity reached.";
+
+        double mult = n.HasCommander(CommanderRole.LandCommander) ? Balance.LandCommanderRecruitMult : 1.0;
+        double gold = spec.GoldCost * mult * count;
+        double wood = spec.WoodCost * count;
+        double iron = spec.IronCost * count;
+
+        // Check equipment
+        var equipNeeded = new Dictionary<string, double>();
+        if (spec.Equipment is not null)
+        {
+            foreach (var eq in spec.Equipment)
+            {
+                double need = eq.PerSoldier * count;
+                if (n.GetMilitaryItem(eq.ItemId) < need)
+                    return $"Not enough {eq.ItemId} (need {need:N0}).";
+                equipNeeded[eq.ItemId] = need;
+            }
+        }
+
+        if (!n.CanPay(gold) || n.Wood < wood || n.Iron < iron)
+            return "Not enough resources.";
+
+        // Deduct upfront
+        n.PayGold(gold);
+        n.Wood -= wood;
+        n.Iron -= iron;
+        foreach (var kv in equipNeeded)
+            n.AddMilitaryItem(kv.Key, -kv.Value);
+
+        double days = Balance.RecruitDaysPerSoldier * count;
+        days = Math.Max(1, Math.Min(days, Balance.MaxRecruitDays));
+        n.RecruitmentQueue.Add(new RecruitmentProject
+        {
+            Type = type, Count = count, TotalDays = days, DaysLeft = days,
+            EquipmentUsed = equipNeeded, GoldPaid = gold
+        });
+
+        State.Log($"Recruiting {count:N0} {spec.Name} ({days:N0} days).");
+        StateChanged?.Invoke();
+        return null;
+    }
+
+    /// <summary>Cancel a recruitment project with 50% gold refund. Equipment not refunded.</summary>
+    public string? CancelRecruitment(string projectId)
+    {
+        var n = State.PlayerNation;
+        var proj = n.RecruitmentQueue.FirstOrDefault(p => p.Id == projectId);
+        if (proj is null) return "Not found.";
+        n.Gold += proj.GoldPaid * 0.5;
+        n.RecruitmentQueue.Remove(proj);
+        State.Log($"Cancelled recruitment of {proj.Count:N0} {UnitCatalog.Get(proj.Type).Name} (50% refund).");
+        StateChanged?.Invoke();
+        return null;
+    }
+
+    /// <summary>Emergency conscription. Returns error or null.</summary>
+    public string? Conscript(string levelId)
+    {
+        var level = ConscriptionLevels.Get(levelId);
+        if (level is null) return "Invalid level.";
+        var n = State.PlayerNation;
+
+        int count = (int)(n.Population * level.PopulationFraction);
+        if (count <= 0) return "No eligible population.";
+        double gold = level.GoldCostPerSoldier * count;
+        if (!n.CanPay(gold)) return "Not enough gold.";
+
+        n.PayGold(gold);
+        // Add as pikemen (militia) directly with unrest penalty
+        var stack = n.Units.FirstOrDefault(u => u.Type == UnitType.Pikeman);
+        if (stack is null) n.Units.Add(new UnitStack { Type = UnitType.Pikeman, Count = count });
+        else stack.Count += count;
+
+        n.Unrest += level.UnrestPenalty;
+        State.Log($"{level.Name}: raised {count:N0} militia. Unrest +{level.UnrestPenalty}.");
+        StateChanged?.Invoke();
+        return null;
+    }
+
+    /// <summary>Hire mercenaries. Returns error or null.</summary>
+    public string? HireMercenaries(string companyId, int count)
+    {
+        var company = MercenaryCatalog.Get(companyId);
+        if (company is null || count <= 0) return "Invalid.";
+        var n = State.PlayerNation;
+
+        if (count > company.Available) return "Not enough available.";
+        double cost = company.HireCostPerSoldier * count;
+        if (!n.CanPay(cost)) return "Not enough gold.";
+
+        n.PayGold(cost);
+        n.MercenaryContracts.Add(new MercenaryContract
+        {
+            CompanyId = companyId, Count = count,
+            Expires = State.CurrentDate.AddDays(company.ContractDays)
+        });
+        // Add as active units
+        var stack = n.Units.FirstOrDefault(u => u.Type == company.UnitType);
+        if (stack is null) n.Units.Add(new UnitStack { Type = company.UnitType, Count = count });
+        else stack.Count += count;
+
+        State.Log($"Hired {count:N0} {company.Name} for {Currency.Cost(cost)}.");
+        StateChanged?.Invoke();
+        return null;
+    }
+
+    /// <summary>Mobilize reserves into active duty. Returns error or null.</summary>
+    public string? MobilizeReserves(int count)
+    {
+        var n = State.PlayerNation;
+        if (count <= 0 || count > n.Reserves) return "Not enough reserves.";
+        double gold = Balance.MobilizeCostPerSoldier * count;
+        if (!n.CanPay(gold)) return "Not enough gold.";
+
+        n.PayGold(gold);
+        n.Reserves -= count;
+        var stack = n.Units.FirstOrDefault(u => u.Type == UnitType.Musketeer);
+        if (stack is null) n.Units.Add(new UnitStack { Type = UnitType.Musketeer, Count = count });
+        else stack.Count += count;
+
+        State.Log($"Mobilized {count:N0} reserves.");
+        StateChanged?.Invoke();
+        return null;
+    }
+
+    /// <summary>Request allied military assistance via diplomacy. Returns result message.</summary>
+    public string RequestAlliedAssistance(string nationId)
+    {
+        var n = State.PlayerNation;
+        var ally = State.AllNations().FirstOrDefault(x => x.Id == nationId);
+        if (ally is null) return "Nation not found.";
+        int rating = DiplomacyService.ToDisplayRating(ally.RelationToPlayer);
+        if (rating < 70) return $"{ally.Name} refuses (relations too low).";
+
+        int contingent = (int)(DiplomacyService.MilitaryPower(ally) * 0.1);
+        if (contingent <= 0) return $"{ally.Name} has no troops to spare.";
+
+        var stack = n.Units.FirstOrDefault(u => u.Type == UnitType.Musketeer);
+        if (stack is null) n.Units.Add(new UnitStack { Type = UnitType.Musketeer, Count = contingent });
+        else stack.Count += contingent;
+
+        State.Log($"{ally.Name} sent {contingent:N0} allied troops.");
+        StateChanged?.Invoke();
+        return $"{ally.Name} sends {contingent:N0} troops!";
+    }
+
     /// <summary>Starts crafting a batch (10 units) of a military item.</summary>
     public string? StartMilitaryCraft(string recipeId)
     {

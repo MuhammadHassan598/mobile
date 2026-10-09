@@ -127,6 +127,19 @@ public sealed class SimulationService
             nation.MilitaryCraftQueue.Remove(proj);
         }
 
+        // ---- Recruitment queue: progress, add soldiers on completion ----
+        foreach (var rec in nation.RecruitmentQueue.ToList())
+        {
+            rec.DaysLeft -= 1;
+            if (rec.DaysLeft > 0) continue;
+            var spec = UnitCatalog.Get(rec.Type);
+            var stack = nation.Units.FirstOrDefault(u => u.Type == rec.Type);
+            if (stack is null) nation.Units.Add(new UnitStack { Type = rec.Type, Count = rec.Count });
+            else stack.Count += rec.Count;
+            state.Log($"{nation.Name}: Recruited {rec.Count:N0} {spec.Name}.");
+            nation.RecruitmentQueue.Remove(rec);
+        }
+
         double landUpkeepMult = (nation.HasCommander(CommanderRole.LandCommander) ? Balance.LandCommanderUpkeepMult : 1.0)
                               * (nation.HasCommander(CommanderRole.CommanderInChief) ? Balance.CinCUpkeepMult : 1.0);
         double navalUpkeepMult = (nation.HasCommander(CommanderRole.FleetCommander) ? Balance.FleetCommanderUpkeepMult : 1.0)

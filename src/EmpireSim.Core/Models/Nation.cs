@@ -200,6 +200,18 @@ public sealed class Nation
     /// <summary>Diplomatic action cooldowns: action ID -> game date when available again.</summary>
     public Dictionary<string, DateOnly> DiplomacyCooldowns { get; set; } = new();
 
+    /// <summary>Soldiers being recruited (timed queue).</summary>
+    public List<RecruitmentProject> RecruitmentQueue { get; set; } = new();
+
+    /// <summary>Trained reserves awaiting mobilization.</summary>
+    public int Reserves { get; set; }
+
+    /// <summary>Active mercenary contracts.</summary>
+    public List<MercenaryContract> MercenaryContracts { get; set; } = new();
+
+    /// <summary>National unrest 0-100 (from conscription, war, etc).</summary>
+    public double Unrest { get; set; }
+
     /// <summary>Buildings currently under construction.</summary>
     public List<ConstructionProject> ConstructionQueue { get; set; } = new();
 
