@@ -1,0 +1,174 @@
+@page "/taxation"
+@using EmpireSim.Core.Models
+@using EmpireSim.Core.Services
+@inject GameEngine Engine
+@implements IDisposable
+
+<div class="tax-wrap">
+    <div class="tax-header">
+        <h2>💰 TAXATION</h2>
+        <div class="tax-nation">@_nation.Emblem @_nation.Name</div>
+    </div>
+
+    <!-- Summary -->
+    <div class="tax-summary">
+        <div class="ts-row"><span>Tax Approval</span><b>@_nation.TaxApproval.ToString("N0") / 100 (@TaxationService.ApprovalLabel(_nation.TaxApproval))</b></div>
+        <div class="ts-row"><span>Food Supply Ratio</span><b>@FoodRatio().ToString("P0")</b></div>
+        <div class="ts-row"><span>Est. Daily Revenue</span><b>@TaxationService.TotalRevenue(_nation.Workforce, _nation.TaxRates).ToString("N0") 🪙</b></div>
+        <div class="ts-row"><span>Tax Impact</span><b>@TaxImpact()</b></div>
+    </div>
+
+    @foreach (var g in Groups)
+    {
+        <div class="tax-card">
+            <div class="tax-row-head">
+                <span class="tax-icon">@g.Icon</span>
+                <span class="tax-name">@g.Name</span>
+                <span class="tax-mood">@MoodIcon(g.Key)</span>
+            </div>
+            <input type="range" min="0" max="100" step="1" class="tax-slider"
+                   value="@GetRate(g.Key)"
+                   @oninput="e => SetRate(g.Key, Convert.ToDouble(e.Value))" />
+            <div class="tax-row-info">
+                <span>Current Tax: <b>@GetRate(g.Key).ToString("N0")%</b></span>
+                <span>Revenue: <b>@GroupRev(g.Key).ToString("N0") 🪙/day</b></span>
+            </div>
+            <div class="tax-pop">Population: @GetCount(g.Key).ToString("N0")</div>
+        </div>
+    }
+
+    <div class="tax-note">
+        Food supply ≥ 150% of daily need substantially reduces tax disapproval.
+    </div>
+</div>
+
+@code {
+    private Nation _nation => Engine.State.PlayerNation;
+
+    private record TaxGroup(string Key, string Name, string Icon);
+
+    private readonly List<TaxGroup> Groups = new()
+    {
+        new("peasants", "Peasants", "🌾"),
+        new("craftsmen", "Craftsmen", "🔨"),
+        new("military", "Military Personnel", "⚔️"),
+        new("merchants", "Merchants", "💼"),
+        new("spies", "Spies", "🕵️"),
+        new("saboteurs", "Saboteurs", "💣"),
+    };
+
+    protected override void OnInitialized()
+    {
+        _nation.EnsureTaxationInitialized();
+        Engine.StateChanged += OnStateChanged;
+    }
+    private void OnStateChanged() => InvokeAsync(StateHasChanged);
+    public void Dispose() => Engine.StateChanged -= OnStateChanged;
+
+    private double GetRate(string key) => key switch
+    {
+        "peasants" => _nation.TaxRates.Peasants,
+        "craftsmen" => _nation.TaxRates.Craftsmen,
+        "military" => _nation.TaxRates.MilitaryPersonnel,
+        "merchants" => _nation.TaxRates.Merchants,
+        "spies" => _nation.TaxRates.Spies,
+        "saboteurs" => _nation.TaxRates.Saboteurs,
+        _ => 0
+    };
+
+    private void SetRate(string key, double value)
+    {
+        value = Math.Clamp(value, 0, 100);
+        switch (key)
+        {
+            case "peasants": _nation.TaxRates.Peasants = value; break;
+            case "craftsmen": _nation.TaxRates.Craftsmen = value; break;
+            case "military": _nation.TaxRates.MilitaryPersonnel = value; break;
+            case "merchants": _nation.TaxRates.Merchants = value; break;
+            case "spies": _nation.TaxRates.Spies = value; break;
+            case "saboteurs": _nation.TaxRates.Saboteurs = value; break;
+        }
+        StateHasChanged();
+    }
+
+    private long GetCount(string key) => key switch
+    {
+        "peasants" => _nation.Workforce.Peasants,
+        "craftsmen" => _nation.Workforce.Craftsmen,
+        "military" => _nation.Workforce.MilitaryPersonnel,
+        "merchants" => _nation.Workforce.Merchants,
+        "spies" => _nation.Workforce.Spies,
+        "saboteurs" => _nation.Workforce.Saboteurs,
+        _ => 0
+    };
+
+    private double GroupRev(string key)
+    {
+        long count = GetCount(key);
+        double income = key switch
+        {
+            "peasants" => TaxationService.PeasantIncome,
+            "craftsmen" => TaxationService.CraftsmanIncome,
+            "military" => TaxationService.MilitaryIncome,
+            "merchants" => TaxationService.MerchantIncome,
+            "spies" => TaxationService.SpyIncome,
+            "saboteurs" => TaxationService.SaboteurIncome,
+            _ => 0
+        };
+        return TaxationService.GroupRevenue(count, income, GetRate(key));
+    }
+
+    private double FoodRatio()
+    {
+        double need = TaxationService.DailyFoodNeed(_nation.Demographics, Balance.FoodPerPersonPerDay * _nation.Population);
+        double prod = 0;
+        foreach (var kvp in _nation.ProductionBuildings)
+        {
+            var b = ProductionCatalog.Get(kvp.Key);
+            if (b is not null && b.Category == ProductionCategory.Food)
+                prod += b.OutputPerDay * kvp.Value;
+        }
+        return TaxationService.FoodSupplyRatio(_nation.Food, prod, need);
+    }
+
+    private string TaxImpact()
+    {
+        double ratio = FoodRatio();
+        if (ratio >= 1.5) return "Reduced by food surplus";
+        if (ratio >= 1.0) return "Moderate";
+        return "High (food shortage!)";
+    }
+
+    private string MoodIcon(string key)
+    {
+        double rate = GetRate(key);
+        double ratio = FoodRatio();
+        // High tax + low food = bad mood
+        if (rate > 30 && ratio < 1.0) return "😠";
+        if (rate > 30 && ratio >= 1.5) return "😐"; // tolerated due to surplus
+        if (rate > 50) return "😟";
+        if (rate < 10) return "😊";
+        return "😐";
+    }
+}
+
+<style>
+.tax-wrap { background: linear-gradient(#f0e0b0, #e8d090); min-height: 100vh; padding: 10px 8px 90px; font-family: Georgia, serif; color: #3d2b1f; }
+.tax-header { text-align: center; margin-bottom: 10px; }
+.tax-header h2 { margin: 0; letter-spacing: 2px; }
+.tax-nation { color: #5a4a2a; font-size: 0.95rem; }
+.tax-summary { background: rgba(255,255,255,.4); border: 2px solid #8b6914; border-radius: 8px; padding: 10px; margin-bottom: 12px; }
+.ts-row { display: flex; justify-content: space-between; font-size: 0.9rem; padding: 3px 0; border-bottom: 1px solid #c9b98a; }
+.ts-row:last-child { border-bottom: none; }
+.tax-card { background: rgba(255,255,255,.35); border: 2px solid #8b6914; border-radius: 8px; padding: 10px; margin-bottom: 8px; }
+.tax-row-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.tax-icon { font-size: 1.5rem; }
+.tax-name { flex: 1; font-weight: bold; font-size: 1rem; }
+.tax-mood { font-size: 1.3rem; }
+.tax-slider { width: 100%; height: 8px; -webkit-appearance: none; background: linear-gradient(to right, #4caf50, #ffeb3b, #f44336); border-radius: 4px; outline: none; margin: 8px 0; }
+.tax-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 24px; height: 24px; border-radius: 50%; background: #7a5230; border: 2px solid #2e1c0c; cursor: pointer; }
+.tax-slider::-moz-range-thumb { width: 24px; height: 24px; border-radius: 50%; background: #7a5230; border: 2px solid #2e1c0c; cursor: pointer; }
+.tax-row-info { display: flex; justify-content: space-between; font-size: 0.88rem; }
+.tax-pop { font-size: 0.8rem; color: #5a4a2a; margin-top: 2px; }
+.tax-note { text-align: center; font-size: 0.82rem; color: #5a4a2a; margin-top: 12px; padding: 8px; background: rgba(255,255,255,.3); border-radius: 6px; }
+</style>

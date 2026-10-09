@@ -259,6 +259,29 @@ public sealed class Nation
     /// <summary>National unrest 0-100 (from conscription, war, etc).</summary>
     public double Unrest { get; set; }
 
+    /// <summary>Population demographics (initialized from population).</summary>
+    public Demographics Demographics { get; set; } = new();
+
+    /// <summary>Occupational workforce classification.</summary>
+    public Workforce Workforce { get; set; } = new();
+
+    /// <summary>Tax rates for the six groups.</summary>
+    public TaxRates TaxRates { get; set; } = new();
+
+    /// <summary>Public tax approval 0-100 (default 50).</summary>
+    public double TaxApproval { get; set; } = 50;
+
+    /// <summary>Ensure demographics/workforce are initialized (for existing saves).</summary>
+    public void EnsureTaxationInitialized()
+    {
+        if (Demographics.Total != Population)
+            Demographics = Demographics.FromPopulation(Population);
+        if (Workforce.Peasants == 0 && Population > 0)
+            Workforce = Workforce.FromPopulation(Population, Soldiers);
+        // Sync military personnel with actual soldiers
+        Workforce.MilitaryPersonnel = Soldiers;
+    }
+
     /// <summary>Buildings currently under construction.</summary>
     public List<ConstructionProject> ConstructionQueue { get; set; } = new();
 

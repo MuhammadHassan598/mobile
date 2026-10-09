@@ -101,10 +101,31 @@ public sealed class SimulationService
             nation.Population += (long)(nation.Population * Balance.GrowthPerDayWithSurplus * nation.GrowthMult);
         }
 
-        // ---- Treasury: taxes in (silver), upkeep accrues towards the next payday ----
+        // ---- Treasury: taxation system ----
+        nation.EnsureTaxationInitialized();
         double taxMult = nation.HasCommander(CommanderRole.CommanderInChief) ? Balance.CinCTaxMult : 1.0;
-        nation.Gold += nation.Population * Balance.TaxPerPersonPerDay * taxMult * nation.TaxMult
-                         + Balance.CrownDomainIncomePerDay;
+
+        // Food need from demographics
+        double dailyFoodNeed = TaxationService.DailyFoodNeed(nation.Demographics, Balance.FoodPerPersonPerDay * nation.Population);
+        // Daily food production (from food-category buildings)
+        double dailyFoodProd = 0;
+        foreach (var kvp in nation.ProductionBuildings)
+        {
+            var b = ProductionCatalog.Get(kvp.Key);
+            if (b is not null && b.Category == ProductionCategory.Food)
+                dailyFoodProd += b.OutputPerDay * kvp.Value;
+        }
+        double foodRatio = TaxationService.FoodSupplyRatio(nation.Food, dailyFoodProd, dailyFoodNeed);
+
+        // Tax revenue
+        double taxRevenue = TaxationService.TotalRevenue(nation.Workforce, nation.TaxRates) * taxMult * nation.TaxMult;
+        nation.Gold += taxRevenue + Balance.CrownDomainIncomePerDay;
+
+        // Approval update (gradual)
+        double burden = TaxationService.WeightedBurden(nation.Workforce, nation.TaxRates);
+        double target = TaxationService.TargetApproval(burden, foodRatio);
+        nation.TaxApproval += (target - nation.TaxApproval) * 0.1;
+        nation.TaxApproval = Math.Clamp(nation.TaxApproval, 0, 100);
 
         // ---- Production buildings: daily output goes to goods inventory ----
         foreach (var kvp in nation.ProductionBuildings)

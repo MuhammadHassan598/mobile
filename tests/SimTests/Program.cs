@@ -49,6 +49,9 @@ using (var engine = new GameEngine(new SimulationService(), new SaveService(save
     int soldiersBefore = p.Soldiers;
     bool sawWarning = false;
     // Keep the nation broke all the way past the payday (day 182) + grace period.
+    // Zero tax rates so no revenue interferes with the broke simulation.
+    p.TaxRates.Peasants = 0; p.TaxRates.Craftsmen = 0; p.TaxRates.MilitaryPersonnel = 0;
+    p.TaxRates.Merchants = 0; p.TaxRates.Spies = 0; p.TaxRates.Saboteurs = 0;
     for (int i = 0; i < 196; i++)
     {
         p.Gold = 0;
@@ -189,6 +192,8 @@ using (var engine4 = new GameEngine(new SimulationService(), new SaveService(sav
     engine4.NewGame();
     var p4 = engine4.State.PlayerNation;
     int totalBefore = p4.Soldiers;
+    p4.TaxRates.Peasants = 0; p4.TaxRates.Craftsmen = 0; p4.TaxRates.MilitaryPersonnel = 0;
+    p4.TaxRates.Merchants = 0; p4.TaxRates.Spies = 0; p4.TaxRates.Saboteurs = 0;
     for (int i = 0; i < 196; i++) { p4.Gold = 0; engine4.AdvanceOneDay(); }
     Check(p4.Soldiers < totalBefore, "unpaid army shrinks");
     Check(p4.Units.Sum(u => u.Count) == p4.Soldiers, "stacks sum to Soldiers total");
