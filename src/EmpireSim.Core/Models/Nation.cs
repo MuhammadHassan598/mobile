@@ -271,6 +271,9 @@ public sealed class Nation
     /// <summary>Public tax approval 0-100 (default 50).</summary>
     public double TaxApproval { get; set; } = 50;
 
+    /// <summary>Active religion conversion (null if none).</summary>
+    public ReligionConversion? ReligionConversion { get; set; }
+
     /// <summary>Ensure demographics/workforce are initialized (for existing saves).</summary>
     public void EnsureTaxationInitialized()
     {

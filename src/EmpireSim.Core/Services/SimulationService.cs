@@ -98,7 +98,10 @@ public sealed class SimulationService
         }
         else
         {
-            nation.Population += (long)(nation.Population * Balance.GrowthPerDayWithSurplus * nation.GrowthMult);
+            double growthRate = Balance.GrowthPerDayWithSurplus * nation.GrowthMult;
+            // Islam: +0.005 percentage points to growth rate
+            growthRate += ReligionService.PopulationGrowthBonus(nation) / 100.0;
+            nation.Population += (long)(nation.Population * growthRate);
         }
 
         // ---- Treasury: taxation system ----
@@ -128,10 +131,12 @@ public sealed class SimulationService
         nation.TaxApproval = Math.Clamp(nation.TaxApproval, 0, 100);
 
         // ---- Production buildings: daily output goes to goods inventory ----
+        // Buddhism: +5% goods production speed
+        double prodMult = ReligionService.ProductionSpeedMult(nation);
         foreach (var kvp in nation.ProductionBuildings)
         {
             var spec = ProductionCatalog.Get(kvp.Key);
-            double dailyOutput = kvp.Value * spec.OutputPerDay;
+            double dailyOutput = kvp.Value * spec.OutputPerDay * prodMult;
             if (!nation.GoodsInventory.ContainsKey(spec.Produces))
                 nation.GoodsInventory[spec.Produces] = 0;
             nation.GoodsInventory[spec.Produces] += dailyOutput;
@@ -184,6 +189,22 @@ public sealed class SimulationService
             tc.Status = TradeStatus.Delivered;
             tc.ActualDeliveryDate = state.CurrentDate;
             state.Log($"Trade delivered: {tc.Quantity:N0} {product.Name} ({Currency.Cost(tc.TotalValue)}).");
+        }
+
+        // ---- Religion conversion: advance, complete on date ----
+        if (nation.ReligionConversion?.InProgress == true)
+        {
+            var conv = nation.ReligionConversion;
+            if (state.CurrentDate >= conv.ExpectedCompletion)
+            {
+                var newRel = ReligionCatalog.Get(conv.TargetReligionId);
+                if (newRel is not null)
+                {
+                    nation.Religion = newRel.Name;
+                    state.Log($"{nation.Name} converted to {newRel.Name}!");
+                }
+                nation.ReligionConversion = null;
+            }
         }
 
         // ---- Recruitment queue: progress, add soldiers on completion ----

@@ -65,14 +65,18 @@ public sealed class TradeContract
 public static class MarketPricing
 {
     /// <summary>Price per 1000 units for a product from a specific country.</summary>
-    public static double PricePer1000(string productId, string countryId)
+    public static double PricePer1000(string productId, string countryId, Nation? seller = null)
     {
         var product = TradeCatalog.Get(productId);
         if (product is null) return 0;
         // Deterministic modifier 0.85 - 1.15 based on IDs
         int hash = (productId + "|" + countryId).GetHashCode();
         double mod = 0.85 + (Math.Abs(hash) % 31) / 100.0;
-        return Math.Round(product.BasePricePer1000 * mod, 2);
+        double price = product.BasePricePer1000 * mod;
+        // Christianity: +5% selling price
+        if (seller is not null)
+            price *= ReligionService.SellingPriceMult(seller);
+        return Math.Round(price, 2);
     }
 
     /// <summary>Total value = pricePer1000 * quantity / 1000.</summary>

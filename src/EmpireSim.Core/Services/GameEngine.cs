@@ -107,13 +107,14 @@ public sealed class GameEngine : IDisposable
         nation.PayGold(spec.GoldCost);
         nation.Wood -= spec.WoodCost;
         nation.Iron -= spec.IronCost;
+        int buildDays = Math.Max(1, (int)Math.Ceiling(spec.BuildDays * ReligionService.ConstructionTimeMult(nation)));
         nation.ConstructionQueue.Add(new ConstructionProject
         {
             Building = type,
-            DaysLeft = spec.BuildDays,
-            TotalDays = spec.BuildDays,
+            DaysLeft = buildDays,
+            TotalDays = buildDays,
         });
-        State.Log($"Started building {spec.Name} ({spec.BuildDays} days).");
+        State.Log($"Started building {spec.Name} ({buildDays:N0} days).");
         StateChanged?.Invoke();
         return null;
     }
@@ -381,6 +382,44 @@ public sealed class GameEngine : IDisposable
         State.Log($"Sold {quantity:N0} {product.Name} to {buyer.Name} for {Currency.Cost(total)}. Delivery in {days}d.");
         StateChanged?.Invoke();
         return null;
+    }
+
+    /// <summary>Start religion conversion. Returns error or null.</summary>
+    public string? StartReligionConversion(string religionId)
+    {
+        var nation = State.PlayerNation;
+        var target = ReligionCatalog.Get(religionId);
+        if (target is null) return "Invalid religion.";
+        if (nation.ReligionConversion?.InProgress == true)
+            return "A conversion is already in progress.";
+        if (nation.Religion.Equals(target.Name, StringComparison.OrdinalIgnoreCase))
+            return "This is already the official religion.";
+        if (!nation.CanPay(target.ConversionCost))
+            return "Insufficient Gold.";
+
+        nation.PayGold(target.ConversionCost);
+        nation.ReligionConversion = new ReligionConversion
+        {
+            TargetReligionId = religionId,
+            StartDate = State.CurrentDate,
+            ExpectedCompletion = State.CurrentDate.AddDays(target.ConversionDays),
+            PaidCost = target.ConversionCost
+        };
+        State.Log($"Started conversion to {target.Name} ({target.ConversionDays} days).");
+        StateChanged?.Invoke();
+        return null;
+    }
+
+    /// <summary>Cancel active religion conversion (no refund).</summary>
+    public void CancelReligionConversion()
+    {
+        var nation = State.PlayerNation;
+        if (nation.ReligionConversion?.InProgress == true)
+        {
+            State.Log($"Cancelled conversion to {nation.ReligionConversion.TargetReligionId}.");
+            nation.ReligionConversion = null;
+            StateChanged?.Invoke();
+        }
     }
 
     /// <summary>Starts crafting a batch (10 units) of a military item.</summary>

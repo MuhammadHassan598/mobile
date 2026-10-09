@@ -1,0 +1,168 @@
+@page "/religion"
+@using EmpireSim.Core.Models
+@using EmpireSim.Core.Services
+@inject GameEngine Engine
+@implements IDisposable
+
+<div class="rel-wrap">
+    <div class="rel-header">
+        <h2>⛪ RELIGION</h2>
+    </div>
+
+    <div class="rel-tabs">
+        <button class="@(_tab == 0 ? "active" : "")" @onclick="() => _tab = 0">COUNTRIES</button>
+        <button class="@(_tab == 1 ? "active" : "")" @onclick="() => _tab = 1">MANAGEMENT</button>
+    </div>
+
+    @if (!string.IsNullOrEmpty(_error))
+    {
+        <div class="rel-error">⚠ @_error</div>
+    }
+    @if (!string.IsNullOrEmpty(_msg))
+    {
+        <div class="rel-msg">@_msg</div>
+    }
+
+    @if (_tab == 0)
+    {
+        <!-- Country religion list -->
+        <div class="rel-list-head"><span>STATE</span><span>RELIGION</span></div>
+        @foreach (var n in Engine.State.AllNations().OrderBy(n => n.Name))
+        {
+            var rel = ReligionCatalog.GetByName(n.Religion);
+            <div class="rel-row">
+                <span class="rel-flag">@n.Emblem</span>
+                <span class="rel-name">@n.Name</span>
+                <span class="rel-religion">@(rel?.Icon ?? "🛐") @(rel?.Name ?? n.Religion)</span>
+            </div>
+        }
+    }
+    else
+    {
+        <!-- Management -->
+        var current = ReligionService.GetActive(_nation);
+        var conv = _nation.ReligionConversion;
+
+        <h3>OFFICIAL RELIGION</h3>
+        <div class="rel-official">
+            <span class="rel-big-icon">@(current?.Icon ?? "🛐")</span>
+            <div>
+                <div class="rel-official-name">@(current?.Name ?? _nation.Religion)</div>
+                <div class="rel-effect">@(current?.EffectDescription ?? "No effect")</div>
+            </div>
+        </div>
+
+        @if (conv?.InProgress == true)
+        {
+            var target = ReligionCatalog.Get(conv.TargetReligionId);
+            <div class="rel-conv">
+                <div>Converting to @(target?.Name)...</div>
+                <div class="rel-prog"><div class="rel-prog-fill" style="width: @(conv.Progress(Engine.State.CurrentDate) * 100)%"></div></div>
+                <div>@conv.DaysLeft(Engine.State.CurrentDate) days remaining</div>
+                <button class="rel-btn" @onclick="() => Engine.CancelReligionConversion()">CANCEL</button>
+            </div>
+        }
+        else
+        {
+            <h3>UNOFFICIAL RELIGIONS</h3>
+            @foreach (var r in ReligionCatalog.All.Where(r => !r.Name.Equals(_nation.Religion, StringComparison.OrdinalIgnoreCase)))
+            {
+                <div class="rel-card">
+                    <span class="rel-big-icon">@r.Icon</span>
+                    <div class="rel-card-info">
+                        <div class="rel-card-name">@r.Name</div>
+                        <div class="rel-effect">@r.EffectDescription</div>
+                    </div>
+                    <button class="rel-btn" @onclick="() => _selected = r">SELECT</button>
+                </div>
+            }
+        }
+    }
+</div>
+
+<!-- Conversion Modal -->
+@if (_selected is not null)
+{
+    var r = _selected;
+    bool canAfford = _nation.Gold >= r.ConversionCost;
+    <div class="popup-overlay" @onclick="() => _selected = null">
+        <div class="popup-panel" @onclick:stopPropagation>
+            <div class="rel-modal-icon">@r.Icon</div>
+            <div class="rel-modal-name">@r.Name.ToUpper()</div>
+            <div class="rel-modal-desc">@r.Description</div>
+            <div class="c-row"><span>🪙 Conversion Cost:</span><b>@r.ConversionCost.ToString("N0") Gold</b></div>
+            <div class="c-row"><span>⏳ Required time:</span><b>@r.ConversionDays days</b></div>
+            <div class="c-row"><span>✨ Effect:</span><b>@r.EffectDescription</b></div>
+            @if (!canAfford)
+            {
+                <div class="rel-insufficient">Insufficient Gold!</div>
+            }
+            <div class="popup-actions">
+                <button class="popup-btn cancel" @onclick="() => _selected = null">CANCEL</button>
+                <button class="popup-btn confirm" disabled="@(!canAfford)" @onclick="DoConvert">CHANGE</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private Nation _nation => Engine.State.PlayerNation;
+    private int _tab = 0;
+    private string? _error;
+    private string? _msg;
+    private ReligionDefinition? _selected;
+
+    protected override void OnInitialized() => Engine.StateChanged += OnStateChanged;
+    private void OnStateChanged() => InvokeAsync(StateHasChanged);
+    public void Dispose() => Engine.StateChanged -= OnStateChanged;
+
+    private void DoConvert()
+    {
+        if (_selected is null) return;
+        _error = Engine.StartReligionConversion(_selected.Id);
+        if (_error is null)
+        {
+            _msg = $"Conversion to {_selected.Name} started.";
+            _selected = null;
+        }
+    }
+}
+
+<style>
+.rel-wrap { background: linear-gradient(#f0e0b0, #e8d090); min-height: 100vh; padding: 10px 8px 90px; font-family: Georgia, serif; color: #3d2b1f; }
+.rel-header h2 { text-align: center; letter-spacing: 2px; margin: 0 0 10px; }
+.rel-tabs { display: flex; gap: 8px; margin-bottom: 10px; }
+.rel-tabs button { flex: 1; padding: 12px; background: linear-gradient(#d4b896, #b89868); border: 2px solid #8b6914; border-radius: 8px; cursor: pointer; font-family: inherit; font-weight: bold; color: #3d2b1f; }
+.rel-tabs button.active { background: linear-gradient(#7a5230, #4a2e14); color: #f5e6c4; }
+.rel-error { background: #f8d7da; color: #721c24; border-radius: 6px; padding: 8px; margin-bottom: 8px; font-size: 0.9rem; }
+.rel-msg { background: #d4edda; color: #155724; border-radius: 6px; padding: 8px; margin-bottom: 8px; font-size: 0.9rem; }
+.rel-list-head { display: flex; justify-content: space-between; padding: 6px 10px; font-weight: bold; color: #5a4a2a; font-size: 0.85rem; border-bottom: 2px solid #8b6914; margin-bottom: 6px; }
+.rel-row { display: flex; align-items: center; gap: 8px; background: rgba(255,255,255,.3); border: 1px solid #c9b98a; border-radius: 6px; padding: 8px; margin-bottom: 4px; }
+.rel-flag { font-size: 1.5rem; width: 36px; text-align: center; }
+.rel-name { flex: 1; font-weight: bold; font-size: 0.92rem; }
+.rel-religion { font-size: 0.88rem; color: #5a4a2a; }
+.rel-wrap h3 { color: #5a3a1a; font-size: 0.95rem; letter-spacing: 1px; margin: 12px 0 8px; border-bottom: 2px solid #8b6914; padding-bottom: 4px; }
+.rel-official { display: flex; align-items: center; gap: 12px; background: rgba(255,255,255,.4); border: 2px solid #8b6914; border-radius: 8px; padding: 12px; margin-bottom: 8px; }
+.rel-big-icon { font-size: 2.5rem; }
+.rel-official-name { font-size: 1.2rem; font-weight: bold; }
+.rel-effect { font-size: 0.88rem; color: #2e7d32; }
+.rel-card { display: flex; align-items: center; gap: 10px; background: rgba(255,255,255,.3); border: 1px solid #c9b98a; border-radius: 8px; padding: 10px; margin-bottom: 6px; }
+.rel-card-info { flex: 1; }
+.rel-card-name { font-weight: bold; font-size: 1rem; }
+.rel-btn { background: linear-gradient(#7a5230, #4a2e14); color: #f5e6c4; border: 2px solid #2e1c0c; border-radius: 6px; padding: 8px 16px; cursor: pointer; font-family: inherit; font-weight: bold; }
+.rel-conv { background: rgba(255,255,255,.4); border: 2px solid #8b6914; border-radius: 8px; padding: 12px; margin-bottom: 8px; text-align: center; }
+.rel-prog { height: 10px; background: #d4b896; border-radius: 5px; overflow: hidden; margin: 8px 0; }
+.rel-prog-fill { height: 100%; background: linear-gradient(#4caf50, #2e7d32); }
+.popup-overlay { position: fixed; inset: 0; z-index: 100; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; padding: 12px; }
+.popup-panel { background: linear-gradient(#f5e6c4, #e2cb92); border: 3px double #8b6914; border-radius: 10px; padding: 16px; max-width: 360px; width: 100%; font-family: Georgia, serif; color: #3d2b1f; text-align: center; }
+.rel-modal-icon { font-size: 3rem; margin-bottom: 4px; }
+.rel-modal-name { font-size: 1.3rem; font-weight: bold; letter-spacing: 2px; margin-bottom: 6px; }
+.rel-modal-desc { font-size: 0.9rem; color: #5a4a2a; margin-bottom: 10px; }
+.c-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #c9b98a; font-size: 0.92rem; text-align: left; }
+.rel-insufficient { color: #8B0000; font-weight: bold; margin-top: 8px; }
+.popup-actions { display: flex; gap: 10px; margin-top: 12px; }
+.popup-btn { flex: 1; padding: 10px; border-radius: 6px; cursor: pointer; font-family: inherit; border: 2px solid #2e1c0c; font-weight: bold; }
+.popup-btn.cancel { background: linear-gradient(#8a8a8a, #5a5a5a); color: #fff; }
+.popup-btn.confirm { background: linear-gradient(#7a5230, #4a2e14); color: #f5e6c4; }
+.popup-btn.confirm:disabled { opacity: 0.4; }
+</style>
