@@ -563,7 +563,7 @@ using (var engine18 = new GameEngine(new SimulationService(), new SaveService(sa
     n18.AddProduct("Wheat", ConsumptionService.DailyNeed(wheat18, n18.Population) * 0.5 - n18.GetProduct("Wheat") );
     var repA = ConsumptionService.Apply(n18);
     Check(Math.Abs(repA.UnmetPct["Wheat"] - 50) < 0.001, "wheat at half its need is 50% short");
-    Check(Math.Abs(ConsumptionService.Deaths(repA) - 50) < 0.001, "50% food shortage = 50 deaths/day");
+    Check(Math.Abs(ConsumptionService.Deaths(repA, 1_000_000) - 24) < 0.001, "50% food shortage at 1M people = 24 deaths/day");
     Check(Math.Abs(ConsumptionService.RatingDrop(repA) - 0.00005) < 1e-12, "50% food shortage = 0.00005 rating drop");
 
     // (b) every item 2% short: food 12 x 2 x 0.0001 + minerals 5 x 2 x 0.00003
@@ -572,16 +572,26 @@ using (var engine18 = new GameEngine(new SimulationService(), new SaveService(sa
     Check(Math.Abs(ConsumptionService.RatingDrop(rep2) - (0.000024 + 0.000003)) < 1e-12, "all items 2% short = 0.000027 rating drop");
     Check(Math.Abs((12 * 2 * Balance.ShortageRatingDropFoodPerPct + 6 * 2 * Balance.ShortageRatingDropMineralPerPct) - 0.0000276) < 1e-12,
           "rates reproduce the 18-item example: 0.0000276/day");
-    Check(Math.Abs(ConsumptionService.Deaths(rep2) - (24 + 5)) < 1e-9, "all items 2% short = 29 deaths/day");
+    // 12 food x 2 x 0.48 + 5 minerals x 2 x 0.24 = 13.92 deaths per 1M people
+    Check(Math.Abs(ConsumptionService.Deaths(rep2, 1_000_000) - 13.92) < 1e-6, "all items 2% short at 1M = 13.92 deaths/day");
+    Check(Math.Abs(ConsumptionService.Deaths(rep2, 2_000_000) - 2 * ConsumptionService.Deaths(rep2, 1_000_000)) < 1e-9, "deaths double when population doubles");
 
-    // (c) fractional deaths accumulate: one mineral 1% short = 0.5/day
+    // (c) fractional deaths accumulate: one mineral 1% short at 2M people = 0.48/day
     var oneMineral = new ShortageReport();
     foreach (var s in ConsumptionCatalog.All) oneMineral.UnmetPct[s.Item] = s.Item == "Wood" ? 1 : 0;
-    n18.Population = 1_000_000; n18.ShortageDeathCarry = 0;
+    n18.Population = 2_000_000; n18.ShortageDeathCarry = 0;
     ConsumptionService.ApplyShortageEffects(n18, oneMineral);
-    Check(n18.Population == 1_000_000, "0.5 death/day: nobody dies on day 1");
     ConsumptionService.ApplyShortageEffects(n18, oneMineral);
-    Check(n18.Population == 999_999, "0.5 death/day: one person dies after 2 days");
+    Check(n18.Population == 2_000_000, "0.48 death/day: nobody dies on days 1-2");
+    ConsumptionService.ApplyShortageEffects(n18, oneMineral);
+    Check(n18.Population == 1_999_999, "0.48 death/day: one person dies on day 3");
+
+    // Screenshot case: 31.58M people, ~34% short on every item -> net change about -1,000/day
+    var shot = Report(34, 34);
+    long shotPop = 31_582_724;
+    var shotNation = new Nation { Population = shotPop, Religion = "Islam" };   // Ottomans: births 6,316 as in the screenshot
+    double shotNet = PopulationService.DailyBirths(shotNation) - ConsumptionService.Deaths(shot, shotPop);
+    Check(shotNet < -500 && shotNet > -2_000, $"31.6M people ~34% short: net change {shotNet:N0}/day is negative (~ -1,000)");
 
     // (d) no shortage = no effect
     n18.RulerRating = 50; n18.Population = 1_000_000; n18.ShortageDeathCarry = 0;
@@ -589,7 +599,7 @@ using (var engine18 = new GameEngine(new SimulationService(), new SaveService(sa
     Check(n18.RulerRating == 50 && n18.Population == 1_000_000, "no shortage: no deaths, no rating drop");
 
     // (e) rating clamps at 0, population never negative
-    n18.RulerRating = 0.001; n18.Population = 10;
+    n18.RulerRating = 0.001; n18.Population = 10; n18.ShortageDeathCarry = 50; // more deaths owed than people alive
     ConsumptionService.ApplyShortageEffects(n18, Report(100, 100));
     Check(n18.RulerRating == 0, "ruler rating clamps at 0");
     Check(n18.Population == 0, "population never goes negative");

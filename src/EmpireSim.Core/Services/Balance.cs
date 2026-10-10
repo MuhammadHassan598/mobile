@@ -28,8 +28,9 @@ public static class Balance
     // ---- Shortage effects: per 1% of an item's daily need left unmet ----
     public const double ShortageRatingDropFoodPerPct = 0.000001;
     public const double ShortageRatingDropMineralPerPct = 0.0000003;
-    public const double ShortageDeathsFoodPerPct = 1.0;
-    public const double ShortageDeathsMineralPerPct = 0.5;
+    /// <summary>Deaths per day as a share of the population, per 1% of an item's need left unmet.</summary>
+    public const double ShortageDeathsFoodPerPct = 0.00000048;
+    public const double ShortageDeathsMineralPerPct = 0.00000024;
 
     // ---- Raw materials (per in-game day) ----
     public const double IronPerMinePerDay = 2.0;

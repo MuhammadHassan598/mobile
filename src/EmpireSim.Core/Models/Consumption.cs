@@ -132,9 +132,12 @@ public static class ConsumptionService
     public static double RatingDrop(ShortageReport report) =>
         Sum(report, Balance.ShortageRatingDropFoodPerPct, Balance.ShortageRatingDropMineralPerPct);
 
-    /// <summary>Daily deaths (fractional): unmet % per item x the group's per-1% rate.</summary>
-    public static double Deaths(ShortageReport report) =>
-        Sum(report, Balance.ShortageDeathsFoodPerPct, Balance.ShortageDeathsMineralPerPct);
+    /// <summary>
+    /// Daily deaths (fractional): unmet % per item x the group's per-1% share of the population,
+    /// so a bigger nation loses proportionally more people.
+    /// </summary>
+    public static double Deaths(ShortageReport report, long population) =>
+        Sum(report, Balance.ShortageDeathsFoodPerPct, Balance.ShortageDeathsMineralPerPct) * population;
 
     private static double Sum(ShortageReport report, double foodPerPct, double mineralPerPct)
     {
@@ -154,7 +157,7 @@ public static class ConsumptionService
     public static void ApplyShortageEffects(Nation nation, ShortageReport report)
     {
         double drop = RatingDrop(report);
-        double deaths = Deaths(report);
+        double deaths = Deaths(report, nation.Population);
 
         nation.RulerRating = Math.Clamp(nation.RulerRating - drop, 0, 100);
 
