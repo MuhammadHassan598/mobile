@@ -67,13 +67,13 @@ public static class TaxationService
     public const double AdultWomanFood = 0.85;
     public const double ElderlyFood = 0.70;
 
-    // Taxable income per person per day
-    public const double PeasantIncome = 0.10;
-    public const double CraftsmanIncome = 0.50;
-    public const double MilitaryIncome = 0.20;
-    public const double MerchantIncome = 1.00;
-    public const double SpyIncome = 0.50;
-    public const double SaboteurIncome = 0.30;
+    // Max tax per person per day (at a 100% tax rate; the rate slider scales it from 0)
+    public const double PeasantIncome = 0.00002;
+    public const double CraftsmanIncome = 0.0001;
+    public const double MilitaryIncome = 0.001;
+    public const double MerchantIncome = 0.00013;
+    public const double SpyIncome = 0.0013;
+    public const double SaboteurIncome = 0.0013;
 
     // Food tolerance
     public const double NormalSupplyRatio = 1.00;

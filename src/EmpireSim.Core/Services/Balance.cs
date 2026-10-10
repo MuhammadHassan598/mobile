@@ -15,6 +15,9 @@ public static class Balance
     /// <summary>+150,000% build cost: 6 becomes 9,006 (x1501). Applies to gold, wood, stone and iron.</summary>
     public const double ProductionCostMult = 1501.0;
 
+    /// <summary>Every nation starts a new game with this much gold.</summary>
+    public const double StartingGold = 50_000;
+
     // ---- Starting mills: share of each item's need left unmet at game start, by nation size ----
     public const double StartShortageBig = 0.30;
     public const double StartShortageMid = 0.15;

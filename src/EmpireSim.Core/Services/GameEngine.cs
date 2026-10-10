@@ -76,9 +76,17 @@ public sealed class GameEngine : IDisposable
 
     public bool HasSave => _save.HasSave;
 
-    /// <summary>Estimated daily tax income, shown on the nation-select screen.</summary>
-    public static long EstimateDailyIncome(Nation n) =>
-        (long)(n.Population * Balance.TaxPerPersonPerDay + Balance.CrownDomainIncomePerDay);
+    /// <summary>
+    /// Daily income shown in the top bar and nation-select screen: the same tax revenue
+    /// the daily tick pays (workforce x tax rates x multipliers) plus crown domain income.
+    /// </summary>
+    public static long EstimateDailyIncome(Nation n)
+    {
+        n.EnsureTaxationInitialized();
+        double taxMult = n.HasCommander(CommanderRole.CommanderInChief) ? Balance.CinCTaxMult : 1.0;
+        double tax = TaxationService.TotalRevenue(n.Workforce, n.TaxRates) * taxMult * n.TaxMult;
+        return (long)(tax + Balance.CrownDomainIncomePerDay);
+    }
 
     /// <summary>Whether the player can afford a building right now.</summary>
     public bool CanAfford(BuildingSpec spec, double costMult = 1.0)

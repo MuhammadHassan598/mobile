@@ -734,6 +734,7 @@ public sealed class GameState
         {
             // The simulation runs on the historical 1600 population.
             n.Population = n.HistoricalPopulation;
+            n.Gold = Services.Balance.StartingGold;
             // Mineral endowment: deterministic, from the nation's lands.
             n.Stone = 4 * n.Territory.Count;
             n.Lead = 2 * n.Mines;

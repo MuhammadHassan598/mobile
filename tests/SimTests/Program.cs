@@ -737,5 +737,28 @@ using (var engine23 = new GameEngine(new SimulationService(), new SaveService(sa
     Check(engine23.State.TradeContracts.Last().Status == TradeStatus.Delivered, "sale contract completed and paid");
 }
 
+Console.WriteLine("== 24. Realistic tax income + 50,000 starting gold ==");
+using (var engine24 = new GameEngine(new SimulationService(), new SaveService(saveFolder)))
+{
+    Check(engine24.State.AllNations().All(n => n.Gold == 50_000), "every nation starts with 50,000 gold");
+    Check(TaxationService.PeasantIncome == 0.00002 && TaxationService.CraftsmanIncome == 0.0001
+          && TaxationService.MilitaryIncome == 0.001 && TaxationService.MerchantIncome == 0.00013
+          && TaxationService.SpyIncome == 0.0013 && TaxationService.SaboteurIncome == 0.0013, "max tax per head per day as specified");
+    var w = new Workforce { Peasants = 1_000_000, Craftsmen = 1_000_000, MilitaryPersonnel = 1_000, Merchants = 1_000_000, Spies = 1_000, Saboteurs = 1_000 };
+    var full = new TaxRates { Peasants = 100, Craftsmen = 100, MilitaryPersonnel = 100, Merchants = 100, Spies = 100, Saboteurs = 100 };
+    double expectedFull = 1_000_000 * 0.00002 + 1_000_000 * 0.0001 + 1_000 * 0.001 + 1_000_000 * 0.00013 + 1_000 * 0.0013 + 1_000 * 0.0013;
+    Check(Math.Abs(TaxationService.TotalRevenue(w, full) - expectedFull) < 1e-6, "100% tax pays exactly the max per head");
+    var half = new TaxRates { Peasants = 50, Craftsmen = 50, MilitaryPersonnel = 50, Merchants = 50, Spies = 50, Saboteurs = 50 };
+    Check(Math.Abs(TaxationService.TotalRevenue(w, half) - expectedFull / 2) < 1e-6, "50% tax pays half");
+    Check(TaxationService.TotalRevenue(w, new TaxRates { Peasants = 0, Craftsmen = 0, MilitaryPersonnel = 0, Merchants = 0, Spies = 0, Saboteurs = 0 }) == 0, "0% tax pays nothing");
+
+    var ott = engine24.State.PlayerNation;
+    ott.EnsureTaxationInitialized();
+    double goldBefore = ott.Gold;
+    long est = GameEngine.EstimateDailyIncome(ott);
+    engine24.AdvanceOneDay();
+    Check(Math.Abs((ott.Gold - goldBefore) - est) < est * 0.01 + 5, $"top-bar income estimate matches the real daily gain (est {est:N0}, got {ott.Gold - goldBefore:N0})");
+}
+
 Console.WriteLine(failures == 0 ? "\nALL CHECKS PASSED" : $"\n{failures} CHECK(S) FAILED");
 return failures;
