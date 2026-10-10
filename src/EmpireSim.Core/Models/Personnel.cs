@@ -31,22 +31,20 @@ public static class PersonnelCatalog
 /// <summary>Population/personnel service.</summary>
 public static class PopulationService
 {
-    /// <summary>Births before any shortage: population x (base growth x growth multiplier + religion bonus).</summary>
-    public static long NormalDailyBirths(Nation nation)
-    {
-        double rate = Services.Balance.GrowthPerDayWithSurplus * nation.GrowthMult
-                    + ReligionService.PopulationGrowthBonus(nation) / 100.0;   // Islam: +0.005 points
-        return (long)(nation.Population * rate);
-    }
+    /// <summary>True when any consumed item (food or mineral) went short on the last day.</summary>
+    public static bool HasItemShortage(Nation nation) => nation.ShortagePct.Values.Any(p => p > 0);
 
     /// <summary>
-    /// People actually born per day: normal births reduced by the shortage-driven birth reduction.
+    /// People born per day: population x (base growth x growth multiplier + religion bonus),
+    /// or 0 while any item is short (based on the last day's shortage).
     /// Used by the daily tick and the Statistics screen so they always agree.
     /// </summary>
     public static long DailyBirths(Nation nation)
     {
-        double reductionPct = ConsumptionService.BirthReductionPct(ConsumptionService.AverageShortagePct(nation));
-        return (long)(NormalDailyBirths(nation) * (1 - reductionPct / 100.0));
+        if (HasItemShortage(nation)) return 0;
+        double rate = Services.Balance.GrowthPerDayWithSurplus * nation.GrowthMult
+                    + ReligionService.PopulationGrowthBonus(nation) / 100.0;   // Islam: +0.005 points
+        return (long)(nation.Population * rate);
     }
 
     /// <summary>Get workforce count by group key.</summary>

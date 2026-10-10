@@ -28,17 +28,8 @@ public static class Balance
     // ---- Shortage effects: per 1% of an item's daily need left unmet ----
     public const double ShortageRatingDropFoodPerPct = 0.000001;
     public const double ShortageRatingDropMineralPerPct = 0.0000003;
-    /// <summary>Average shortage (percentage points) that does not yet reduce births; above it, births fall 1 point per point.</summary>
-    public const double BirthReductionShortageFreePct = 2.0;
-
-    /// <summary>Deaths per day as a share of the population, per 1% of an item's need left unmet.</summary>
-    /// <remarks>
-    /// Births are ~0.015-0.02% of population per day, so births and deaths cancel where
-    /// average shortage x ~21e-6 per point = birth rate, i.e. at roughly 7-10% shortage.
-    /// A nation shrinks while it is more short than that and stabilises there.
-    /// </remarks>
-    public const double ShortageDeathsFoodPerPct = 0.00000144;
-    public const double ShortageDeathsMineralPerPct = 0.00000072;
+    public const double ShortageDeathsFoodPerPct = 1.0;
+    public const double ShortageDeathsMineralPerPct = 0.5;
 
     // ---- Raw materials (per in-game day) ----
     public const double IronPerMinePerDay = 2.0;

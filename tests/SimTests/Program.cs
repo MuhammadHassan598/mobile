@@ -32,8 +32,7 @@ using (var engine = new GameEngine(new SimulationService(), new SaveService(save
     Check(engine.State.CurrentDate == new DateOnly(1600, 7, 19), "date advanced to 19-07-1600");
     Check(n.Gold >= 0 && n.GetGood("Wheat") >= 0 && n.Population > 0, "no negative stocks, nation survives");
     Check(double.IsFinite(n.Gold) && double.IsFinite(n.GetGood("Wheat")), "stocks are finite numbers");
-    // The Ottomans start ~30% short of every item, so deaths exceed births: a slow decline, not a collapse.
-    Check(n.Population < pop0 && n.Population > pop0 * 0.85, $"population shrinks slowly under the starting shortage ({pop0:N0} -> {n.Population:N0})");
+    Check(n.Population > pop0, "population grows with food surplus");
     Check(engine.State.EventLog.Any(e => e.Contains("paid army maintenance")), "first payday was paid and logged");
 
     Console.WriteLine("== 3. Save / load round-trip ==");
@@ -420,7 +419,6 @@ using (var engine10 = new GameEngine(new SimulationService(), new SaveService(sa
     Check(Math.Abs(n10.TradeIncomeMult - 1.2) < 0.001, "tolerant: +20% trade income");
 
     engine10.ToggleEdict(EdictType.GrainDole);
-    foreach (var s in ConsumptionCatalog.All) n10.AddProduct(s.Item, 1e12);   // no shortage deaths: isolate growth
     long popBefore = n10.Population;
     for (int i = 0; i < 30; i++) engine10.AdvanceOneDay();
     Check(n10.Population - popBefore > popBefore * 0.005, "grain dole visibly boosts growth");
@@ -565,7 +563,7 @@ using (var engine18 = new GameEngine(new SimulationService(), new SaveService(sa
     n18.AddProduct("Wheat", ConsumptionService.DailyNeed(wheat18, n18.Population) * 0.5 - n18.GetProduct("Wheat") );
     var repA = ConsumptionService.Apply(n18);
     Check(Math.Abs(repA.UnmetPct["Wheat"] - 50) < 0.001, "wheat at half its need is 50% short");
-    Check(Math.Abs(ConsumptionService.Deaths(repA, 1_000_000) - 72) < 0.001, "50% food shortage at 1M people = 72 deaths/day");
+    Check(Math.Abs(ConsumptionService.Deaths(repA) - 50) < 0.001, "50% food shortage = 50 deaths/day");
     Check(Math.Abs(ConsumptionService.RatingDrop(repA) - 0.00005) < 1e-12, "50% food shortage = 0.00005 rating drop");
 
     // (b) every item 2% short: food 12 x 2 x 0.0001 + minerals 5 x 2 x 0.00003
@@ -574,31 +572,16 @@ using (var engine18 = new GameEngine(new SimulationService(), new SaveService(sa
     Check(Math.Abs(ConsumptionService.RatingDrop(rep2) - (0.000024 + 0.000003)) < 1e-12, "all items 2% short = 0.000027 rating drop");
     Check(Math.Abs((12 * 2 * Balance.ShortageRatingDropFoodPerPct + 6 * 2 * Balance.ShortageRatingDropMineralPerPct) - 0.0000276) < 1e-12,
           "rates reproduce the 18-item example: 0.0000276/day");
-    // 12 food x 2 x 1.44 + 5 minerals x 2 x 0.72 = 41.76 deaths per 1M people
-    Check(Math.Abs(ConsumptionService.Deaths(rep2, 1_000_000) - 41.76) < 1e-6, "all items 2% short at 1M = 41.76 deaths/day");
-    Check(Math.Abs(ConsumptionService.Deaths(rep2, 2_000_000) - 2 * ConsumptionService.Deaths(rep2, 1_000_000)) < 1e-9, "deaths double when population doubles");
+    Check(Math.Abs(ConsumptionService.Deaths(rep2) - (24 + 5)) < 1e-9, "all items 2% short = 29 deaths/day");
 
-    // (c) fractional deaths accumulate: one mineral 1% short at 600k people = 0.432/day
+    // (c) fractional deaths accumulate: one mineral 1% short = 0.5/day
     var oneMineral = new ShortageReport();
     foreach (var s in ConsumptionCatalog.All) oneMineral.UnmetPct[s.Item] = s.Item == "Wood" ? 1 : 0;
-    n18.Population = 600_000; n18.ShortageDeathCarry = 0;
+    n18.Population = 1_000_000; n18.ShortageDeathCarry = 0;
     ConsumptionService.ApplyShortageEffects(n18, oneMineral);
+    Check(n18.Population == 1_000_000, "0.5 death/day: nobody dies on day 1");
     ConsumptionService.ApplyShortageEffects(n18, oneMineral);
-    Check(n18.Population == 600_000, "0.432 death/day: nobody dies on days 1-2");
-    ConsumptionService.ApplyShortageEffects(n18, oneMineral);
-    Check(n18.Population == 599_999, "0.432 death/day: one person dies on day 3");
-
-    // Balance point: births (Ottomans, Islam) = deaths at ~9.6% average shortage; above it the nation
-    // shrinks, below it it grows, so a big shortage keeps a clearly negative net until it is closed.
-    long popEq = 29_513_948;
-    var islam = new Nation { Population = popEq, Religion = "Islam" };
-    long birthsEq = PopulationService.DailyBirths(islam);
-    double net29 = birthsEq - ConsumptionService.Deaths(Report(29, 29), popEq);
-    double net5 = birthsEq - ConsumptionService.Deaths(Report(5, 5), popEq);
-    double net10 = birthsEq - ConsumptionService.Deaths(Report(10, 10), popEq);
-    Check(net29 < -10_000, $"29% short (screenshot case): net {net29:N0}/day stays strongly negative");
-    Check(net10 < 0 && net10 > -1_500, $"10% short: net {net10:N0}/day, nearly balanced");
-    Check(net5 > 0, $"5% short: net {net5:N0}/day, the population grows again");
+    Check(n18.Population == 999_999, "0.5 death/day: one person dies after 2 days");
 
     // (d) no shortage = no effect
     n18.RulerRating = 50; n18.Population = 1_000_000; n18.ShortageDeathCarry = 0;
@@ -606,7 +589,7 @@ using (var engine18 = new GameEngine(new SimulationService(), new SaveService(sa
     Check(n18.RulerRating == 50 && n18.Population == 1_000_000, "no shortage: no deaths, no rating drop");
 
     // (e) rating clamps at 0, population never negative
-    n18.RulerRating = 0.001; n18.Population = 10; n18.ShortageDeathCarry = 50; // more deaths owed than people alive
+    n18.RulerRating = 0.001; n18.Population = 10;
     ConsumptionService.ApplyShortageEffects(n18, Report(100, 100));
     Check(n18.RulerRating == 0, "ruler rating clamps at 0");
     Check(n18.Population == 0, "population never goes negative");
@@ -802,45 +785,35 @@ using (var engine25 = new GameEngine(new SimulationService(), new SaveService(sa
     Check(shownNet < 0, "a fully short nation shows a negative net change");
 }
 
-Console.WriteLine("== 26. Births fall with the average shortage (max(0, avg - 2)) ==");
+Console.WriteLine("== 26. No births while any item is short ==");
+using (var engine26 = new GameEngine(new SimulationService(), new SaveService(saveFolder)))
 {
-    (double avg, double cut)[] cases = { (0, 0), (2, 0), (5, 3), (10, 8), (15, 13), (22.4, 20.4), (30, 28), (33, 31), (1, 0), (100, 98), (150, 100) };
-    foreach (var (avg, cut) in cases)
-    {
-        double expected = Math.Min(100, cut);
-        Check(Math.Abs(ConsumptionService.BirthReductionPct(avg) - expected) < 1e-9, $"{avg}% average shortage -> {expected}% fewer births");
-    }
-
-    var nb = new Nation { Population = 40_000_000 };
-    long normalB = PopulationService.NormalDailyBirths(nb);
-    Check(normalB > 0, $"normal births computed ({normalB:N0})");
-    Check(PopulationService.DailyBirths(nb) == normalB, "no shortage data: births not reduced");
-    foreach (var s in ConsumptionCatalog.All) nb.ShortagePct[s.Item] = 30;
-    Check(Math.Abs(ConsumptionService.AverageShortagePct(nb) - 30) < 1e-9, "average shortage over the 17 items = 30%");
-    Check(PopulationService.DailyBirths(nb) == (long)(normalB * 0.72), "30% shortage: births x 0.72 (e.g. 6,000 -> 4,320)");
-
-    // Average is dynamic: uses each item's own unmet %, not a fixed value.
-    var nc = new Nation { Population = 40_000_000 };
-    int i26 = 0;
-    foreach (var s in ConsumptionCatalog.All) nc.ShortagePct[s.Item] = i26++ < 5 ? 100 : 0;   // 5 of 17 items fully short
-    double avgMixed = 500.0 / 17;
-    Check(Math.Abs(ConsumptionService.AverageShortagePct(nc) - avgMixed) < 1e-9, "average follows each item's actual shortage");
-    Check(PopulationService.DailyBirths(nc) == (long)(PopulationService.NormalDailyBirths(nc) * (1 - (avgMixed - 2) / 100.0)), "births reduced by (average - 2)%");
-
-    // End to end: the tick uses the reduced births, and the screen's net matches the real change.
-    using var engine26 = new GameEngine(new SimulationService(), new SaveService(saveFolder));
     var n26 = engine26.State.PlayerNation;
-    n26.ProductionBuildings.Clear();
+    n26.Population = 30_000_000;
+    n26.ShortagePct = new Dictionary<string, double>();
+    Check(PopulationService.DailyBirths(n26) > 0, "no shortage: births > 0");
+    n26.ShortagePct = ConsumptionCatalog.All.ToDictionary(c => c.Item, c => c.Item == "Salt" ? 0.5 : 0.0);
+    Check(PopulationService.DailyBirths(n26) == 0, "one item (Salt) 0.5% short: births = 0");
+    n26.ShortagePct = ConsumptionCatalog.All.ToDictionary(c => c.Item, c => c.Item == "Wood" ? 5.0 : 0.0);
+    Check(PopulationService.DailyBirths(n26) == 0, "a mineral (Wood) short also stops births");
+
+    // Real tick: starved nation's population only falls by the shortage deaths.
     foreach (var s in ConsumptionCatalog.All) n26.AddProduct(s.Item, -n26.GetProduct(s.Item));
-    n26.Population = 20_000_000; n26.ShortageDeathCarry = 0;
-    engine26.AdvanceOneDay();                              // everything short; fills ShortagePct
-    long normal26 = PopulationService.NormalDailyBirths(n26);
-    long actual26 = PopulationService.DailyBirths(n26);
-    Check(actual26 < normal26, "after a full-shortage day births are below normal");
-    long p26 = n26.Population;
+    n26.ProductionBuildings.Clear();
+    n26.ShortageDeathCarry = 0;
+    n26.Population = 1_000_000;
+    engine26.AdvanceOneDay();                    // day 1: shortage is detected (births still use the previous day)
+    long popShort = n26.Population;
+    engine26.AdvanceOneDay();                    // day 2: births must be 0
+    long deaths26 = (long)Math.Floor(n26.LastShortageDeaths + 0.999);
+    Check(popShort - n26.Population >= (long)n26.LastShortageDeaths && popShort - n26.Population <= deaths26 + 1,
+          "while short, population change = -deaths only (no births)");
+    // Once supplied again, births resume.
+    foreach (var s in ConsumptionCatalog.All) n26.AddProduct(s.Item, ConsumptionService.DailyNeed(s, 2_000_000) * 10 - n26.GetProduct(s.Item));
+    engine26.AdvanceOneDay();                    // consumption fully met -> shortage cleared
+    long popBeforeResume = n26.Population;
     engine26.AdvanceOneDay();
-    double shown26 = actual26 - n26.LastShortageDeaths;
-    Check(Math.Abs((n26.Population - p26) - shown26) <= Math.Max(2, normal26 * 0.0005), $"real change {n26.Population - p26:N0} matches shown net {shown26:N0}");
+    Check(n26.Population > popBeforeResume, "supplied again: births resume");
 }
 
 Console.WriteLine(failures == 0 ? "\nALL CHECKS PASSED" : $"\n{failures} CHECK(S) FAILED");

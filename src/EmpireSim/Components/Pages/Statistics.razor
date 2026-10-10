@@ -110,19 +110,15 @@
         double deaths = _nation.LastShortageDeaths;
         double net = births - deaths;
         double netPct = _nation.Population > 0 ? net / _nation.Population * 100 : 0;
-        double avgShort = ConsumptionService.AverageShortagePct(_nation);
-        double birthCut = ConsumptionService.BirthReductionPct(avgShort);
 
         <div class="stat-section">
             <div class="stat-sec-title">BIRTH / MORTALITY RATE</div>
             <div class="stat-row"><span>Net change per day:</span><b class="@(net < 0 ? "neg" : "")">@(net >= 0 ? "+" : "−")@Math.Abs(net).ToString("N0") people</b></div>
             <div class="stat-row"><span>Births per day:</span><b>+@births.ToString("N0")</b></div>
-            <div class="stat-row"><span>Average shortage:</span><b class="@(avgShort > 0 ? "neg" : "")">@avgShort.ToString("N1")%</b></div>
-            <div class="stat-row"><span>Births reduced by:</span><b class="@(birthCut > 0 ? "neg" : "")">−@birthCut.ToString("N1")%</b></div>
             <div class="stat-row"><span>Deaths per day (shortage):</span><b class="@(deaths > 0 ? "neg" : "")">−@deaths.ToString("N0")</b></div>
             <div class="stat-row"><span>Net rate:</span><b class="@(net < 0 ? "neg" : "")">@netPct.ToString("+0.0000;−0.0000")%</b></div>
             <div class="stat-row"><span>Population:</span><b>@_nation.Population.ToString("N0")</b></div>
-            <div class="stat-note">Item shortages (below) cause deaths, fewer births and a lower ruler rating.</div>
+            <div class="stat-note">While any item is short there are no births, and the shortage causes deaths and lowers the ruler rating.</div>
         </div>
         <div class="stat-section">
             <div class="stat-sec-title">DAILY USAGE (BY POPULATION)</div>

@@ -128,33 +128,13 @@ public static class ConsumptionService
         return report;
     }
 
-    /// <summary>
-    /// Average unmet % (percentage points) across all consumed items, from the nation's
-    /// latest daily shortage data. 0 when there is no data yet.
-    /// </summary>
-    public static double AverageShortagePct(Nation nation)
-    {
-        if (nation.ShortagePct.Count == 0) return 0;
-        double sum = 0;
-        foreach (var spec in ConsumptionCatalog.All)
-            if (nation.ShortagePct.TryGetValue(spec.Item, out double pct)) sum += pct;
-        return sum / ConsumptionCatalog.All.Count;
-    }
-
-    /// <summary>Birth reduction in percentage points: max(0, average shortage - 2), clamped 0-100.</summary>
-    public static double BirthReductionPct(double averageShortagePct) =>
-        Math.Clamp(Math.Max(0, averageShortagePct - Balance.BirthReductionShortageFreePct), 0, 100);
-
     /// <summary>Daily Ruler Rating loss: unmet % per item x the group's per-1% rate.</summary>
     public static double RatingDrop(ShortageReport report) =>
         Sum(report, Balance.ShortageRatingDropFoodPerPct, Balance.ShortageRatingDropMineralPerPct);
 
-    /// <summary>
-    /// Daily deaths (fractional): unmet % per item x the group's per-1% share of the population,
-    /// so a bigger nation loses proportionally more people.
-    /// </summary>
-    public static double Deaths(ShortageReport report, long population) =>
-        Sum(report, Balance.ShortageDeathsFoodPerPct, Balance.ShortageDeathsMineralPerPct) * population;
+    /// <summary>Daily deaths (fractional): unmet % per item x the group's per-1% rate.</summary>
+    public static double Deaths(ShortageReport report) =>
+        Sum(report, Balance.ShortageDeathsFoodPerPct, Balance.ShortageDeathsMineralPerPct);
 
     private static double Sum(ShortageReport report, double foodPerPct, double mineralPerPct)
     {
@@ -174,7 +154,7 @@ public static class ConsumptionService
     public static void ApplyShortageEffects(Nation nation, ShortageReport report)
     {
         double drop = RatingDrop(report);
-        double deaths = Deaths(report, nation.Population);
+        double deaths = Deaths(report);
 
         nation.RulerRating = Math.Clamp(nation.RulerRating - drop, 0, 100);
 
