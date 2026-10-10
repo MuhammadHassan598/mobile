@@ -18,7 +18,8 @@ public static class TreatyService
         foreach (var t in state.Treaties)
         {
             if (t.Type != type || !t.IsActiveOn(state.CurrentDate)) continue;
-            bool match = type == TreatyType.Embassy
+            bool directional = type is TreatyType.Embassy or TreatyType.SovereigntyGuarantee;
+            bool match = directional
                 ? t.NationAId == a && t.NationBId == b
                 : t.Links(a, b);
             if (match) return t;
@@ -46,6 +47,8 @@ public static class TreatyService
         TreatyType.NonAggression => "non-aggression pact",
         TreatyType.DefensiveAlliance => "defensive alliance",
         TreatyType.TradeAgreement => "trade agreement",
+        TreatyType.ResearchContract => "research contract",
+        TreatyType.SovereigntyGuarantee => "sovereignty guarantee",
         _ => "treaty"
     };
 
@@ -70,6 +73,28 @@ public static class TreatyService
                    $"{nap.ExpiresDate:dd-MM-yyyy}. Cancel it first (costs relations).";
         if (Has(state, TreatyType.DefensiveAlliance, attackerId, defenderId))
             return $"You are allied with {NameOf(state, defenderId)}. Cancel the alliance first (costs relations).";
+        var guarantee = Find(state, TreatyType.SovereigntyGuarantee, attackerId, defenderId);
+        if (guarantee is not null)
+            return $"You guaranteed {NameOf(state, defenderId)}'s sovereignty until " +
+                   $"{guarantee.ExpiresDate:dd-MM-yyyy}. Cancel the guarantee first (costs relations).";
+        return null;
+    }
+
+    /// <summary>
+    /// A message when nobody may annex this country right now, otherwise null: either the Assembly has
+    /// banned its annexation, or its independence is guaranteed (by anyone). Applies to every annexer.
+    /// </summary>
+    public static string? AnnexationBlock(GameState state, string nationId)
+    {
+        string name = NameOf(state, nationId);
+        var ban = state.ActiveAssemblyPolicies.FirstOrDefault(p =>
+            p.TypeId == "annexation_ban" && p.TargetId == nationId && state.CurrentDate < p.ExpirationDate);
+        if (ban is not null)
+            return $"The Assembly has forbidden annexing {name} until {ban.ExpirationDate:dd-MM-yyyy}.";
+        var guarantee = state.Treaties.FirstOrDefault(t =>
+            t.Type == TreatyType.SovereigntyGuarantee && t.NationBId == nationId && t.IsActiveOn(state.CurrentDate));
+        if (guarantee is not null)
+            return $"{name}'s sovereignty is guaranteed until {guarantee.ExpiresDate:dd-MM-yyyy}.";
         return null;
     }
 
@@ -88,6 +113,7 @@ public static class TreatyService
         if (Has(state, TreatyType.DefensiveAlliance, player.Id, target.Id)) score += 10;
         if (Has(state, TreatyType.NonAggression, player.Id, target.Id)) score += 3;
         if (Has(state, TreatyType.TradeAgreement, player.Id, target.Id)) score += 3;
+        if (Has(state, TreatyType.SovereigntyGuarantee, player.Id, target.Id)) score += Balance.SovereigntyScoreBonus;
         if (!string.IsNullOrEmpty(player.Religion)
             && player.Religion.Equals(target.Religion, StringComparison.OrdinalIgnoreCase))
             score += 5;
@@ -278,6 +304,7 @@ public static class TreatyService
             double warmth = 0;
             if (HasEmbassy(state, player.Id, other.Id)) warmth += Balance.EmbassyRelationPerDay;
             if (Has(state, TreatyType.DefensiveAlliance, player.Id, other.Id)) warmth += Balance.AllianceRelationPerDay;
+            if (Has(state, TreatyType.SovereigntyGuarantee, player.Id, other.Id)) warmth += Balance.SovereigntyRelationPerDay;
             if (warmth > 0) other.RelationToPlayer = Math.Min(100, other.RelationToPlayer + warmth);
         }
     }

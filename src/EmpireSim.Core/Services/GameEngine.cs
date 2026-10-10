@@ -303,25 +303,33 @@ public sealed partial class GameEngine : IDisposable
         return null;
     }
 
-    /// <summary>Request allied military assistance via diplomacy. Returns result message.</summary>
+    /// <summary>
+    /// Request allied military assistance (relations 70+). The troops are TAKEN FROM THE ALLY'S ARMY, unit type by unit type,
+    /// and join the player's: they are moved, never copied. A request costs a little goodwill and has a cooldown.
+    /// Returns the result message.
+    /// </summary>
     public string RequestAlliedAssistance(string nationId)
     {
         var n = State.PlayerNation;
-        var ally = State.AllNations().FirstOrDefault(x => x.Id == nationId);
+        var ally = State.OtherNations.FirstOrDefault(x => x.Id == nationId && !x.IsEliminated);
         if (ally is null) return "Nation not found.";
         int rating = DiplomacyService.ToDisplayRating(ally.RelationToPlayer);
-        if (rating < 70) return $"{ally.Name} refuses (relations too low).";
+        if (rating < Balance.AlliedHelpMinRating) return $"{ally.Name} refuses (relations too low).";
+        if (CooldownMessage("alliedhelp", ally) is { } wait) return $"{ally.Name}: {wait}";
 
-        int contingent = (int)(DiplomacyService.MilitaryPower(ally) * 0.1);
+        int contingent = (int)(ally.Soldiers * Balance.AlliedHelpFraction);
         if (contingent <= 0) return $"{ally.Name} has no troops to spare.";
 
-        var stack = n.Units.FirstOrDefault(u => u.Type == UnitType.Musketeer);
-        if (stack is null) n.Units.Add(new UnitStack { Type = UnitType.Musketeer, Count = contingent });
-        else stack.Count += contingent;
+        var force = ArmyHelper.ExtractSoldiers(ally, contingent);
+        int sent = force.Sum(s => s.Count);
+        if (sent <= 0) return $"{ally.Name} has no troops to spare.";
+        ArmyHelper.MergeStacks(n, force);
+        DiplomacyService.AddRating(ally, -Balance.AlliedHelpRatingCost);
+        StartCooldown("alliedhelp", ally, Balance.AlliedHelpCooldownDays);
 
-        State.LogMovement(MovementKind.Troops, MovementStatus.Completed, ally, n, $"{ally.Name} sent {contingent:N0} allied troops.");
+        State.LogMovement(MovementKind.Troops, MovementStatus.Completed, ally, n, $"{ally.Name} sent {sent:N0} allied troops.");
         StateChanged?.Invoke();
-        return $"{ally.Name} sends {contingent:N0} troops!";
+        return $"{ally.Name} sends {sent:N0} troops!";
     }
 
     /// <summary>Buy product from another country. Gold paid now, goods delivered later.</summary>
@@ -486,7 +494,8 @@ public sealed partial class GameEngine : IDisposable
         // Proposer auto-votes FOR
         proposal.Votes[proposer.Id] = true;
         State.AssemblyProposals.Add(proposal);
-        State.Log($"Proposal submitted: {type.Name} against {target.Name}. Voting closes in {votingDays}d.");
+        State.LogMovement(MovementKind.Assembly, MovementStatus.UnderWay, proposer, target,
+            $"Proposal submitted: {type.Name} against {target.Name}. Voting closes in {votingDays}d.");
         StateChanged?.Invoke();
         return null;
     }
@@ -678,6 +687,8 @@ public sealed partial class GameEngine : IDisposable
         if (owner is null) return (false, "Nation not found.");
         if (owner.IsEliminated) return (false, "That nation no longer exists.");
         if (!owner.AtWarWithPlayer) return (false, "You must declare war first.");
+        if (TreatyService.AnnexationBlock(State, owner.Id) is { } protectedBy)
+            return (false, $"{protectedBy} An invasion could not take the country.");
         if (player.Soldiers < Balance.MinInvasionForce)
             return (false, $"Need at least {Balance.MinInvasionForce} soldiers to invade.");
 

@@ -35,6 +35,8 @@ public static class MovementReport
         MovementKind.Mission => "📜",
         MovementKind.Treaty => "🤝",
         MovementKind.War => "🚩",
+        MovementKind.Assembly => "🏛️",
+        MovementKind.Diplomacy => "🗣️",
         _ => "•"
     };
 
@@ -48,6 +50,8 @@ public static class MovementReport
         MovementKind.Mission => "Missions",
         MovementKind.Treaty => "Treaties",
         MovementKind.War => "War & peace",
+        MovementKind.Assembly => "Assembly",
+        MovementKind.Diplomacy => "Diplomacy",
         _ => kind.ToString()
     };
 

@@ -1,3 +1,5 @@
+using EmpireSim.Core.Services;
+
 namespace EmpireSim.Core.Models;
 
 /// <summary>National law definition.</summary>
@@ -110,5 +112,7 @@ public static class LawService
     public static double ConstructionCostMult(Nation n) => GetModifier(n, l => l.ConstructionCostMult);
     public static double RecruitmentTimeMult(Nation n) => GetModifier(n, l => l.RecruitmentTimeMult);
     public static double MilitaryMaintenanceMult(Nation n) => GetModifier(n, l => l.MilitaryMaintenanceMult);
-    public static double GeneralProdOutputMult(Nation n) => GetModifier(n, l => l.GeneralProdOutputMult);
+    /// <summary>Production output from laws and from researched technology (1.0 with neither).</summary>
+    public static double GeneralProdOutputMult(Nation n) =>
+        GetModifier(n, l => l.GeneralProdOutputMult) * ResearchService.ProductionMult(n);
 }

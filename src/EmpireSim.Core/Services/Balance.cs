@@ -147,6 +147,40 @@ public static class Balance
 
     public const int ColonyGiftRatingGain = 15;
 
+    // Allied assistance (Military page): a friend hands over part of its army.
+    public const int AlliedHelpMinRating = 70;
+    public const double AlliedHelpFraction = 0.10;        // share of the ally's soldiers handed over
+    public const int AlliedHelpRatingCost = 2;            // asking is a favour
+    public const int AlliedHelpCooldownDays = 30;
+
+    // Ask Attack: a friendly country (an alliance is not needed) joins your war.
+    public const int AskAttackMinRating = 70;
+    public const int AskAttackAcceptScore = 70;
+    public const int AskAttackCooldownDays = 14;
+
+    // Annex: a country far weaker than you submits and is absorbed whole.
+    public const double AnnexPowerRatio = 3.0;            // your power must exceed theirs by this factor
+    public const double AnnexCost = 10_000;               // settlement paid to the court
+    public const int AnnexCooldownDays = 30;              // between any two annexations
+
+    // Sovereignty guarantee: you vouch for a country's independence.
+    public const double SovereigntyCost = 2_500;
+    public const int SovereigntyDays = 730;
+    public const int SovereigntyMinRating = 55;
+    public const int SovereigntyAcceptScore = 60;
+    public const double SovereigntyRelationPerDay = 0.3;  // stored scale per day; beats the 0.2 daily drift
+    public const int SovereigntyScoreBonus = 5;           // guaranteed countries trust you more
+
+    // Research: points per day come from population; technologies are bought with points.
+    public const double ResearchBasePerDay = 1.0;
+    public const double ResearchPerMillionPeople = 0.1;   // +1 point a day per 10 million people
+    public const double ResearchContractCost = 2_000;
+    public const int ResearchContractDays = 365;
+    public const int ResearchContractMinRating = 50;
+    public const int ResearchContractAcceptScore = 60;
+    public const double ResearchContractShare = 0.5;      // share of the partner's daily research handed to you
+    public const int ResearchContractMax = 3;
+
     public const int MissionaryMinRating = 30;
     public const double MissionaryCost = 2_000;
     public const double MissionaryInfluencePerMission = 15;

@@ -87,6 +87,10 @@ public sealed partial class GameEngine
             DiplomaticActionCatalog.Aid => WhyAid(t),
             DiplomaticActionCatalog.PresentColony => WhyPresentColony(t),
             DiplomaticActionCatalog.Missionary => WhyMissionary(t),
+            DiplomaticActionCatalog.Research => WhyResearchContract(t),
+            DiplomaticActionCatalog.Sovereignty => WhySovereignty(t),
+            DiplomaticActionCatalog.AskAttack => WhyAskAttack(t),
+            DiplomaticActionCatalog.Annex => WhyAnnex(t),
             _ => "Unknown action."
         };
         return new DipStatus(why is null, why ?? "", CostText(actionId));
@@ -100,6 +104,9 @@ public sealed partial class GameEngine
         DiplomaticActionCatalog.Trade => Currency.Cost(Balance.TradeAgreementCost),
         DiplomaticActionCatalog.Improve => Currency.Cost(Balance.ImproveRelationsCost),
         DiplomaticActionCatalog.Missionary => Currency.Cost(Balance.MissionaryCost),
+        DiplomaticActionCatalog.Research => Currency.Cost(Balance.ResearchContractCost),
+        DiplomaticActionCatalog.Sovereignty => Currency.Cost(Balance.SovereigntyCost),
+        DiplomaticActionCatalog.Annex => Currency.Cost(Balance.AnnexCost),
         DiplomaticActionCatalog.Gift => $"from {Currency.Cost(Balance.GiftMinAmount)}",
         _ => "free"
     };
@@ -187,6 +194,47 @@ public sealed partial class GameEngine
             $"{t!.Name} is now your defensive ally.");
     }
 
+    private string? WhyResearchContract(Nation? t)
+    {
+        var player = State.PlayerNation;
+        if (t is not null && TreatyService.Has(State, TreatyType.ResearchContract, player.Id, t.Id))
+            return $"You already have a research contract with {t.Name}.";
+        if (ResearchService.Contracts(State).Count >= Balance.ResearchContractMax)
+            return $"You already hold {Balance.ResearchContractMax} research contracts (the most allowed).";
+        return Gate(t, Balance.ResearchContractMinRating, "research", Balance.ResearchContractCost, needEmbassy: true);
+    }
+
+    /// <summary>Signs a research contract: for a year the partner hands you part of its daily research points.</summary>
+    public DipResult ProposeResearchContract(string nationId)
+    {
+        var t = FindNation(nationId);
+        if (WhyResearchContract(t) is { } why) return DipResult.Invalid(why);
+        double perDay = ResearchService.DailyPoints(t!) * Balance.ResearchContractShare;
+        return Propose(t!, "research", TreatyType.ResearchContract, Balance.ResearchContractCost, Balance.ResearchContractAcceptScore,
+            Balance.ResearchContractDays,
+            $"{t!.Name} will share {Balance.ResearchContractShare:P0} of its research with you for {Balance.ResearchContractDays} days (+{perDay:0.0} points a day).");
+    }
+
+    private string? WhySovereignty(Nation? t)
+    {
+        if (t is not null && TreatyService.Has(State, TreatyType.SovereigntyGuarantee, State.PlayerNation.Id, t.Id))
+            return $"You already guarantee {t.Name}'s sovereignty.";
+        return Gate(t, Balance.SovereigntyMinRating, "sovereignty", Balance.SovereigntyCost, needEmbassy: true);
+    }
+
+    /// <summary>
+    /// Guarantees a country's independence for two years. Nobody may annex it (the same shield as an Assembly ban) and
+    /// you may not attack it; it warms to you and trusts you more.
+    /// </summary>
+    public DipResult ProposeSovereigntyGuarantee(string nationId)
+    {
+        var t = FindNation(nationId);
+        if (WhySovereignty(t) is { } why) return DipResult.Invalid(why);
+        return Propose(t!, "sovereignty", TreatyType.SovereigntyGuarantee, Balance.SovereigntyCost, Balance.SovereigntyAcceptScore,
+            Balance.SovereigntyDays,
+            $"You now guarantee {t!.Name}'s sovereignty for {Balance.SovereigntyDays} days: nobody may annex it, and you may not attack it.");
+    }
+
     public DipResult ProposeTradeAgreement(string nationId)
     {
         var t = FindNation(nationId);
@@ -204,7 +252,7 @@ public sealed partial class GameEngine
         if (treaty is null) return DipResult.Invalid($"There is no {TreatyService.TypeName(type)} with {t.Name}.");
 
         TreatyService.Remove(State, treaty);
-        int penalty = type is TreatyType.NonAggression or TreatyType.DefensiveAlliance
+        int penalty = type is TreatyType.NonAggression or TreatyType.DefensiveAlliance or TreatyType.SovereigntyGuarantee
             ? Balance.BreakPactRatingPenalty
             : Balance.BreakMinorTreatyRatingPenalty;
         DiplomacyService.AddRating(t, -penalty);
@@ -269,8 +317,36 @@ public sealed partial class GameEngine
     {
         var ally = FindNation(allyId);
         if (WhyCallToArms(ally) is { } why) return DipResult.Invalid(why);
+        return JoinWar(ally!, enemyId, "calltoarms", Balance.CallToArmsAcceptScore, Balance.CallToArmsCooldownDays, isCall: true);
+    }
+
+    private string? WhyAskAttack(Nation? t)
+    {
+        if (t is null) return "Nation not found.";
+        if (t.IsEliminated) return $"{t.Name} no longer exists.";
+        if (t.AtWarWithPlayer) return $"You are at war with {t.Name}.";
+        int rating = Rating(t);
+        if (rating < Balance.AskAttackMinRating) return $"{t.Name} regards you too poorly ({rating}; needs {Balance.AskAttackMinRating}).";
+        if (!Enemies(t.Id).Any()) return "You are not at war with anyone else.";
+        return CooldownMessage("askattack", t);
+    }
+
+    /// <summary>
+    /// Asks a friendly country (relations 70+, no alliance needed) to join the war against <paramref name="enemyId"/>.
+    /// It decides exactly as an ally would: if it agrees it marches a share of its OWN army on the enemy.
+    /// </summary>
+    public DipResult AskToAttack(string nationId, string enemyId)
+    {
+        var t = FindNation(nationId);
+        if (WhyAskAttack(t) is { } why) return DipResult.Invalid(why);
+        return JoinWar(t!, enemyId, "askattack", Balance.AskAttackAcceptScore, Balance.AskAttackCooldownDays, isCall: false);
+    }
+
+    /// <summary>Shared by Call to Arms and Ask Attack: the country weighs the request and, if it agrees, marches its own soldiers.</summary>
+    private DipResult JoinWar(Nation ally, string enemyId, string action, int acceptScore, int cooldownDays, bool isCall)
+    {
         var enemy = FindNation(enemyId);
-        if (enemy is null || enemy.IsEliminated || !enemy.AtWarWithPlayer || enemy.Id == ally!.Id)
+        if (enemy is null || enemy.IsEliminated || !enemy.AtWarWithPlayer || enemy.Id == ally.Id)
             return DipResult.Invalid("Choose a country you are at war with.");
         if (TreatyService.HasMarchOn(State, ally.Id, enemy.Id))
             return DipResult.Invalid($"{ally.Name} already has an army marching on {enemy.Name}.");
@@ -281,20 +357,23 @@ public sealed partial class GameEngine
 
         int score = TreatyService.Score(State, ally);
         bool strongEnough = ally.Soldiers >= enemy.Soldiers * Balance.CallToArmsMinStrengthRatio;
-        if (score < Balance.CallToArmsAcceptScore || !strongEnough)
+        if (score < acceptScore || !strongEnough)
         {
-            StartCooldown("calltoarms", ally, Balance.ProposalCooldownDays);
-            State.LogMovement(MovementKind.March, MovementStatus.Failed, ally, enemy, $"{ally.Name} refused the call to arms against {enemy.Name}.");
+            StartCooldown(action, ally, Balance.ProposalCooldownDays);
+            State.LogMovement(MovementKind.March, MovementStatus.Failed, ally, enemy,
+                isCall ? $"{ally.Name} refused the call to arms against {enemy.Name}."
+                       : $"{ally.Name} refused our request to attack {enemy.Name}.");
             StateChanged?.Invoke();
             return DipResult.Rejected(strongEnough
-                ? $"{ally.Name} refuses to join: they do not trust you enough ({score} of {Balance.CallToArmsAcceptScore} needed)."
+                ? $"{ally.Name} refuses to join: they do not trust you enough ({score} of {acceptScore} needed)."
                 : $"{ally.Name} refuses to join: {enemy.Name} is too strong for them.");
         }
 
         var march = TreatyService.LaunchMarch(State, ally, enemy, commit)!;
-        StartCooldown("calltoarms", ally, Balance.CallToArmsCooldownDays);
+        StartCooldown(action, ally, cooldownDays);
         State.LogMovement(MovementKind.March, MovementStatus.UnderWay, ally, enemy,
-            $"📯 {ally.Name} answers the call: {commit:N0} soldiers march on {enemy.Name} ({march.DaysLeft} days).");
+            isCall ? $"📯 {ally.Name} answers the call: {commit:N0} soldiers march on {enemy.Name} ({march.DaysLeft} days)."
+                   : $"📯 {ally.Name} agrees to attack {enemy.Name}: {commit:N0} soldiers march ({march.DaysLeft} days).");
         StateChanged?.Invoke();
         return DipResult.Done($"{ally.Name} joins the war: {commit:N0} soldiers march on {enemy.Name}, arriving in {march.DaysLeft} days.");
     }
@@ -512,13 +591,42 @@ public sealed partial class GameEngine
         return DipResult.Done($"Your missionaries spread {player.Religion} in {t.Name}: influence {influence:N0} of {Balance.MissionaryConversionThreshold:N0}.");
     }
 
-    // ---------------- Not buildable yet (missing dependencies) ----------------
+    // ---------------- Annex ----------------
 
-    public DipResult ResearchContract(string nationId) =>
-        DipResult.Invalid(DiplomaticActionCatalog.Get(DiplomaticActionCatalog.Research)!.BlockedReason!);
+    private string? WhyAnnex(Nation? t)
+    {
+        if (t is null) return "Nation not found.";
+        if (t.IsEliminated) return $"{t.Name} no longer exists.";
+        var player = State.PlayerNation;
+        if (TreatyService.AnnexationBlock(State, t.Id) is { } block) return block;
+        if (TreatyService.ForbidsAttack(State, player.Id, t.Id) is { } treaty) return treaty;
+        if (player.DiplomacyCooldowns.TryGetValue("annex_any", out var until) && State.CurrentDate < until)
+            return $"Your court cannot take another country yet: available again in {until.DayNumber - State.CurrentDate.DayNumber} days.";
+        double mine = DiplomacyService.MilitaryPower(player), theirs = DiplomacyService.MilitaryPower(t);
+        if (mine <= theirs * Balance.AnnexPowerRatio)
+            return $"Needs more than {Balance.AnnexPowerRatio:0}x their military power (yours {mine:N0}, theirs {theirs:N0}).";
+        if (!player.CanPay(Balance.AnnexCost))
+            return $"Needs {Currency.Cost(Balance.AnnexCost)} (you have {Currency.Cost(player.Gold)}).";
+        return null;
+    }
 
-    public DipResult SupportSovereignty(string nationId) =>
-        DipResult.Invalid(DiplomaticActionCatalog.Get(DiplomaticActionCatalog.Sovereignty)!.BlockedReason!);
+    /// <summary>
+    /// Annexes a country that is far weaker than the player (more than <see cref="Balance.AnnexPowerRatio"/>x their power):
+    /// it submits, and its people, treasury, resources, buildings and lands become the player's at once. Not possible against
+    /// a country the Assembly has put off limits, whose independence is guaranteed, or that a pact or alliance protects.
+    /// </summary>
+    public DipResult AnnexCountry(string nationId)
+    {
+        var t = FindNation(nationId);
+        if (WhyAnnex(t) is { } why) return DipResult.Invalid(why);
+
+        var player = State.PlayerNation;
+        player.PayGold(Balance.AnnexCost);
+        player.DiplomacyCooldowns["annex_any"] = State.CurrentDate.AddDays(Balance.AnnexCooldownDays);
+        Warfare.AnnexNation(State, player, t!, byBattle: false);
+        StateChanged?.Invoke();
+        return DipResult.Done($"{t!.Name} submits to annexation: its people, treasury and lands are now yours.");
+    }
 
     /// <summary>Current missionary influence over a country (0 if none).</summary>
     public double MissionaryInfluenceOn(string nationId) =>

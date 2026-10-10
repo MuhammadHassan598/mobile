@@ -33,6 +33,7 @@ public sealed class SimulationService
             AdvanceNation(state, nation);
 
         AdvanceDiplomacy(state);
+        ResearchService.Advance(state);
         AdvanceColonisation(state);
         AdvanceMarches(state);
         CheckDefeat(state);
@@ -223,6 +224,8 @@ public sealed class SimulationService
             int forV = prop.VotesFor(allNations);
             int againstV = prop.VotesAgainst(allNations);
             var ptype = AssemblyProposalTypes.Get(prop.TypeId);
+            string proposerName = TreatyService.NameOf(state, prop.ProposerId);
+            string targetName = TreatyService.NameOf(state, prop.TargetId);
             if (forV > againstV)
             {
                 prop.Status = ProposalStatus.Approved;
@@ -237,12 +240,14 @@ public sealed class SimulationService
                 });
                 prop.Status = ProposalStatus.Active;
                 prop.ActiveUntil = state.CurrentDate.AddDays(prop.EffectDurationDays);
-                state.Log($"Assembly APPROVED: {ptype?.Name} against {prop.TargetId} ({forV} vs {againstV}).");
+                state.LogMovement(MovementKind.Assembly, MovementStatus.Completed, prop.ProposerId, proposerName, prop.TargetId, targetName,
+                    $"Assembly APPROVED: {ptype?.Name} against {targetName} ({forV} vs {againstV}).");
             }
             else
             {
                 prop.Status = ProposalStatus.Rejected;
-                state.Log($"Assembly REJECTED: {ptype?.Name} ({forV} vs {againstV}).");
+                state.LogMovement(MovementKind.Assembly, MovementStatus.Failed, prop.ProposerId, proposerName, prop.TargetId, targetName,
+                    $"Assembly REJECTED: {ptype?.Name} against {targetName} ({forV} vs {againstV}).");
             }
         }
         // Expire policies
@@ -253,7 +258,11 @@ public sealed class SimulationService
                 state.ActiveAssemblyPolicies.Remove(pol);
                 var prop = state.AssemblyProposals.FirstOrDefault(p => p.Id == pol.ProposalId);
                 if (prop is not null) prop.Status = ProposalStatus.Expired;
-                state.Log($"Assembly policy expired: {pol.TypeId}.");
+                string expiredBy = prop?.ProposerId ?? state.PlayerNation.Id;
+                string expiredType = AssemblyProposalTypes.Get(pol.TypeId)?.Name ?? pol.TypeId;
+                state.LogMovement(MovementKind.Assembly, MovementStatus.Completed, expiredBy, TreatyService.NameOf(state, expiredBy),
+                    pol.TargetId, TreatyService.NameOf(state, pol.TargetId),
+                    $"Assembly policy expired: {expiredType} against {TreatyService.NameOf(state, pol.TargetId)}.");
             }
         }
 
@@ -518,10 +527,19 @@ public sealed class SimulationService
             if (!attacker.IsEliminated)
                 ArmyHelper.MergeStacks(attacker, outcome.AttackerSurvivors);
 
-            if (outcome.AttackerWon)
+            // A country the Assembly has put off limits (or whose independence is guaranteed) cannot be
+            // annexed: the battle is fought and its casualties stand, but the country survives.
+            string? protectedBy = outcome.AttackerWon ? TreatyService.AnnexationBlock(state, def.Id) : null;
+            if (outcome.AttackerWon && protectedBy is null)
             {
                 Warfare.AnnexNation(state, attacker, def);
                 state.ActiveWarnings.Add($"🏳 {def.Name} has been annexed by {attacker.Name}!");
+            }
+            else if (protectedBy is not null)
+            {
+                state.LogMovement(MovementKind.War, MovementStatus.Failed, attacker, def,
+                    $"{attacker.Name} won the battle but could not annex {def.Name}: {protectedBy}");
+                if (attacker.IsPlayer) state.ActiveWarnings.Add($"🛡 {def.Name} cannot be annexed: {protectedBy}");
             }
 
             if (attacker.IsPlayer)

@@ -1,3 +1,5 @@
+using EmpireSim.Core.Services;
+
 namespace EmpireSim.Core.Models;
 
 /// <summary>
@@ -177,11 +179,24 @@ public sealed class Nation
         * (Stance == ReligiousStance.Tolerant ? 0.90 : 1.0);
 
     public double UpkeepMultExtra => HasEdict(EdictType.MilitaryDrills) ? 1.10 : 1.0;
-    public double BattleStrengthMult => HasEdict(EdictType.MilitaryDrills) ? 1.10 : 1.0;
+    public double BattleStrengthMult =>
+        (HasEdict(EdictType.MilitaryDrills) ? 1.10 : 1.0) * ResearchService.BattleStrengthMult(this);
 
     public double TradeIncomeMult =>
         (HasEdict(EdictType.MerchantCharters) ? 1.50 : 1.0)
-        * (Stance == ReligiousStance.Tolerant ? 1.20 : 1.0);
+        * (Stance == ReligiousStance.Tolerant ? 1.20 : 1.0)
+        * ResearchService.TradeIncomeMult(this);
+
+    // ---- Research (see ResearchService) ----
+
+    /// <summary>Research points banked. Only the player banks any; AI countries stay at zero.</summary>
+    public double ResearchPoints { get; set; }
+
+    /// <summary>Ids of the technologies researched so far.</summary>
+    public List<string> Technologies { get; set; } = new();
+
+    /// <summary>The technology being researched (null = none chosen; points keep banking).</summary>
+    public string? CurrentResearchId { get; set; }
 
     public double RelationDriftBonus => Stance == ReligiousStance.Tolerant ? 0.30 : 0.0;
 

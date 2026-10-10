@@ -6,13 +6,19 @@ public enum TreatyType
     Embassy,
     NonAggression,
     DefensiveAlliance,
-    TradeAgreement
+    TradeAgreement,
+    // New types are appended: types are saved as numbers, so existing saves keep their meaning.
+    /// <summary>Shared research: the partner hands you part of its daily research points.</summary>
+    ResearchContract,
+    /// <summary>The guarantor vouches for another country's independence.</summary>
+    SovereigntyGuarantee
 }
 
 /// <summary>
 /// A tracked agreement between two nations (saved with the game).
-/// Only Embassy is directional: <see cref="NationAId"/> is the nation that
-/// SENT the embassy, <see cref="NationBId"/> hosts it. Every other type is mutual.
+/// Embassy and SovereigntyGuarantee are directional: <see cref="NationAId"/> is the nation that
+/// SENT the embassy / GIVES the guarantee, <see cref="NationBId"/> hosts it / is protected.
+/// Every other type is mutual.
 /// </summary>
 public sealed class Treaty
 {

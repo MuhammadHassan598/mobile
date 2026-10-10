@@ -94,7 +94,7 @@ public static class Warfare
     /// Annexes a whole nation: the winner absorbs its people, treasury,
     /// resources, buildings and territory; the loser is eliminated.
     /// </summary>
-    public static void AnnexNation(GameState state, Nation winner, Nation loser)
+    public static void AnnexNation(GameState state, Nation winner, Nation loser, bool byBattle = true)
     {
         // Treaties end and hosted loan soldiers go home before the loser's army is wiped.
         TreatyService.OnEliminated(state, loser);
@@ -135,7 +135,7 @@ public static class Warfare
 
         if (winner.IsPlayer)
         {
-            winner.BattlesWon++;
+            if (byBattle) winner.BattlesWon++;   // a submission is not a battle won
             state.NationsAnnexedByPlayer++;
         }
 

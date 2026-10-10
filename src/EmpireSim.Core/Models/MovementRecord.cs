@@ -18,7 +18,12 @@ public enum MovementKind
     /// <summary>Pacts, alliances and trade agreements signed, ended or refused.</summary>
     Treaty,
     /// <summary>War declared, peace made, nations annexed.</summary>
-    War
+    War,
+    // New kinds are appended: kinds are saved as numbers, so existing saves keep their meaning.
+    /// <summary>Assembly proposals against a state, their result, and the policy expiring.</summary>
+    Assembly,
+    /// <summary>Plain diplomatic acts that move nothing, such as an insult.</summary>
+    Diplomacy
 }
 
 /// <summary>How far a movement has got.</summary>

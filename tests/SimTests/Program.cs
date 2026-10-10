@@ -1941,5 +1941,43 @@ using (var eng = NewDipEngine(38))
     Check(old is not null && old.Movements.Count == 0, "an old save without movements loads with an empty report");
 }
 
+Console.WriteLine("== 41. Movement report: assembly flow, and every kind has an icon ==");
+Check(Enum.GetValues<MovementKind>().All(k => MovementReport.Icon(k) != "•" && MovementReport.KindName(k).Length > 0),
+    "every kind of movement has an icon and a name");
+using (var eng = NewDipEngine(41))
+{
+    var s = eng.State; var p = s.PlayerNation; var persia = Ai(eng, "persia");
+    Check(eng.SubmitProposal("annexation_ban", persia.Id, 60, 30) is null, "proposal submitted");
+    var submitted = s.Movements.Last();
+    Check(submitted.Kind == MovementKind.Assembly && submitted.Status == MovementStatus.UnderWay && submitted.FromId == p.Id
+          && submitted.ToId == persia.Id && submitted.Text.Contains("Iran"), "a proposal is recorded as under way against its target");
+
+    // Everyone but the target backs it: approved on the deadline.
+    var prop = s.AssemblyProposals.Single();
+    foreach (var n in s.AllNations().Where(n => n.Id != persia.Id)) prop.Votes[n.Id] = true;
+    for (int i = 0; i < 30; i++) { p.Gold = 1_000_000_000; eng.AdvanceOneDay(); }
+    var approved = s.Movements.Last(m => m.Kind == MovementKind.Assembly);
+    Check(approved.Status == MovementStatus.Completed && approved.Text.StartsWith("Assembly APPROVED") && approved.Text.Contains("Iran")
+          && approved.FromId == p.Id && approved.ToId == persia.Id, "an approved proposal is recorded as done, naming the country (not its id)");
+
+    for (int i = 0; i < 60; i++) { p.Gold = 1_000_000_000; eng.AdvanceOneDay(); }
+    var expired = s.Movements.Last(m => m.Kind == MovementKind.Assembly);
+    Check(expired.Status == MovementStatus.Completed && expired.Text.StartsWith("Assembly policy expired") && expired.Text.Contains("Iran") && expired.ToId == persia.Id,
+        "the policy expiring is recorded");
+}
+
+using (var eng = NewDipEngine(42))
+{
+    var s = eng.State; var p = s.PlayerNation; var persia = Ai(eng, "persia");
+    eng.SubmitProposal("production_ban", persia.Id, 60, 30);
+    var prop = s.AssemblyProposals.Single();
+    foreach (var n in s.AllNations().Where(n => n.Id != persia.Id && n.Id != p.Id)) prop.Votes[n.Id] = false;
+    for (int i = 0; i < 30; i++) { p.Gold = 1_000_000_000; eng.AdvanceOneDay(); }
+    var rejected = s.Movements.Last(m => m.Kind == MovementKind.Assembly);
+    Check(rejected.Status == MovementStatus.Failed && rejected.Text.StartsWith("Assembly REJECTED") && rejected.ToId == persia.Id,
+        "a rejected proposal is recorded as refused");
+    Check(MovementReport.Events(s, persia.Id).Count(m => m.Kind == MovementKind.Assembly) == 2, "both assembly records show under the target's state");
+}
+
 Console.WriteLine(failures == 0 ? "\nALL CHECKS PASSED" : $"\n{failures} CHECK(S) FAILED");
 return failures;

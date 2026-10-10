@@ -646,7 +646,8 @@
     {
         if (!CheckCooldown(target, "insult", 1)) return;
         target.RelationToPlayer = Math.Max(-100, target.RelationToPlayer - 10);
-        Engine.State.Log($"{Engine.State.PlayerNation.Name} insulted {target.Name}.");
+        Engine.State.LogMovement(MovementKind.Diplomacy, MovementStatus.Completed, Engine.State.PlayerNation, target,
+            $"{Engine.State.PlayerNation.Name} insulted {target.Name}.");
         _actionMsg = $"You insulted {target.Name}. (-10 relations)";
     }
 
