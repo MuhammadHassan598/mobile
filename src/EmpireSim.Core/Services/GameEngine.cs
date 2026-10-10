@@ -8,7 +8,7 @@ namespace EmpireSim.Core.Services;
 /// so Blazor components can re-render (via InvokeAsync on the UI thread).
 /// Registered as a singleton in MauiProgram.
 /// </summary>
-public sealed class GameEngine : IDisposable
+public sealed partial class GameEngine : IDisposable
 {
     private readonly SimulationService _sim;
     private readonly SaveService _save;
@@ -68,6 +68,7 @@ public sealed class GameEngine : IDisposable
         {
             Clock.SetSpeed(GameSpeed.Paused);
             State = loaded;
+            TreatyService.MigrateLegacy(State);
             CampaignChosen = true;
             State.Log("Save loaded.");
             StateChanged?.Invoke();
@@ -347,6 +348,9 @@ public sealed class GameEngine : IDisposable
         double pricePer1000 = MarketPricing.PricePer1000(productId, sellerId);
         // Law: import price discount
         pricePer1000 *= LawService.ImportPriceMult(buyer);
+        // Trade agreement: partners sell to us cheaper.
+        if (TreatyService.Has(State, TreatyType.TradeAgreement, buyer.Id, sellerId))
+            pricePer1000 *= Balance.TradeAgreementImportMult;
         double total = MarketPricing.TotalValue(pricePer1000, quantity);
         if (!buyer.CanPay(total)) return "Not enough gold.";
 
@@ -888,10 +892,12 @@ public sealed class GameEngine : IDisposable
         var n = FindNation(nationId);
         if (n is null) return "Nation not found.";
         if (n.AtWarWithPlayer) return "Already at war.";
+        if (TreatyService.ForbidsAttack(State, State.PlayerNation.Id, n.Id) is { } forbidden) return forbidden;
 
         n.AtWarWithPlayer = true;
         n.HasTradePactWithPlayer = false;
         n.RelationToPlayer = -100;
+        TreatyService.OnWar(State, State.PlayerNation, n);
         State.Log($"You declared war on {n.Name}!");
         StateChanged?.Invoke();
         return null;
@@ -923,6 +929,8 @@ public sealed class GameEngine : IDisposable
 
         State.PlayerNation.PayGold(Balance.TradePactFee);
         n.HasTradePactWithPlayer = true;
+        if (!TreatyService.Has(State, TreatyType.TradeAgreement, State.PlayerNation.Id, n.Id))
+            TreatyService.Add(State, TreatyType.TradeAgreement, State.PlayerNation, n);
         State.Log($"Signed a trade pact with {n.Name}.");
         StateChanged?.Invoke();
         return null;
@@ -933,6 +941,8 @@ public sealed class GameEngine : IDisposable
         var n = FindNation(nationId);
         if (n is null || !n.HasTradePactWithPlayer) return;
         n.HasTradePactWithPlayer = false;
+        var treaty = TreatyService.Find(State, TreatyType.TradeAgreement, State.PlayerNation.Id, n.Id);
+        if (treaty is not null) TreatyService.Remove(State, treaty);
         State.Log($"Cancelled the trade pact with {n.Name}.");
         StateChanged?.Invoke();
     }
@@ -946,6 +956,7 @@ public sealed class GameEngine : IDisposable
         var n = FindNation(nationId);
         if (n is null) return "Nation not found.";
         if (n.AtWarWithPlayer) return "You are already at war.";
+        if (TreatyService.ForbidsAttack(State, State.PlayerNation.Id, n.Id) is { } forbidden) return forbidden;
 
         var player = State.PlayerNation;
         if (player.Soldiers > n.Soldiers * Balance.TributeArmyRatio)
@@ -966,8 +977,10 @@ public sealed class GameEngine : IDisposable
                 n.AtWarWithPlayer = true;
                 n.HasTradePactWithPlayer = false;
                 n.RelationToPlayer = -100;
+                TreatyService.OnWar(State, player, n);
                 State.Log($"{n.Name} declared war over your insult!");
                 State.ActiveWarnings.Add($"⚠ {n.Name} has DECLARED WAR on you!");
+                TreatyService.AllianceDefence(State, n, player);
             }
         }
         StateChanged?.Invoke();
@@ -1010,6 +1023,7 @@ public sealed class GameEngine : IDisposable
         net = null;
         target = FindNation(nationId);
         if (target is null) return "Nation not found.";
+        if (TreatyService.ForbidsAttack(State, State.PlayerNation.Id, nationId) is { } forbidden) return forbidden;
         net = GetNetwork(nationId);
         if (net is null || net.Strength < minStrength)
             return $"Need a spy network of strength {minStrength}.";

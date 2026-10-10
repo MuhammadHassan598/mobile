@@ -137,4 +137,14 @@ grace-warning → desertion path. All must print PASS.
   defeat on losing everything (or an AI reaching hegemony), dashboard
   banners; 5-year autoplay validation (a passive player survives).
   12 new SimTests.
+- [x] **Diplomatic actions (done, 12 of 14)** — the country panel has three pages (⚔️ hostile ·
+  🏛️ treaties & cooperation · 🎁 relations & expansion). Real mechanics, all saved with the game:
+  Embassy, Non-Aggression Pact (enforced at war declaration, tribute, spy ops, AI war and marches),
+  Defensive Alliance (allies march on whoever attacks you), Trade Agreement (cheaper imports, richer
+  exports), Send Troops (temporary loan), Call to Arms (the ally's own army joins your war), Give Army,
+  Send a Gift, Improve Relations, Ask for Aid, Present a Colony, Missionary Work (uses the existing
+  religions). **Research Contract** and **Support Sovereignty** are shown disabled with their missing
+  dependency: the game has no research system and no vassals / independence / AI-vs-AI wars yet.
+  Rules live in `GameEngine.Diplomacy.cs` and `TreatyService.cs`; numbers in `Balance.cs`;
+  11 new SimTests sections (28–38).
 - [ ] Tune everything in `Balance.cs`.

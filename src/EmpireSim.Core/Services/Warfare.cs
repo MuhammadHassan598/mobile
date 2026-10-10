@@ -96,6 +96,20 @@ public static class Warfare
     /// </summary>
     public static void AnnexNation(GameState state, Nation winner, Nation loser)
     {
+        // Treaties end and hosted loan soldiers go home before the loser's army is wiped.
+        TreatyService.OnEliminated(state, loser);
+
+        // Armies still marching on the loser turn back: their soldiers rejoin their own nation
+        // instead of vanishing with the march.
+        foreach (var m in state.MarchingArmies.Where(m => m.TargetNationId == loser.Id).ToList())
+        {
+            var owner = state.AllNations().FirstOrDefault(n => n.Id == m.AttackerNationId);
+            if (owner is not null && !owner.IsEliminated && owner.Id != loser.Id)
+                ArmyHelper.MergeStacks(owner, m.Force);
+            // Emptied so a march still sitting in today's snapshot can never hand the same soldiers back twice.
+            m.Force = new List<UnitStack>();
+        }
+
         long popLoss = (long)(loser.Population * Balance.BattlePopulationLoss);
         winner.Population += Math.Max(0, loser.Population - popLoss);
 

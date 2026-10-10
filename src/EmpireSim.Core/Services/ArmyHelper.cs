@@ -44,6 +44,26 @@ public static class ArmyHelper
         return force;
     }
 
+    /// <summary>
+    /// Takes back up to the wanted count of each unit type from a host's army (what is
+    /// left of a loan after casualties) and returns what was actually taken.
+    /// </summary>
+    public static List<UnitStack> TakeBack(Nation host, IEnumerable<UnitStack> wanted)
+    {
+        var taken = new List<UnitStack>();
+        foreach (var w in wanted)
+        {
+            var stack = host.Units.FirstOrDefault(u => u.Type == w.Type);
+            if (stack is null) continue;
+            int take = Math.Min(stack.Count, w.Count);
+            if (take <= 0) continue;
+            stack.Count -= take;
+            taken.Add(new UnitStack { Type = w.Type, Count = take });
+        }
+        host.Units.RemoveAll(u => u.Count <= 0);
+        return taken;
+    }
+
     /// <summary>Merges a force back into the nation's stacks (survivors return).</summary>
     public static void MergeStacks(Nation nation, IEnumerable<UnitStack> force)
     {

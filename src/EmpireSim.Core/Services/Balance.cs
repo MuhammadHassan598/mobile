@@ -84,6 +84,77 @@ public static class Balance
     public const double AiSueForPeaceChancePerDay = 0.05;
     public const double WarAttritionPerDay = 0.002;   // 0.2% of soldiers/day each side
 
+    // ---- Diplomatic actions ----
+    // Ratings and relation gains use the 0-100 display scale (the stored RelationToPlayer
+    // is -100..100, so one display point = 2 stored points). "MinRating" is what you need
+    // to even ask; "AcceptScore" is what the other country's attitude must reach to say yes
+    // (rating + embassy/pact/shared-faith goodwill, see TreatyService.Score).
+    public const int ProposalRejectedRatingPenalty = 1;   // a refused proposal stings a little
+    public const int ProposalCooldownDays = 7;            // before you may ask the same thing again
+
+    public const double EmbassyCost = 500;
+    public const int EmbassyMinRating = 40;
+    public const int EmbassyAcceptScore = 45;
+    public const double EmbassyRelationPerDay = 0.3;      // stored scale per day; beats the 0.2 daily drift to neutral
+
+    public const double NapCost = 1_500;
+    public const int NapDays = 365;
+    public const int NapMinRating = 45;
+    public const int NapAcceptScore = 55;
+
+    public const double AllianceCost = 3_000;
+    public const int AllianceMinRating = 60;
+    public const int AllianceAcceptScore = 70;
+    public const int AllianceHonorMinRating = 40;         // below this an ally ignores the call
+    public const double AllianceAidFraction = 0.25;       // share of the ally's army sent to defend you
+    public const double AllianceRelationPerDay = 0.3;     // stored scale per day; beats the 0.2 daily drift to neutral
+
+    public const double TradeAgreementCost = 1_000;
+    public const int TradeAgreementMinRating = 50;
+    public const int TradeAgreementAcceptScore = 55;
+    public const double TradeAgreementImportMult = 0.90;  // price multiplier when you buy from a partner
+    public const double TradeAgreementExportMult = 1.10;  // revenue multiplier when you sell to a partner
+
+    public const int BreakPactRatingPenalty = 20;         // cancelling a non-aggression pact or alliance
+    public const int BreakMinorTreatyRatingPenalty = 5;   // cancelling an embassy or trade agreement
+
+    public const int MinHomeGuard = 500;                  // soldiers you must keep when sending or giving troops
+    public const int TroopLoanDays = 90;
+    public const int SendTroopsMinRating = 40;
+    public const int SendTroopsAcceptScore = 50;
+    public const int SendTroopsMaxGain = 10;              // relation gain cap, 1 per 1,000 soldiers lent
+    public const double CallToArmsFraction = 0.30;        // share of the ally's army that marches
+    public const int CallToArmsAcceptScore = 60;
+    public const double CallToArmsMinStrengthRatio = 0.30; // ally refuses to face an enemy >3x its size
+    public const int CallToArmsCooldownDays = 14;
+
+    public const int GiveArmyMinRating = 30;
+    public const int GiveArmyMaxGain = 20;                // relation gain cap, 1 per 500 power given
+
+    public const double GiftMinAmount = 100;
+    public const int GiftCooldownDays = 3;
+
+    public const double ImproveRelationsCost = 300;
+    public const int ImproveRelationsGain = 5;
+    public const int ImproveRelationsGainWithEmbassy = 10;
+    public const int ImproveRelationsMaxRating = 90;
+    public const int ImproveRelationsCooldownDays = 14;
+
+    public const int AidAcceptScore = 65;
+    public const double AidRequestFraction = 0.05;        // share of the asked-for resource they hand over
+    public const int AidRequestRatingCost = 2;            // asking is a favour
+    public const int AidCooldownDays = 30;
+
+    public const int ColonyGiftRatingGain = 15;
+
+    public const int MissionaryMinRating = 30;
+    public const double MissionaryCost = 2_000;
+    public const double MissionaryInfluencePerMission = 15;
+    public const double MissionaryConversionThreshold = 100;
+    public const int MissionaryCooldownDays = 14;
+    public const int MissionaryConversionRatingGain = 10;
+    public const int MissionaryDevoutRatingPenalty = 2;   // devout rulers resent missionaries
+
     // ---- Espionage ----
     public const double EstablishNetworkCost = 8;
     public const int EstablishNetworkStrength = 20;

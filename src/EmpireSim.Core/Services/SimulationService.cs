@@ -166,7 +166,12 @@ public sealed class SimulationService
                 {
                     buyer.Gold -= tc.TotalValue;
                     if (seller is not null)
-                        seller.Gold += tc.TotalValue * LawService.ExportRevenueMult(seller);
+                    {
+                        // Trade agreement: partners pay more for what we export.
+                        double agreementMult = TreatyService.Has(state, TreatyType.TradeAgreement, seller.Id, buyer.Id)
+                            ? Balance.TradeAgreementExportMult : 1.0;
+                        seller.Gold += tc.TotalValue * LawService.ExportRevenueMult(seller) * agreementMult;
+                    }
                 }
                 else
                 {
@@ -413,20 +418,27 @@ public sealed class SimulationService
             }
 
             // A furious neighbour may declare war.
+            // (A non-aggression pact or alliance keeps even a furious neighbour from declaring war.)
             if (other.RelationToPlayer <= Balance.AiWarRelationThreshold
+                && TreatyService.ForbidsAttack(state, other.Id, player.Id) is null
                 && RollChance(Balance.AiDeclareWarChancePerDay))
             {
                 other.AtWarWithPlayer = true;
                 other.HasTradePactWithPlayer = false;
                 other.RelationToPlayer = -100;
+                TreatyService.OnWar(state, player, other);
                 state.Log($"{other.Name} declared war on {player.Name}!");
                 state.ActiveWarnings.Add($"⚠ {other.Name} has DECLARED WAR on you!");
+                TreatyService.AllianceDefence(state, other, player);
             }
         }
 
         foreach (var net in state.SpyNetworks)
             net.Strength = Math.Min(Balance.MaxNetworkStrength,
                 net.Strength + Balance.NetworkGrowthPerDay);
+
+        // Treaties lapse, loans come home, embassies and alliances warm relations.
+        TreatyService.Advance(state);
     }
 
     /// <summary>Colony expeditions sail on; arrivals found new provinces.</summary>
@@ -448,6 +460,17 @@ public sealed class SimulationService
             home.Mines += 2;
             home.AddProduct("Wheat", 2000);
             home.ColoniesFounded++;
+            // Remember what the colony added, so it can be owned (and presented to another nation).
+            state.Colonies.Add(new Colony
+            {
+                Name = region.Name,
+                OwnerId = home.Id,
+                FoundedById = home.Id,
+                FoundedDate = state.CurrentDate,
+                Population = Balance.ColonyStartPopulation,
+                Farms = 8,
+                Mines = 2,
+            });
             state.Log($"A colony was founded in {region.Name}! Settlers and riches flow to the homeland.");
         }
         state.ActiveExpedition = null;
@@ -470,7 +493,8 @@ public sealed class SimulationService
 
             bool recalled = attacker is null || defender is null
                 || attacker.IsEliminated || defender.IsEliminated
-                || !defender.AtWarWithPlayer;
+                || !defender.AtWarWithPlayer
+                || TreatyService.ForbidsAttack(state, attacker.Id, defender.Id) is not null;
             if (recalled)
             {
                 if (attacker is not null && !attacker.IsEliminated)
@@ -482,22 +506,28 @@ public sealed class SimulationService
                 continue;
             }
 
-            var outcome = Warfare.ResolveBattle(march.Force, attacker!, defender!,
+            var def = defender!;
+            var outcome = Warfare.ResolveBattle(march.Force, attacker!, def,
                 attacker!.BattleStrengthMult, _rng);
             if (!attacker.IsEliminated)
                 ArmyHelper.MergeStacks(attacker, outcome.AttackerSurvivors);
 
             if (outcome.AttackerWon)
             {
-                Warfare.AnnexNation(state, attacker, defender);
-                state.ActiveWarnings.Add($"🏳 {defender.Name} has been annexed by {attacker.Name}!");
+                Warfare.AnnexNation(state, attacker, def);
+                state.ActiveWarnings.Add($"🏳 {def.Name} has been annexed by {attacker.Name}!");
             }
 
             if (attacker.IsPlayer)
             {
-                state.Log($"{defender.Name}: {outcome.Summary}");
+                state.Log($"{def.Name}: {outcome.Summary}");
                 state.ActiveWarnings.Add(
-                    $"⚔ Battle for {defender.Name}: {(outcome.AttackerWon ? "victory — the country is ours" : "defeat")}!");
+                    $"⚔ Battle for {def.Name}: {(outcome.AttackerWon ? "victory — the country is ours" : "defeat")}!");
+            }
+            else
+            {
+                // An ally fighting the player's enemy.
+                state.Log($"{attacker.Name} vs {def.Name}: {outcome.Summary}");
             }
         }
     }

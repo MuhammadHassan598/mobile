@@ -35,6 +35,10 @@ public static class DiplomacyService
         return Math.Clamp(r, 0, 100);
     }
 
+    /// <summary>Raises (or lowers) a nation's regard for the player by display points (1 point = 2 stored points).</summary>
+    public static void AddRating(Nation nation, double displayPoints) =>
+        nation.RelationToPlayer = Math.Clamp(nation.RelationToPlayer + displayPoints * 2, -100, 100);
+
     /// <summary>Convert 0..100 back to -100..+100.</summary>
     public static double FromDisplayRating(int display)
     {

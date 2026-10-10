@@ -149,6 +149,11 @@
             <div class="profile-stats">
                 <div class="pstat"><span>Religion:</span><b>@p.Religion</b></div>
                 <div class="pstat"><span>Stance:</span><b class="@DiplomacyService.StatusColorClass(status)">@DiplomacyService.StatusName(status) (@rating)</b></div>
+                <div class="pstat"><span>Treaties:</span><b class="pstat-treaties">@TreatySummary(p)</b></div>
+                @if (Engine.MissionaryInfluenceOn(p.Id) > 0)
+                {
+                    <div class="pstat"><span>Our missionaries:</span><b>@Engine.MissionaryInfluenceOn(p.Id).ToString("N0") / @Balance.MissionaryConversionThreshold.ToString("N0")</b></div>
+                }
             </div>
 
             <div class="popup-section">
@@ -166,18 +171,51 @@
                 </div>
             </div>
 
-            <!-- Action Grid: 2 rows x 4 -->
+            <!-- Actions on a dark-wood panel: three pages so everything fits on a phone -->
             <div class="popup-section">
                 <div class="popup-section-title">Diplomatic Actions</div>
-                <div class="action-grid">
-                    <button class="action-btn" @onclick="() => DoAttack(p)">⚔️<span>Attack</span></button>
-                    <button class="action-btn" @onclick="() => DoEspionage(p)">🕵️<span>Espionage</span></button>
-                    <button class="action-btn" @onclick="() => DoSabotage(p)">💣<span>Sabotage</span></button>
-                    <button class="action-btn" @onclick="() => DoInsult(p)">😠<span>Insult</span></button>
-                    <button class="action-btn" @onclick="() => DoCoup(p)">👑<span>Coup</span></button>
-                    <button class="action-btn" @onclick="() => DoAnnex(p)">🏰<span>Annex</span></button>
-                    <button class="action-btn" @onclick="() => _demandTarget = p">💰<span>Demand</span></button>
-                    <button class="action-btn" @onclick="() => DoAskAttack(p)">🤝<span>Ask Attack</span></button>
+                <div class="dip-wood">
+                    @if (_actTab == 0)
+                    {
+                        <!-- Hostile & covert: 2 rows x 4 -->
+                        <div class="action-grid">
+                            <button class="action-btn" @onclick="() => DoAttack(p)">⚔️<span>Attack</span></button>
+                            <button class="action-btn" @onclick="() => DoEspionage(p)">🕵️<span>Espionage</span></button>
+                            <button class="action-btn" @onclick="() => DoSabotage(p)">💣<span>Sabotage</span></button>
+                            <button class="action-btn" @onclick="() => DoInsult(p)">😠<span>Insult</span></button>
+                            <button class="action-btn" @onclick="() => DoCoup(p)">👑<span>Coup</span></button>
+                            <button class="action-btn" @onclick="() => DoAnnex(p)">🏰<span>Annex</span></button>
+                            <button class="action-btn" @onclick="() => _demandTarget = p">💰<span>Demand</span></button>
+                            <button class="action-btn" @onclick="() => DoAskAttack(p)">🤝<span>Ask Attack</span></button>
+                        </div>
+                    }
+                    else
+                    {
+                        <!-- Treaties / Relations: tap an action for its requirements, effects and a confirm button -->
+                        <div class="dip-act-grid">
+                            @foreach (var spec in DiplomaticActionCatalog.ForTab(_actTab == 1 ? DiplomaticTab.Treaties : DiplomaticTab.Relations))
+                            {
+                                var st = Engine.CheckDiplomaticAction(spec.Id, p.Id);
+                                bool inForce = IsInForce(spec.Id, p);
+                                <button class="dip-act @(inForce ? "on" : st.Available ? "" : "off")"
+                                        aria-disabled="@(!inForce && !st.Available)"
+                                        title="@(inForce ? "In force" : st.Available ? spec.Name : st.Reason)"
+                                        @onclick="() => OpenSheet(spec)">
+                                    <span class="dip-act-ico">@spec.Icon</span>
+                                    <span class="dip-act-lbl">@spec.Name</span>
+                                    @if (inForce)
+                                    {
+                                        <span class="dip-act-badge">✔</span>
+                                    }
+                                </button>
+                            }
+                        </div>
+                    }
+                    <div class="dip-wood-tabs">
+                        <button class="@(_actTab == 0 ? "active" : "")" @onclick="() => SetActTab(0)" title="Hostile and covert actions">⚔️</button>
+                        <button class="@(_actTab == 1 ? "active" : "")" @onclick="() => SetActTab(1)" title="Treaties and military cooperation">🏛️</button>
+                        <button class="@(_actTab == 2 ? "active" : "")" @onclick="() => SetActTab(2)" title="Gifts, aid and expansion">🎁</button>
+                    </div>
                 </div>
                 @if (!string.IsNullOrEmpty(_actionMsg))
                 {
@@ -215,7 +253,164 @@
     </div>
 }
 
+<!-- Diplomatic action sheet: what it needs, what it does, the inputs, and the confirm step -->
+@if (_sheet is not null && _profile is not null)
+{
+    var sp = _sheet;
+    var t = _profile;
+    var st = Engine.CheckDiplomaticAction(sp.Id, t.Id);
+    bool inForce = IsInForce(sp.Id, t);
+    bool canCancel = inForce && CancelType(sp.Id) is not null;
+    bool usable = st.Available && !inForce;
+
+    <div class="popup-overlay sheet-overlay" @onclick="CloseSheet">
+        <div class="popup-panel sheet" @onclick:stopPropagation>
+            <button class="profile-close" @onclick="CloseSheet">✕</button>
+            <div class="sheet-head">
+                <span class="sheet-ico">@sp.Icon</span>
+                <div>
+                    <div class="sheet-name">@sp.Name</div>
+                    <div class="sheet-with">with @t.Emblem @t.Name</div>
+                </div>
+            </div>
+            <div class="sheet-block"><b>Requirements</b><div>@sp.Requirements</div></div>
+            <div class="sheet-block"><b>Effects</b><div>@sp.Effects</div></div>
+
+            @if (inForce)
+            {
+                <div class="sheet-ok">✔ In force@(TreatyEndNote(sp.Id, t))</div>
+            }
+            else if (!st.Available)
+            {
+                <div class="sheet-off">🔒 Unavailable: @st.Reason</div>
+            }
+            else
+            {
+                <div class="sheet-cost">Cost: @st.CostText</div>
+            }
+
+            @if (usable)
+            {
+                @switch (sp.Id)
+                {
+                    case DiplomaticActionCatalog.SendTroops:
+                    case DiplomaticActionCatalog.GiveArmy:
+                        <div class="sheet-input">
+                            <div class="popup-section-title">Soldiers (you can spare @Engine.SpareSoldiers.ToString("N0"))</div>
+                            <div class="popup-qty-row">
+                                <button class="qty-btn" @onclick="() => AdjustQty(-100)">−</button>
+                                <input type="number" class="qty-input" @bind="_qty" min="1" max="@Engine.SpareSoldiers" />
+                                <button class="qty-btn" @onclick="() => AdjustQty(100)">+</button>
+                            </div>
+                            <div class="sheet-quick">
+                                <button @onclick="() => SetQtyPct(10)">10%</button>
+                                <button @onclick="() => SetQtyPct(25)">25%</button>
+                                <button @onclick="() => SetQtyPct(50)">50%</button>
+                                <button @onclick="() => SetQtyPct(100)">MAX</button>
+                            </div>
+                        </div>
+                        break;
+                    case DiplomaticActionCatalog.Gift:
+                        <div class="sheet-input">
+                            <div class="popup-section-title">Gift of gold (you have @Engine.State.PlayerNation.Gold.ToString("N0"))</div>
+                            <div class="popup-qty-row">
+                                <span>🪙</span>
+                                <input type="number" class="qty-input" @bind="_giftAmt" min="@Balance.GiftMinAmount" />
+                            </div>
+                            <div class="sheet-quick">
+                                @foreach (var amt in new[] { 100, 500, 1000, 5000 })
+                                {
+                                    <button @onclick="() => _giftAmt = amt">@amt.ToString("N0")</button>
+                                }
+                            </div>
+                            <div class="dip-hint">Relations gained: +@DiplomacyService.AidRelationshipGain(_giftAmt)</div>
+                        </div>
+                        break;
+                    case DiplomaticActionCatalog.Aid:
+                        <div class="sheet-input">
+                            <div class="popup-section-title">Ask for</div>
+                            <select class="dip-input" @bind="_aidRes">
+                                @foreach (var res in GameEngine.AidResources)
+                                {
+                                    <option value="@res">@res (they hold @t.GetProduct(res).ToString("N0"))</option>
+                                }
+                            </select>
+                        </div>
+                        break;
+                    case DiplomaticActionCatalog.CallToArms:
+                        <div class="sheet-input">
+                            <div class="popup-section-title">Join our war against</div>
+                            <select class="dip-input" @bind="_enemyId">
+                                @foreach (var en in Engine.Enemies(t.Id))
+                                {
+                                    <option value="@en.Id">@en.Emblem @en.Name (@en.Soldiers.ToString("N0") soldiers)</option>
+                                }
+                            </select>
+                        </div>
+                        break;
+                    case DiplomaticActionCatalog.PresentColony:
+                        <div class="sheet-input">
+                            <div class="popup-section-title">Colony to present</div>
+                            <select class="dip-input" @bind="_colonyId">
+                                @foreach (var c in Engine.OwnedColonies)
+                                {
+                                    <option value="@c.Id">@c.Name — 👥 @c.Population.ToString("N0"), @c.Farms farms, @c.Mines mines</option>
+                                }
+                            </select>
+                        </div>
+                        break;
+                    case DiplomaticActionCatalog.Missionary:
+                        <div class="sheet-input">
+                            <div class="dip-hint">Our faith: @Engine.State.PlayerNation.Religion → theirs: @t.Religion</div>
+                            <div class="bal-track" style="margin-top:6px"><div class="bal-fill-player" style="width: @(Engine.MissionaryInfluenceOn(t.Id) / Balance.MissionaryConversionThreshold * 100)%"></div></div>
+                            <div class="dip-hint">Influence @Engine.MissionaryInfluenceOn(t.Id).ToString("N0") / @Balance.MissionaryConversionThreshold.ToString("N0")</div>
+                        </div>
+                        break;
+                }
+                @if (NeedsConfirm(sp.Id))
+                {
+                    <div class="sheet-warn">⚠ Permanent — this cannot be undone.@(_armed ? " Tap again to confirm." : "")</div>
+                }
+            }
+
+            @if (canCancel && _armed)
+            {
+                <div class="sheet-warn">⚠ Cancelling costs relations (−@(CancelType(sp.Id) is TreatyType.NonAggression or TreatyType.DefensiveAlliance ? Balance.BreakPactRatingPenalty : Balance.BreakMinorTreatyRatingPenalty)). Tap again to confirm.</div>
+            }
+
+            @if (!string.IsNullOrEmpty(_sheetMsg))
+            {
+                <div class="sheet-msg @SheetMsgClass">@_sheetMsg</div>
+            }
+
+            <div class="popup-actions">
+                <button class="popup-btn cancel" @onclick="CloseSheet">CLOSE</button>
+                @if (canCancel)
+                {
+                    <button class="popup-btn danger" @onclick="CancelTreatyClick">@(_armed ? "CONFIRM CANCEL" : "CANCEL TREATY")</button>
+                }
+                else
+                {
+                    <button class="popup-btn confirm" disabled="@(!usable)" @onclick="RunSheet">@ConfirmLabel(sp)</button>
+                }
+            </div>
+        </div>
+    </div>
+}
+
 @code {
+    // Diplomacy page of the country panel: 0 hostile & covert, 1 treaties & cooperation, 2 relations & expansion.
+    private int _actTab = 0;
+    private DiplomaticActionSpec? _sheet;
+    private string? _sheetMsg;
+    private DipOutcome _sheetOutcome;
+    private bool _armed;
+    private int _qty = 1000;
+    private double _giftAmt = 1000;
+    private string _aidRes = "Gold";
+    private string _enemyId = "";
+    private string _colonyId = "";
+
     private int _tab = 0;
     private Nation? _aidTarget;
     private int _aidThreshold = 40;
@@ -269,6 +464,145 @@
     {
         _profile = n;
         _actionMsg = null;
+        _actTab = 0;
+        _sheet = null;
+    }
+
+    private void SetActTab(int tab)
+    {
+        _actTab = tab;
+        _actionMsg = null;
+    }
+
+    // ---- Diplomatic action sheet ----
+
+    private void OpenSheet(DiplomaticActionSpec spec)
+    {
+        _sheet = spec;
+        _sheetMsg = null;
+        _armed = false;
+        _qty = Math.Clamp(1000, 1, Math.Max(1, Engine.SpareSoldiers));
+        _giftAmt = 1000;
+        _aidRes = "Gold";
+        _enemyId = Engine.Enemies(_profile?.Id).FirstOrDefault()?.Id ?? "";
+        _colonyId = Engine.OwnedColonies.FirstOrDefault()?.Id ?? "";
+    }
+
+    private void CloseSheet()
+    {
+        _sheet = null;
+        _sheetMsg = null;
+        _armed = false;
+    }
+
+    private void AdjustQty(int delta) => _qty = Math.Clamp(_qty + delta, 1, Math.Max(1, Engine.SpareSoldiers));
+
+    private void SetQtyPct(int pct) =>
+        _qty = Math.Clamp((int)(Engine.SpareSoldiers * pct / 100.0), 1, Math.Max(1, Engine.SpareSoldiers));
+
+    /// <summary>Soldier transfers and colony gifts are permanent: they need a second tap.</summary>
+    private static bool NeedsConfirm(string id) =>
+        id is DiplomaticActionCatalog.GiveArmy or DiplomaticActionCatalog.PresentColony;
+
+    private static TreatyType? CancelType(string id) => id switch
+    {
+        DiplomaticActionCatalog.Embassy => TreatyType.Embassy,
+        DiplomaticActionCatalog.NonAggression => TreatyType.NonAggression,
+        DiplomaticActionCatalog.Alliance => TreatyType.DefensiveAlliance,
+        DiplomaticActionCatalog.Trade => TreatyType.TradeAgreement,
+        _ => null
+    };
+
+    private bool IsInForce(string id, Nation n) =>
+        CancelType(id) is { } type && TreatyService.Has(Engine.State, type, Engine.State.PlayerNation.Id, n.Id);
+
+    private string TreatyEndNote(string id, Nation n)
+    {
+        if (id != DiplomaticActionCatalog.NonAggression) return "";
+        var pact = TreatyService.Find(Engine.State, TreatyType.NonAggression, Engine.State.PlayerNation.Id, n.Id);
+        return pact?.ExpiresDate is { } end ? $" until {end:dd-MM-yyyy}" : "";
+    }
+
+    private string TreatySummary(Nation n)
+    {
+        var s = Engine.State;
+        string pid = s.PlayerNation.Id;
+        var parts = new List<string>();
+        if (TreatyService.HasEmbassy(s, pid, n.Id)) parts.Add("🏛️ Embassy");
+        var pact = TreatyService.Find(s, TreatyType.NonAggression, pid, n.Id);
+        if (pact is not null) parts.Add($"🕊️ Pact until {pact.ExpiresDate:dd-MM-yyyy}");
+        if (TreatyService.Has(s, TreatyType.DefensiveAlliance, pid, n.Id)) parts.Add("🛡️ Alliance");
+        if (TreatyService.Has(s, TreatyType.TradeAgreement, pid, n.Id)) parts.Add("📜 Trade");
+        int lent = s.TroopLoans.Where(l => l.OwnerId == pid && l.HostId == n.Id).Sum(l => l.Soldiers);
+        if (lent > 0) parts.Add($"🪖 {lent:N0} lent");
+        return parts.Count == 0 ? "none" : string.Join(" · ", parts);
+    }
+
+    private string ConfirmLabel(DiplomaticActionSpec sp)
+    {
+        if (_armed && NeedsConfirm(sp.Id)) return "CONFIRM — PERMANENT";
+        return sp.Id switch
+        {
+            DiplomaticActionCatalog.Embassy => "ESTABLISH",
+            DiplomaticActionCatalog.NonAggression => "PROPOSE PACT",
+            DiplomaticActionCatalog.Alliance => "PROPOSE ALLIANCE",
+            DiplomaticActionCatalog.Trade => "PROPOSE",
+            DiplomaticActionCatalog.SendTroops => $"SEND {_qty:N0}",
+            DiplomaticActionCatalog.CallToArms => "CALL TO ARMS",
+            DiplomaticActionCatalog.GiveArmy => $"GIVE {_qty:N0}",
+            DiplomaticActionCatalog.Gift => $"SEND {_giftAmt:N0} 🪙",
+            DiplomaticActionCatalog.Improve => "SEND ENVOYS",
+            DiplomaticActionCatalog.Aid => "ASK FOR AID",
+            DiplomaticActionCatalog.PresentColony => "PRESENT",
+            DiplomaticActionCatalog.Missionary => "SEND MISSIONARIES",
+            _ => "CONFIRM"
+        };
+    }
+
+    private string SheetMsgClass => _sheetOutcome switch
+    {
+        DipOutcome.Done => "done",
+        DipOutcome.Rejected => "rejected",
+        _ => "invalid"
+    };
+
+    private void RunSheet()
+    {
+        if (_sheet is null || _profile is null) return;
+        if (NeedsConfirm(_sheet.Id) && !_armed) { _armed = true; return; }
+
+        var t = _profile;
+        DipResult r = _sheet.Id switch
+        {
+            DiplomaticActionCatalog.Embassy => Engine.EstablishEmbassy(t.Id),
+            DiplomaticActionCatalog.NonAggression => Engine.ProposeNonAggression(t.Id),
+            DiplomaticActionCatalog.Alliance => Engine.ProposeAlliance(t.Id),
+            DiplomaticActionCatalog.Trade => Engine.ProposeTradeAgreement(t.Id),
+            DiplomaticActionCatalog.Research => Engine.ResearchContract(t.Id),
+            DiplomaticActionCatalog.SendTroops => Engine.SendTroops(t.Id, _qty),
+            DiplomaticActionCatalog.CallToArms => Engine.CallToArms(t.Id, _enemyId),
+            DiplomaticActionCatalog.GiveArmy => Engine.GiveArmy(t.Id, _qty),
+            DiplomaticActionCatalog.Gift => Engine.GiveGift(t.Id, _giftAmt),
+            DiplomaticActionCatalog.Improve => Engine.ImproveRelations(t.Id),
+            DiplomaticActionCatalog.Aid => Engine.AskForAid(t.Id, _aidRes),
+            DiplomaticActionCatalog.Sovereignty => Engine.SupportSovereignty(t.Id),
+            DiplomaticActionCatalog.PresentColony => Engine.PresentColonyTo(t.Id, _colonyId),
+            DiplomaticActionCatalog.Missionary => Engine.SendMissionary(t.Id),
+            _ => DipResult.Invalid("Unknown action.")
+        };
+        _armed = false;
+        _sheetOutcome = r.Outcome;
+        _sheetMsg = r.Message;
+    }
+
+    private void CancelTreatyClick()
+    {
+        if (_sheet is null || _profile is null || CancelType(_sheet.Id) is not { } type) return;
+        if (!_armed) { _armed = true; return; }
+        var r = Engine.CancelTreaty(type, _profile.Id);
+        _armed = false;
+        _sheetOutcome = r.Outcome;
+        _sheetMsg = r.Message;
     }
 
     private bool CheckCooldown(Nation target, string action, int days)
@@ -286,9 +620,12 @@
 
     private void DoAttack(Nation target)
     {
+        // A treaty (non-aggression pact, alliance) may forbid war: say so before the cooldown is spent.
+        if (Engine.WarBlockReason(target.Id) is { } blocked) { _actionMsg = blocked; return; }
         if (!CheckCooldown(target, "attack", 30)) return;
-        _actionMsg = Engine.DeclareWar(target.Id) ?? $"War declared on {target.Name}!";
-        target.RelationToPlayer = -100;
+        var error = Engine.DeclareWar(target.Id);
+        _actionMsg = error ?? $"War declared on {target.Name}!";
+        if (error is null) target.RelationToPlayer = -100;
     }
 
     private void DoEspionage(Nation target)
@@ -461,5 +798,42 @@
 .popup-btn { flex: 1; padding: 10px; border-radius: 6px; cursor: pointer; font-family: inherit; border: 2px solid #2e1c0c; }
 .popup-btn.cancel { background: linear-gradient(#8a8a8a, #5a5a5a); color: #fff; }
 .popup-btn.confirm { background: linear-gradient(#7a5230, #4a2e14); color: #f5e6c4; }
-.popup-btn.confirm:disabled { opacity: 0.4; }
+.popup-btn.confirm:disabled { opacity: 0.4; cursor: not-allowed; }
+.popup-btn.danger { background: linear-gradient(#a33, #6b1a1a); color: #fff; }
+/* Dark-wood action panel with three pages (hostile / treaties / relations) */
+.dip-wood { background: repeating-linear-gradient(90deg, rgba(0,0,0,.10) 0 2px, transparent 2px 9px), linear-gradient(#6b4423, #3f2612); border: 3px solid #2e1c0c; border-radius: 10px; padding: 10px 8px 8px; box-shadow: inset 0 0 14px rgba(0,0,0,.6); }
+.dip-wood .action-btn { background: linear-gradient(#8a6038, #5a3a1c); border-color: #1f1208; }
+.dip-act-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.dip-act { position: relative; display: flex; flex-direction: column; align-items: center; gap: 4px; background: none; border: none; padding: 2px 0; cursor: pointer; font-family: inherit; color: #f5e6c4; min-width: 0; }
+.dip-act-ico { width: 46px; height: 46px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; background: radial-gradient(circle at 35% 30%, #f7ead0, #c9a96a 70%); border: 3px solid #2e1c0c; box-shadow: 0 2px 4px rgba(0,0,0,.6), inset 0 0 6px rgba(139,105,20,.5); }
+.dip-act-lbl { font-size: 0.62rem; line-height: 1.1; text-align: center; min-height: 2.2em; }
+.dip-act:active .dip-act-ico { transform: translateY(1px); }
+.dip-act.off { opacity: 0.45; }
+.dip-act.off .dip-act-ico { filter: grayscale(0.85); }
+.dip-act.on .dip-act-ico { border-color: #c9a227; box-shadow: 0 0 9px #c9a227, inset 0 0 6px rgba(139,105,20,.5); }
+.dip-act-badge { position: absolute; top: -2px; right: 12%; width: 17px; height: 17px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: #2e7d32; color: #fff; border: 1px solid #f5e6c4; font-size: 0.6rem; }
+.dip-wood-tabs { display: flex; gap: 8px; justify-content: center; margin-top: 10px; padding-top: 8px; border-top: 2px solid rgba(0,0,0,.35); }
+.dip-wood-tabs button { flex: 1; max-width: 72px; padding: 6px 0; font-size: 1.2rem; background: linear-gradient(#7a5230, #4a2e14); border: 2px solid #1f1208; border-radius: 8px; cursor: pointer; opacity: 0.7; }
+.dip-wood-tabs button.active { opacity: 1; border-color: #c9a227; box-shadow: 0 0 10px rgba(255,215,0,.55); }
+.pstat-treaties { text-align: right; font-size: 0.85rem; }
+/* Diplomatic action sheet */
+.sheet-overlay { z-index: 110; }
+.popup-panel.sheet { max-width: 360px; }
+.sheet-head { display: flex; align-items: center; gap: 12px; margin: 2px 34px 10px 0; }
+.sheet-ico { width: 54px; height: 54px; flex-shrink: 0; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.9rem; background: radial-gradient(circle at 35% 30%, #f7ead0, #c9a96a 70%); border: 3px solid #2e1c0c; box-shadow: 0 2px 4px rgba(0,0,0,.5); }
+.sheet-name { font-size: 1.15rem; font-weight: bold; }
+.sheet-with { color: #5a4a2a; font-size: 0.85rem; }
+.sheet-block { margin-bottom: 8px; font-size: 0.88rem; line-height: 1.3; }
+.sheet-block b { display: block; font-size: 0.78rem; color: #8b6914; text-transform: uppercase; letter-spacing: 0.5px; }
+.sheet-ok { color: #1b5e20; font-weight: bold; margin: 6px 0; }
+.sheet-off { color: #8B0000; font-weight: bold; margin: 6px 0; font-size: 0.9rem; }
+.sheet-cost { font-weight: bold; margin: 6px 0; }
+.sheet-input { margin: 8px 0; }
+.sheet-quick { display: flex; gap: 6px; margin-top: 8px; }
+.sheet-quick button { flex: 1; padding: 6px 0; border-radius: 6px; border: 2px solid #8b6914; background: linear-gradient(#f7ead0, #d9bd85); font-family: inherit; font-weight: bold; color: #3d2b1f; cursor: pointer; }
+.sheet-warn { margin: 6px 0; padding: 6px 8px; border-radius: 4px; background: rgba(184,100,20,.18); border: 1px solid #b86414; font-size: 0.85rem; }
+.sheet-msg { margin: 8px 0 0; padding: 8px; border-radius: 4px; font-size: 0.9rem; }
+.sheet-msg.done { background: rgba(46,125,50,.18); border: 1px solid #2e7d32; color: #1b5e20; }
+.sheet-msg.rejected { background: rgba(230,81,0,.15); border: 1px solid #e65100; color: #8a3a00; }
+.sheet-msg.invalid { background: rgba(139,0,0,.12); border: 1px solid #8B0000; color: #8B0000; }
 </style>

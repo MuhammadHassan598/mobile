@@ -59,6 +59,18 @@ public sealed class GameState
     /// <summary>Active assembly policy effects.</summary>
     public List<ActiveAssemblyPolicy> ActiveAssemblyPolicies { get; set; } = new();
 
+    /// <summary>Embassies, pacts, alliances and trade agreements between nations.</summary>
+    public List<Treaty> Treaties { get; set; } = new();
+
+    /// <summary>Soldiers currently lent from one nation's army to another's.</summary>
+    public List<TroopLoan> TroopLoans { get; set; } = new();
+
+    /// <summary>Colonies founded so far and who owns them now.</summary>
+    public List<Colony> Colonies { get; set; } = new();
+
+    /// <summary>Player missionary influence per target nation id (0 to the conversion threshold).</summary>
+    public Dictionary<string, double> MissionaryInfluence { get; set; } = new();
+
     public void Log(string message)
     {
         EventLog.Add($"{CurrentDate:dd-MM-yyyy}: {message}");

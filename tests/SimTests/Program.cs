@@ -1,3 +1,5 @@
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using EmpireSim.Core.Models;
 using EmpireSim.Core.Services;
 
@@ -909,6 +911,821 @@ using (var engine27 = new GameEngine(new SimulationService(), new SaveService(sa
     n27.TaxRates = new TaxRates { Peasants = 60, Craftsmen = 60, MilitaryPersonnel = 60, Merchants = 60, Spies = 60, Saboteurs = 60 };
     ConsumptionService.ApplyShortageEffects(n27, Rep(0));
     Check(n27.LastTaxDeathIncreasePct == 0, "no shortage: taxes up to 60 are safe");
+}
+
+// ---------------- Diplomatic actions (sections 28-38) ----------------
+GameEngine NewDipEngine(int seed = 1) => new GameEngine(new SimulationService(seed), new SaveService(saveFolder));
+Nation Ai(GameEngine eng, string id) => eng.State.OtherNations.First(x => x.Id == id);
+void SetRating(Nation n, int rating) => n.RelationToPlayer = DiplomacyService.FromDisplayRating(rating);
+int Rate(Nation n) => DiplomacyService.ToDisplayRating(n.RelationToPlayer);
+int CountOf(UnitType type, Nation n) => n.Units.Where(u => u.Type == type).Sum(u => u.Count);
+bool HasLog(GameEngine eng, string text) => eng.State.EventLog.Any(x => x.Contains(text));
+
+Console.WriteLine("== 28. Diplomatic actions: catalogue and availability ==");
+using (var eng = NewDipEngine())
+{
+    var all = DiplomaticActionCatalog.All;
+    Check(all.Count == 14, "14 diplomatic actions are defined");
+    Check(all.Select(x => x.Id).Distinct().Count() == 14, "action ids are unique");
+    Check(all.Count(x => x.Tab == DiplomaticTab.Treaties) == 7 && all.Count(x => x.Tab == DiplomaticTab.Relations) == 7,
+        "7 actions on each of the two diplomacy pages");
+    Check(all.All(x => x.Icon.Length > 0 && x.Name.Length > 0 && x.Requirements.Length > 0 && x.Effects.Length > 0),
+        "every action has an icon, a label, requirements and effects");
+
+    var p = eng.State.PlayerNation;
+    var france = Ai(eng, "france");
+    var persia = Ai(eng, "persia");
+    bool Can(string action, Nation n) => eng.CheckDiplomaticAction(action, n.Id).Available;
+    string Why(string action, Nation n) => eng.CheckDiplomaticAction(action, n.Id).Reason;
+
+    Check(Can("embassy", france), "embassy is available at neutral relations");
+    Check(!Can("nap", france) && Why("nap", france).Contains("embassy"), "non-aggression pact needs an embassy first");
+    Check(!Can("alliance", france) && Why("alliance", france).Contains("embassy"), "alliance needs an embassy first");
+    Check(!Can("trade", france) && Why("trade", france).Contains("embassy"), "trade agreement needs an embassy first");
+    Check(!Can("sendtroops", france) && Why("sendtroops", france).Contains("embassy"), "sending troops needs an embassy first");
+    Check(!Can("calltoarms", france) && Why("calltoarms", france).Contains("not your defensive ally"), "call to arms needs a defensive ally");
+    Check(Can("givearmy", france) && Can("gift", france) && Can("improve", france) && Can("aid", france),
+        "give army, gift, improve relations and aid are available at peace");
+    Check(!Can("colony", france) && Why("colony", france).Contains("no colony"), "present a colony needs a colony you own");
+    Check(Can("missionary", france), "missionaries can go to a country of another faith");
+    Check(!Can("missionary", persia) && Why("missionary", persia).Contains("already follows"), "no missionaries to a country of your own faith");
+
+    // The two actions the game has no system for are visible but disabled, with the missing dependency as the reason.
+    Check(!Can("research", france) && Why("research", france).ToLower().Contains("research system"), "research contract is blocked: no research system");
+    Check(!Can("sovereignty", france) && Why("sovereignty", france).ToLower().Contains("sovereignty system"), "support sovereignty is blocked: no sovereignty system");
+    double goldBefore = p.Gold;
+    Check(eng.ResearchContract(france.Id).Outcome == DipOutcome.Invalid && eng.SupportSovereignty(france.Id).Outcome == DipOutcome.Invalid
+          && p.Gold == goldBefore, "blocked actions do nothing and cost nothing");
+    Check(!eng.CheckDiplomaticAction("bogus", france.Id).Available, "unknown action is unavailable");
+    Check(!eng.CheckDiplomaticAction("embassy", "nowhere").Available, "unknown country is unavailable");
+
+    // War closes every friendly action.
+    eng.DeclareWar(persia.Id);
+    Check(!Can("embassy", persia) && !Can("gift", persia) && !Can("givearmy", persia) && !Can("improve", persia),
+        "at war the friendly actions are disabled");
+    Check(Why("gift", persia).Contains("at war"), "the reason names the war");
+}
+
+Console.WriteLine("== 29. Embassy ==");
+using (var eng = NewDipEngine())
+{
+    var p = eng.State.PlayerNation;
+    var france = Ai(eng, "france");
+    var spain = Ai(eng, "spain");
+    double g0 = p.Gold;
+    var r = eng.EstablishEmbassy(france.Id);
+    Check(r.Ok, "embassy accepted at neutral relations");
+    Check(Math.Abs(p.Gold - (g0 - Balance.EmbassyCost)) < 0.01, "embassy costs its price");
+    Check(TreatyService.HasEmbassy(eng.State, p.Id, france.Id), "the embassy is tracked");
+    Check(!TreatyService.HasEmbassy(eng.State, france.Id, p.Id), "an embassy is one-way: theirs in our land does not exist");
+    var dup = eng.EstablishEmbassy(france.Id);
+    Check(dup.Outcome == DipOutcome.Invalid && Math.Abs(p.Gold - (g0 - Balance.EmbassyCost)) < 0.01, "a second embassy is refused and costs nothing");
+
+    for (int i = 0; i < 10; i++) eng.AdvanceOneDay();
+    Check(france.RelationToPlayer > 1.0, "an embassy warms relations every day (beats the daily drift)");
+    Check(spain.RelationToPlayer <= 0.0001, "countries without an embassy do not warm");
+
+    var cancel = eng.CancelTreaty(TreatyType.Embassy, france.Id);
+    int ratingBefore = Rate(france);
+    Check(cancel.Ok && !TreatyService.HasEmbassy(eng.State, p.Id, france.Id), "an embassy can be closed");
+    Check(eng.CancelTreaty(TreatyType.Embassy, france.Id).Outcome == DipOutcome.Invalid, "closing it again is invalid");
+    Check(Rate(france) <= ratingBefore, "closing an embassy never improves relations");
+
+    // Refusal: eligible (>=40) but the AI's attitude (45) is not reached.
+    SetRating(spain, 42);
+    double g1 = p.Gold;
+    var refused = eng.EstablishEmbassy(spain.Id);
+    Check(refused.Outcome == DipOutcome.Rejected && refused.Message.Contains("declines"), "a cool country declines the embassy");
+    Check(p.Gold == g1, "a refused embassy costs nothing");
+    Check(Rate(spain) == 41, "a refusal stings relations by a point");
+    Check(!TreatyService.HasEmbassy(eng.State, p.Id, spain.Id), "no embassy after a refusal");
+    var again = eng.EstablishEmbassy(spain.Id);
+    Check(again.Outcome == DipOutcome.Invalid && again.Message.Contains("Available again"), "asking again straight away is on cooldown");
+
+    // Rules that stop it before anyone is asked.
+    var mughal = Ai(eng, "mughal");
+    SetRating(mughal, 39);
+    Check(eng.EstablishEmbassy(mughal.Id).Message.Contains("regards you too poorly"), "relations under 40: no embassy");
+    var persia = Ai(eng, "persia");
+    p.Gold = Balance.EmbassyCost - 1;
+    Check(eng.EstablishEmbassy(persia.Id).Message.Contains("Needs"), "cannot afford the embassy");
+    p.Gold = 100_000;
+
+    // War closes the embassy.
+    eng.EstablishEmbassy(persia.Id);
+    Check(TreatyService.HasEmbassy(eng.State, p.Id, persia.Id), "embassy in Persia");
+    eng.DeclareWar(persia.Id);
+    Check(!TreatyService.HasEmbassy(eng.State, p.Id, persia.Id), "war closes the embassy");
+}
+
+Console.WriteLine("== 30. Non-aggression pact: signing and enforcement ==");
+using (var eng = NewDipEngine(3))
+{
+    var p = eng.State.PlayerNation;
+    var france = Ai(eng, "france");
+    Check(eng.ProposeNonAggression(france.Id).Outcome == DipOutcome.Invalid, "no pact without an embassy");
+    eng.EstablishEmbassy(france.Id);
+    double g0 = p.Gold;
+    var start = eng.State.CurrentDate;
+    var r = eng.ProposeNonAggression(france.Id);
+    Check(r.Ok, "pact signed (embassy 50 + 5 = 55 reaches the 55 asked)");
+    Check(Math.Abs(p.Gold - (g0 - Balance.NapCost)) < 0.01, "pact costs its price");
+    var pact = eng.State.Treaties.First(x => x.Type == TreatyType.NonAggression);
+    Check(pact.ExpiresDate == start.AddDays(Balance.NapDays), "the pact has a defined duration");
+    Check(eng.ProposeNonAggression(france.Id).Outcome == DipOutcome.Invalid, "no second pact while one runs");
+
+    // Enforcement: player side.
+    var war = eng.DeclareWar(france.Id);
+    Check(war is not null && war.Contains("non-aggression"), "the player cannot declare war under the pact");
+    Check(!france.AtWarWithPlayer && Rate(france) > 0, "a blocked war changes nothing");
+    var tribute = eng.DemandTribute(france.Id);
+    Check(tribute is not null && tribute.Contains("non-aggression"), "tribute demands are barred too");
+    Check(eng.EstablishNetwork(france.Id) is null, "setting up a spy network is still allowed");
+    int strength = eng.GetNetwork(france.Id)!.Strength;
+    string?[] spy = { eng.SpySteal(france.Id), eng.SpySabotage(france.Id), eng.SpyInciteRevolt(france.Id) };
+    Check(spy.All(s => s is not null && s.Contains("non-aggression")), "hostile spy operations are barred");
+    Check(eng.GetNetwork(france.Id)!.Strength == strength, "a barred spy operation spends nothing");
+    var (okInv, _) = eng.LaunchInvasion(france.Id, 1000);
+    Check(!okInv, "no invasion under the pact");
+
+    // Enforcement: AI side — a furious AI still cannot declare war while the pact runs.
+    for (int i = 0; i < 150; i++)
+    {
+        france.RelationToPlayer = -100;
+        p.Gold = 1_000_000;
+        eng.AdvanceOneDay();
+    }
+    Check(!france.AtWarWithPlayer, "a furious AI does not declare war under the pact");
+
+    // Control: break the pact and the same AI does declare war.
+    var cancel = eng.CancelTreaty(TreatyType.NonAggression, france.Id);
+    Check(cancel.Ok && !TreatyService.Has(eng.State, TreatyType.NonAggression, p.Id, france.Id), "the pact can be cancelled");
+    for (int i = 0; i < 600 && !france.AtWarWithPlayer; i++)
+    {
+        france.RelationToPlayer = -100;
+        p.Gold = 1_000_000;
+        eng.AdvanceOneDay();
+    }
+    Check(france.AtWarWithPlayer, "control: without the pact the same furious AI declares war");
+    Check(!TreatyService.HasEmbassy(eng.State, p.Id, france.Id), "and that war closes the embassy");
+}
+
+using (var eng = NewDipEngine(4))
+{
+    var p = eng.State.PlayerNation;
+    var france = Ai(eng, "france");
+    eng.EstablishEmbassy(france.Id);
+    eng.ProposeNonAggression(france.Id);
+    int ratingBeforeBreak = Rate(france);
+    var br = eng.CancelTreaty(TreatyType.NonAggression, france.Id);
+    Check(br.Ok && Rate(france) == ratingBeforeBreak - Balance.BreakPactRatingPenalty, "breaking a pact costs relations");
+    Check(eng.DeclareWar(france.Id) is null, "after breaking the pact war may be declared");
+
+    // Expiry: the pact lapses after its term; the embassy stays.
+    var persia = Ai(eng, "persia");
+    eng.EstablishEmbassy(persia.Id);
+    eng.ProposeNonAggression(persia.Id);
+    for (int i = 0; i < Balance.NapDays; i++) { p.Gold = 1_000_000_000; eng.AdvanceOneDay(); }
+    Check(!TreatyService.Has(eng.State, TreatyType.NonAggression, p.Id, persia.Id), "the pact expires after its term");
+    Check(HasLog(eng, "non-aggression pact with Iran has expired"), "the expiry is logged");
+    Check(TreatyService.HasEmbassy(eng.State, p.Id, persia.Id), "the embassy outlives the pact");
+    Check(eng.DeclareWar(persia.Id) is null, "war is possible again once the pact has expired");
+
+    // An expired-but-not-yet-purged treaty never counts.
+    var expired = new Treaty { Type = TreatyType.NonAggression, NationAId = p.Id, NationBId = "x", ExpiresDate = eng.State.CurrentDate };
+    Check(!expired.IsActiveOn(eng.State.CurrentDate) && expired.IsActiveOn(eng.State.CurrentDate.AddDays(-1)), "a treaty ends on its expiry date");
+}
+
+using (var eng = NewDipEngine(6))
+{
+    // A march already under way is recalled if a pact now forbids the attack (the belt-and-braces check).
+    var p = eng.State.PlayerNation;
+    var persia = Ai(eng, "persia");
+    TreatyService.Add(eng.State, TreatyType.NonAggression, p, persia, 365);
+    persia.AtWarWithPlayer = true;
+    var march = TreatyService.LaunchMarch(eng.State, p, persia, 1000)!;
+    int afterLaunch = p.Soldiers;
+    for (int i = 0; i < march.TotalDays; i++) eng.AdvanceOneDay();
+    Check(eng.State.MarchingArmies.Count == 0 && !persia.IsEliminated, "a march against a pact partner annexes nothing");
+    // (+1,000 comes home; daily war attrition shaves a few percent off the rest.)
+    Check(p.Soldiers > afterLaunch + 500, "the recalled force comes home");
+    Check(HasLog(eng, "called off"), "the recall is logged");
+}
+
+Console.WriteLine("== 31. Defensive alliance: signing, enforcement, allied defence ==");
+using (var eng = NewDipEngine(5))
+{
+    var p = eng.State.PlayerNation;
+    var spain = Ai(eng, "spain");
+    var persia = Ai(eng, "persia");
+    Check(eng.ProposeAlliance(spain.Id).Outcome == DipOutcome.Invalid, "no alliance without an embassy");
+    eng.EstablishEmbassy(spain.Id);
+    Check(eng.ProposeAlliance(spain.Id).Message.Contains("regards you too poorly"), "no alliance below relations 60");
+
+    // Eligible (62) but the AI's attitude (62 + embassy 5 = 67) misses the 70 asked.
+    SetRating(spain, 62);
+    double g0 = p.Gold;
+    var refused = eng.ProposeAlliance(spain.Id);
+    Check(refused.Outcome == DipOutcome.Rejected && p.Gold == g0, "a lukewarm country declines the alliance at no cost");
+    Check(Rate(spain) == 61, "and a refusal stings relations by a point");
+    Check(eng.ProposeAlliance(spain.Id).Message.Contains("Available again"), "asking again is on cooldown");
+
+    p.DiplomacyCooldowns.Clear();
+    SetRating(spain, 66);
+    var accepted = eng.ProposeAlliance(spain.Id);
+    Check(accepted.Ok, "a warm country (66 + 5 = 71) accepts");
+    Check(Math.Abs(p.Gold - (g0 - Balance.AllianceCost)) < 0.01, "the alliance costs its price");
+    Check(TreatyService.Has(eng.State, TreatyType.DefensiveAlliance, p.Id, spain.Id), "the alliance is tracked");
+    var warOnAlly = eng.DeclareWar(spain.Id);
+    Check(warOnAlly is not null && warOnAlly.Contains("allied"), "you cannot attack an ally");
+    Check(eng.ProposeAlliance(spain.Id).Outcome == DipOutcome.Invalid, "no second alliance");
+    double rel = spain.RelationToPlayer;
+    eng.AdvanceOneDay();
+    Check(spain.RelationToPlayer > rel, "an alliance keeps warming relations");
+
+    // Allied defence: the ally marches a share of ITS OWN army on the aggressor.
+    int spainBefore = spain.Soldiers, playerBefore = p.Soldiers;
+    int marched = TreatyService.AllianceDefence(eng.State, persia, p);
+    Check(marched == 1, "one ally honours the alliance");
+    var def = eng.State.MarchingArmies.First(x => x.AttackerNationId == spain.Id && x.TargetNationId == persia.Id);
+    int commit = (int)(spainBefore * Balance.AllianceAidFraction);
+    Check(def.Strength == commit && spain.Soldiers == spainBefore - commit, "the ally's soldiers leave its army exactly as they march");
+    Check(spain.Soldiers + def.Strength == spainBefore && p.Soldiers == playerBefore, "no soldiers are created or copied");
+    Check(eng.State.ActiveWarnings.Any(x => x.Contains("marches to defend you")), "the player is told");
+
+    // Cases where the ally does not come.
+    eng.State.MarchingArmies.Clear();
+    spain.Units = UnitCatalog.SeedArmy(1000);
+    Check(TreatyService.AllianceDefence(eng.State, persia, p) == 0 && HasLog(eng, "too weak"), "a weak ally cannot march");
+    spain.Units = UnitCatalog.SeedArmy(9000);
+    SetRating(spain, 30);
+    Check(TreatyService.AllianceDefence(eng.State, persia, p) == 0 && HasLog(eng, "ignores the call"), "an ally that has soured ignores the call");
+    SetRating(spain, 80);
+    Check(TreatyService.AllianceDefence(eng.State, spain, p) == 0, "an ally never marches on itself");
+    spain.AtWarWithPlayer = true;
+    Check(TreatyService.AllianceDefence(eng.State, persia, p) == 0, "an ally at war with you does not come");
+}
+
+using (var eng = NewDipEngine(21))
+{
+    // Integration: an AI that declares war triggers the defence by itself.
+    var p = eng.State.PlayerNation;
+    var spain = Ai(eng, "spain");
+    var persia = Ai(eng, "persia");
+    TreatyService.Add(eng.State, TreatyType.DefensiveAlliance, p, spain);
+    for (int i = 0; i < 400 && !persia.AtWarWithPlayer; i++)
+    {
+        persia.RelationToPlayer = -100;
+        p.Gold = 1_000_000;
+        eng.AdvanceOneDay();
+    }
+    Check(persia.AtWarWithPlayer, "the furious AI declared war");
+    Check(eng.State.MarchingArmies.Any(x => x.AttackerNationId == spain.Id && x.TargetNationId == persia.Id),
+        "the ally marched on the aggressor the same day");
+    Check(HasLog(eng, "honours the alliance"), "the alliance is logged");
+}
+
+using (var eng = NewDipEngine(22))
+{
+    // A furious ally cannot declare war on the player either.
+    var p = eng.State.PlayerNation;
+    var spain = Ai(eng, "spain");
+    TreatyService.Add(eng.State, TreatyType.DefensiveAlliance, p, spain);
+    for (int i = 0; i < 150; i++) { spain.RelationToPlayer = -100; p.Gold = 1_000_000; eng.AdvanceOneDay(); }
+    Check(!spain.AtWarWithPlayer, "an ally never declares war on the player");
+}
+
+Console.WriteLine("== 32. Trade agreement: tracked, cheaper imports, richer exports ==");
+using (var eng = NewDipEngine(8))
+{
+    var p = eng.State.PlayerNation;
+    var france = Ai(eng, "france");
+    Check(eng.ProposeTradeAgreement(france.Id).Outcome == DipOutcome.Invalid, "no trade agreement without an embassy");
+    eng.EstablishEmbassy(france.Id);
+    double g0 = p.Gold;
+    var r = eng.ProposeTradeAgreement(france.Id);
+    Check(r.Ok && Math.Abs(p.Gold - (g0 - Balance.TradeAgreementCost)) < 0.01, "agreement signed for its price");
+    Check(TreatyService.Has(eng.State, TreatyType.TradeAgreement, p.Id, france.Id) && france.HasTradePactWithPlayer,
+        "the agreement is tracked and drives the existing pact income");
+    Check(eng.ProposeTradeAgreement(france.Id).Outcome == DipOutcome.Invalid, "no second agreement");
+
+    // Cheaper imports.
+    Check(eng.BuyProduct(france.Id, "wheat", 1000) is null, "buy wheat from the partner");
+    double withPrice = eng.State.TradeContracts.Last().PricePer1000;
+    var cancelled = eng.CancelTreaty(TreatyType.TradeAgreement, france.Id);
+    Check(cancelled.Ok && !france.HasTradePactWithPlayer, "cancelling ends the agreement and clears the pact flag");
+    Check(eng.BuyProduct(france.Id, "wheat", 1000) is null, "buy wheat again without the agreement");
+    double withoutPrice = eng.State.TradeContracts.Last().PricePer1000;
+    Check(Math.Abs(withPrice / withoutPrice - Balance.TradeAgreementImportMult) < 0.01, "imports from a partner cost 10% less");
+
+    // Walking away stung relations below what a new agreement needs; warm them up and sign again, then war ends it.
+    Check(eng.ProposeTradeAgreement(france.Id).Message.Contains("regards you too poorly"), "cancelling cost enough relations to block re-signing");
+    SetRating(france, 60);
+    Check(eng.ProposeTradeAgreement(france.Id).Ok, "after a warm-up the agreement can be signed again");
+    eng.DeclareWar(france.Id);
+    Check(!france.HasTradePactWithPlayer && !TreatyService.Has(eng.State, TreatyType.TradeAgreement, p.Id, france.Id),
+        "war ends the trade agreement");
+}
+
+// Richer exports: two identical worlds, A with the agreement and B without, sell the same goods and compare treasuries.
+using (var engA = NewDipEngine(8))
+using (var engB = NewDipEngine(8))
+{
+    foreach (var eng in new[] { engA, engB }) eng.EstablishEmbassy(Ai(eng, "france").Id);
+    Check(engA.ProposeTradeAgreement(Ai(engA, "france").Id).Ok, "world A signs the agreement");
+    foreach (var eng in new[] { engA, engB })
+    {
+        eng.State.PlayerNation.GoodsInventory["Wheat"] = 2_000_000;
+        Ai(eng, "france").Gold = 5_000_000;
+        Check(eng.SellProduct("france", "wheat", 1_000_000, 1000) is null, "sell a million wheat");
+    }
+    for (int i = 0; i < 8; i++) { engA.AdvanceOneDay(); engB.AdvanceOneDay(); }
+    Check(engA.State.TradeContracts.Any(x => x.Status == TradeStatus.Delivered && !x.IsPlayerBuyer)
+          && engB.State.TradeContracts.Any(x => x.Status == TradeStatus.Delivered && !x.IsPlayerBuyer), "both sales were delivered");
+    double diff = engA.State.PlayerNation.Gold - engB.State.PlayerNation.Gold;
+    // +10% of a million, minus what A paid for its agreement (1,000), plus the small daily pact income.
+    Check(diff > 98_500 && diff < 99_500, $"exports to a partner pay 10% more (treasury difference {diff:N0})");
+}
+
+using (var eng = NewDipEngine(9))
+{
+    // Legacy pact API stays consistent with treaties; annexation clears everything.
+    var p = eng.State.PlayerNation;
+    var persia = Ai(eng, "persia");
+    var spain = Ai(eng, "spain");
+    Check(eng.SignTradePact(persia.Id) is null, "legacy trade pact still signs");
+    Check(TreatyService.Has(eng.State, TreatyType.TradeAgreement, p.Id, persia.Id), "the legacy pact is also a tracked treaty");
+    eng.CancelTradePact(persia.Id);
+    Check(!TreatyService.Has(eng.State, TreatyType.TradeAgreement, p.Id, persia.Id), "legacy cancel removes the treaty");
+
+    eng.EstablishEmbassy(persia.Id);
+    eng.SignTradePact(persia.Id);
+    Warfare.AnnexNation(eng.State, spain, persia);
+    Check(!eng.State.Treaties.Any(x => x.Involves(persia.Id)) && !persia.HasTradePactWithPlayer, "annexing a country ends all its treaties");
+}
+
+Console.WriteLine("== 33. Send troops: loans that never duplicate soldiers ==");
+using (var eng = NewDipEngine(10))
+{
+    var p = eng.State.PlayerNation;
+    var persia = Ai(eng, "persia");
+    Check(eng.SendTroops(persia.Id, 1000).Outcome == DipOutcome.Invalid, "no troops abroad without an embassy");
+    eng.EstablishEmbassy(persia.Id);
+    Check(eng.SendTroops(persia.Id, 0).Outcome == DipOutcome.Invalid, "must send at least one soldier");
+    Check(eng.SendTroops(persia.Id, p.Soldiers).Message.Contains("at most"), "cannot send the home guard");
+
+    int pBefore = p.Soldiers, hBefore = persia.Soldiers;
+    var typeBefore = Enum.GetValues<UnitType>().ToDictionary(t => t, t => CountOf(t, p) + CountOf(t, persia));
+    int ratingBefore = Rate(persia);
+    var r = eng.SendTroops(persia.Id, 2000);
+    Check(r.Ok, "troops sent");
+    Check(p.Soldiers == pBefore - 2000 && persia.Soldiers == hBefore + 2000, "soldiers move from one army to the other");
+    Check(Enum.GetValues<UnitType>().All(t => CountOf(t, p) + CountOf(t, persia) == typeBefore[t]), "every unit type is conserved: nothing duplicated");
+    Check(Rate(persia) == ratingBefore + 2, "lending 2,000 soldiers earns +2 relations");
+    var loan = eng.State.TroopLoans.Single();
+    Check(loan.Soldiers == 2000 && loan.ReturnDate == eng.State.CurrentDate.AddDays(Balance.TroopLoanDays), "the loan is recorded with a return date");
+    Check(!ReferenceEquals(loan.Force, p.Units) && loan.Force.All(f => !p.Units.Contains(f) && !persia.Units.Contains(f)),
+        "the loan record shares no objects with either army");
+
+    for (int i = 0; i < Balance.TroopLoanDays; i++) eng.AdvanceOneDay();
+    Check(eng.State.TroopLoans.Count == 0, "the loan ends on its date");
+    Check(p.Soldiers == pBefore && persia.Soldiers == hBefore, "all soldiers come home");
+    Check(HasLog(eng, "loaned soldiers returned"), "the return is logged");
+}
+
+using (var eng = NewDipEngine(11))
+{
+    // Casualties abroad are real: what is left of the lent unit type comes back, no more.
+    var p = eng.State.PlayerNation;
+    var persia = Ai(eng, "persia");
+    eng.EstablishEmbassy(persia.Id);
+    eng.SendTroops(persia.Id, 2000);
+    int lentMusk = eng.State.TroopLoans.Single().Force.Where(f => f.Type == UnitType.Musketeer).Sum(f => f.Count);
+    persia.Units.First(u => u.Type == UnitType.Musketeer).Count = 300;   // the host lost its musketeers in battle
+    int pAfterLend = p.Soldiers;
+    for (int i = 0; i < Balance.TroopLoanDays; i++) eng.AdvanceOneDay();
+    Check(CountOf(UnitType.Musketeer, p) == 4400 - lentMusk + 300, "only the surviving musketeers come back");
+    Check(p.Soldiers < 8000 && p.Soldiers > pAfterLend, "the owner gets back less than it lent");
+    Check(CountOf(UnitType.Musketeer, persia) == 0, "the host keeps nothing it does not have");
+    Check(eng.State.TroopLoans.Count == 0, "the loan is closed");
+}
+
+using (var eng = NewDipEngine(12))
+{
+    var p = eng.State.PlayerNation;
+    var persia = Ai(eng, "persia");
+    var spain = Ai(eng, "spain");
+    var france = Ai(eng, "france");
+    eng.EstablishEmbassy(persia.Id);
+    eng.SendTroops(persia.Id, 2000);
+    eng.DeclareWar(persia.Id);
+    Check(p.Soldiers == 8000 && eng.State.TroopLoans.Count == 0, "war recalls loaned soldiers at once");
+
+    // The host is annexed: its guests go home before its army is wiped.
+    var persia2 = Ai(eng, "mughal");
+    eng.EstablishEmbassy(persia2.Id);
+    eng.SendTroops(persia2.Id, 1500);
+    int pMid = p.Soldiers;
+    Warfare.AnnexNation(eng.State, spain, persia2);
+    Check(p.Soldiers == pMid + 1500 && eng.State.TroopLoans.Count == 0, "a fallen host returns its guests");
+
+    // The owner is annexed: the loan record ends, nothing crashes, the host keeps the soldiers it holds.
+    eng.EstablishEmbassy(france.Id);
+    eng.SendTroops(france.Id, 1000);
+    int franceArmy = france.Soldiers;
+    Warfare.AnnexNation(eng.State, spain, p);
+    Check(p.IsEliminated && eng.State.TroopLoans.Count == 0 && france.Soldiers == franceArmy, "a fallen owner's loan simply ends");
+}
+
+using (var eng = NewDipEngine(13))
+{
+    // The AI decides: a country that does not trust us enough declines, and nothing moves.
+    var p = eng.State.PlayerNation;
+    var france = Ai(eng, "france");
+    eng.EstablishEmbassy(france.Id);
+    SetRating(france, 41);   // can ask (>=40) but 41 + embassy 5 = 46 < 50
+    int before = p.Soldiers;
+    var r = eng.SendTroops(france.Id, 1000);
+    Check(r.Outcome == DipOutcome.Rejected && p.Soldiers == before && eng.State.TroopLoans.Count == 0 && france.Soldiers == 9000,
+        "a distrustful country declines the troops and nothing is moved");
+    SetRating(france, 39);
+    Check(eng.SendTroops(france.Id, 1000).Outcome == DipOutcome.Invalid, "below relations 40 you cannot even offer");
+}
+
+Console.WriteLine("== 34. Give army and call to arms ==");
+using (var eng = NewDipEngine(14))
+{
+    var p = eng.State.PlayerNation;
+    var persia = Ai(eng, "persia");
+    int pBefore = p.Soldiers, hBefore = persia.Soldiers;
+    var typeBefore = Enum.GetValues<UnitType>().ToDictionary(t => t, t => CountOf(t, p) + CountOf(t, persia));
+    int ratingBefore = Rate(persia);
+    var r = eng.GiveArmy(persia.Id, 1000);
+    Check(r.Ok, "army given");
+    Check(p.Soldiers == pBefore - 1000 && persia.Soldiers == hBefore + 1000, "the soldiers change owner");
+    Check(Enum.GetValues<UnitType>().All(t => CountOf(t, p) + CountOf(t, persia) == typeBefore[t]), "every unit type is conserved: nothing duplicated");
+    Check(Rate(persia) > ratingBefore, "a gift of soldiers improves relations");
+    Check(eng.State.TroopLoans.Count == 0, "a gift is permanent: no loan record");
+    Check(eng.GiveArmy(persia.Id, 0).Outcome == DipOutcome.Invalid, "must give at least one soldier");
+
+    var big = eng.GiveArmy(persia.Id, eng.SpareSoldiers + 1);
+    Check(big.Outcome == DipOutcome.Invalid && big.Message.Contains("at most"), "cannot give more than the spare soldiers");
+    int spare = eng.SpareSoldiers;
+    Check(eng.GiveArmy(persia.Id, spare).Ok && p.Soldiers == Balance.MinHomeGuard, "the home guard is always kept");
+    Check(eng.GiveArmy(persia.Id, 1).Outcome == DipOutcome.Invalid, "nothing more can be given once only the guard remains");
+}
+
+using (var eng = NewDipEngine(15))
+{
+    var p = eng.State.PlayerNation;
+    var persia = Ai(eng, "persia");
+    var france = Ai(eng, "france");
+    SetRating(persia, 29);
+    Check(eng.GiveArmy(persia.Id, 100).Outcome == DipOutcome.Invalid, "a hostile country will not take an army");
+    SetRating(persia, 50);
+    int before = p.Soldiers;
+    eng.DeclareWar(france.Id);
+    Check(eng.GiveArmy(france.Id, 100).Outcome == DipOutcome.Invalid && p.Soldiers == before, "never arm a country you are at war with");
+}
+
+using (var eng = NewDipEngine(16))
+{
+    var p = eng.State.PlayerNation;
+    var spain = Ai(eng, "spain");
+    var persia = Ai(eng, "persia");
+    var france = Ai(eng, "france");
+    Check(eng.CallToArms(spain.Id, persia.Id).Message.Contains("not your defensive ally"), "only a defensive ally can be called");
+    TreatyService.Add(eng.State, TreatyType.DefensiveAlliance, p, spain);
+    Check(eng.CallToArms(spain.Id, persia.Id).Message.Contains("not at war"), "nothing to join while you are at peace");
+    eng.DeclareWar(persia.Id);
+    Check(eng.CallToArms(spain.Id, france.Id).Message.Contains("at war with"), "the enemy must be a country you are at war with");
+
+    // The AI says no: distrust.
+    SetRating(spain, 40);   // 40 + alliance 10 = 50 < 60
+    int spainBefore = spain.Soldiers;
+    var no = eng.CallToArms(spain.Id, persia.Id);
+    Check(no.Outcome == DipOutcome.Rejected && spain.Soldiers == spainBefore && eng.State.MarchingArmies.Count == 0,
+        "a distrustful ally refuses and keeps its army home");
+    p.DiplomacyCooldowns.Clear();
+
+    // The AI says no: the enemy is too strong.
+    SetRating(spain, 50);
+    var persiaArmy = persia.Units;
+    persia.Units = UnitCatalog.SeedArmy(100_000);
+    Check(eng.CallToArms(spain.Id, persia.Id).Message.Contains("too strong"), "an ally will not face an enemy that dwarfs it");
+    persia.Units = persiaArmy;
+    p.DiplomacyCooldowns.Clear();
+
+    // Too few soldiers to send an army at all.
+    spain.Units = UnitCatalog.SeedArmy(1000);
+    Check(eng.CallToArms(spain.Id, persia.Id).Message.Contains("too few"), "an ally with a tiny army cannot send one");
+    spain.Units = UnitCatalog.SeedArmy(9000);
+
+    // Accepted: the ally commits its OWN soldiers.
+    int playerBefore = p.Soldiers;
+    var yes = eng.CallToArms(spain.Id, persia.Id);
+    int commit = (int)(9000 * Balance.CallToArmsFraction);
+    Check(yes.Ok, "the ally joins the war");
+    Check(spain.Soldiers == 9000 - commit && p.Soldiers == playerBefore, "the ally's soldiers march; the player's army is untouched");
+    var march = eng.State.MarchingArmies.Single(x => x.AttackerNationId == spain.Id);
+    Check(march.TargetNationId == persia.Id && march.Strength == commit, "the march is a normal tracked march on the enemy");
+    Check(eng.CallToArms(spain.Id, persia.Id).Message.Contains("Available again"), "the ally cannot be called twice in a row");
+    p.DiplomacyCooldowns.Clear();
+    Check(eng.CallToArms(spain.Id, persia.Id).Message.Contains("already has an army marching"), "no second army while one is on the road");
+}
+
+using (var eng = NewDipEngine(17))
+{
+    // The ally annexes the enemy; the player's own army marching on the same enemy comes home exactly once.
+    var p = eng.State.PlayerNation;
+    var spain = Ai(eng, "spain");
+    var persia = Ai(eng, "persia");
+    p.Units = UnitCatalog.SeedArmy(2000);
+    persia.Units = UnitCatalog.SeedArmy(1200);
+    TreatyService.Add(eng.State, TreatyType.DefensiveAlliance, p, spain);
+    eng.DeclareWar(persia.Id);
+    Check(eng.CallToArms(spain.Id, persia.Id).Ok, "ally called");           // the ally's march is listed FIRST
+    Check(eng.LaunchInvasion(persia.Id, 600).ok, "player's own march launched");
+    foreach (var m in eng.State.MarchingArmies) m.DaysLeft = 1;
+    int soldiersBefore = p.Soldiers;
+    int attrition = (int)(soldiersBefore * Balance.WarAttritionPerDay);
+    long spainPop = spain.Population;
+    eng.AdvanceOneDay();
+    Check(persia.IsEliminated && spain.Population > spainPop, "the ally's army wins and annexes the enemy");
+    Check(!persia.AtWarWithPlayer && eng.State.MarchingArmies.Count == 0, "the war ends and no march is left");
+    Check(p.Soldiers == soldiersBefore - attrition + 600, "the player's force returns exactly once: no loss, no duplicate");
+    Check(HasLog(eng, "Iberian Union vs Iran"), "the ally's battle is logged");
+}
+
+Console.WriteLine("== 35. Gift, improve relations, ask for aid ==");
+using (var eng = NewDipEngine(18))
+{
+    var p = eng.State.PlayerNation;
+    var persia = Ai(eng, "persia");
+    var france = Ai(eng, "france");
+    double pg = p.Gold, tg = persia.Gold;
+    int r0 = Rate(persia);
+    var gift = eng.GiveGift(persia.Id, 1000);
+    Check(gift.Ok && p.Gold == pg - 1000 && persia.Gold == tg + 1000, "a gift moves gold to the recipient's treasury");
+    Check(Rate(persia) == r0 + 10, "1,000 gold = +10 relations");
+    Check(eng.GiveGift(persia.Id, 1000).Message.Contains("Available again"), "gifts have a short cooldown");
+    for (int i = 0; i < Balance.GiftCooldownDays; i++) eng.AdvanceOneDay();
+    int r1 = Rate(persia);
+    Check(eng.GiveGift(persia.Id, 100).Ok && Rate(persia) >= r1 + 1 - 1, "a 100-gold gift is accepted after the cooldown");
+    Check(eng.GiveGift(france.Id, 99).Outcome == DipOutcome.Invalid, "a gift below the minimum is refused");
+    Check(eng.GiveGift(france.Id, p.Gold + 1).Outcome == DipOutcome.Invalid, "cannot give more gold than you have");
+    int rf = Rate(france);
+    Check(eng.GiveGift(france.Id, 5000).Ok && Rate(france) == rf + DiplomacyService.MaxAidGainPerTransaction, "relations gained from one gift are capped");
+    SetRating(Ai(eng, "mughal"), 0);
+    Check(eng.GiveGift("mughal", 100).Ok, "even a hostile country accepts a gift");
+    eng.DeclareWar("nepal");
+    double beforeWar = p.Gold;
+    Check(eng.GiveGift("nepal", 500).Outcome == DipOutcome.Invalid && p.Gold == beforeWar, "no gifts to a country at war with you");
+}
+
+using (var eng = NewDipEngine(19))
+{
+    var p = eng.State.PlayerNation;
+    var persia = Ai(eng, "persia");
+    var france = Ai(eng, "france");
+    double g0 = p.Gold;
+    int r0 = Rate(persia);
+    var r = eng.ImproveRelations(persia.Id);
+    Check(r.Ok && Math.Abs(p.Gold - (g0 - Balance.ImproveRelationsCost)) < 0.01, "envoys cost their fixed price");
+    Check(Rate(persia) == r0 + Balance.ImproveRelationsGain, "envoys without an embassy: +5 relations");
+    Check(persia.Gold == Ai(eng, "persia").Gold && eng.ImproveRelations(persia.Id).Message.Contains("Available again"), "envoys have a cooldown");
+
+    eng.EstablishEmbassy(france.Id);
+    int f0 = Rate(france);
+    eng.ImproveRelations(france.Id);
+    Check(Rate(france) == f0 + Balance.ImproveRelationsGainWithEmbassy, "with an embassy the envoys are twice as effective");
+    var nepal = Ai(eng, "nepal");
+    SetRating(nepal, 90);
+    Check(eng.ImproveRelations(nepal.Id).Message.Contains("already excellent"), "no envoys when relations are already excellent");
+    p.Gold = Balance.ImproveRelationsCost - 1;
+    Check(eng.ImproveRelations(Ai(eng, "mughal").Id).Message.Contains("Needs"), "cannot afford the envoys");
+}
+
+using (var eng = NewDipEngine(20))
+{
+    var p = eng.State.PlayerNation;
+    var france = Ai(eng, "france");
+    var persia = Ai(eng, "persia");
+    double pg = p.Gold, fg = france.Gold;
+
+    // Too cool: refused, nothing moves.
+    var no = eng.AskForAid(france.Id, "Gold");
+    Check(no.Outcome == DipOutcome.Rejected && p.Gold == pg && france.Gold == fg, "a neutral country refuses aid: nothing moves");
+    Check(Rate(france) == 49, "the refusal stings by a point");
+    Check(eng.AskForAid(france.Id, "Gold").Message.Contains("Available again"), "asking again is on cooldown");
+
+    // Warm enough: accepted, the resource really moves.
+    p.DiplomacyCooldowns.Clear();
+    SetRating(france, 65);
+    var yes = eng.AskForAid(france.Id, "Gold");
+    double expected = Math.Floor(fg * Balance.AidRequestFraction);
+    Check(yes.Ok && p.Gold == pg + expected && france.Gold == fg - expected, "aid moves 5% of their gold to the player");
+    Check(Rate(france) == 65 - Balance.AidRequestRatingCost, "asking costs a little goodwill");
+    Check(eng.AskForAid(france.Id, "Gold").Message.Contains("Available again"), "aid has a long cooldown");
+
+    // A shared faith helps: 60 + 5 reaches the bar.
+    SetRating(persia, 60);
+    double wheat0 = persia.GetProduct("Wheat");
+    var wheat = eng.AskForAid(persia.Id, "wheat");
+    Check(wheat.Ok && Math.Abs(persia.GetProduct("Wheat") - (wheat0 - Math.Floor(wheat0 * 0.05))) < 0.001, "a country of the same faith helps at relations 60 (wheat)");
+
+    // Nothing to spare / bad resource.
+    var spain = Ai(eng, "spain");
+    SetRating(spain, 80);
+    spain.Stone = 0;
+    var none = eng.AskForAid(spain.Id, "Stone");
+    Check(none.Outcome == DipOutcome.Rejected && none.Message.Contains("no Stone to spare"), "a country with none of it has nothing to give");
+    p.DiplomacyCooldowns.Clear();
+    Check(eng.AskForAid(spain.Id, "Silver").Outcome == DipOutcome.Invalid, "only gold, wood, stone, iron or wheat can be requested");
+}
+
+Console.WriteLine("== 36. Present a colony and missionary work ==");
+using (var eng = NewDipEngine(23))
+{
+    var p = eng.State.PlayerNation;
+    var persia = Ai(eng, "persia");
+    p.Warships = 5; p.Gold = 100_000; p.GoodsInventory["Wheat"] = 100_000;
+    var region = eng.State.FrontierRegions[0];
+    Check(eng.State.Colonies.Count == 0, "no colony records at the start");
+    eng.FoundColony(region.Id);
+    for (int i = 0; i < Balance.ColonyDays; i++) eng.AdvanceOneDay();
+    var colony = eng.State.Colonies.Single();
+    Check(colony.Name == region.Name && colony.OwnerId == p.Id && colony.FoundedById == p.Id, "a founded colony is recorded with its owner");
+    Check(colony.Population == Balance.ColonyStartPopulation && colony.Farms == 8 && colony.Mines == 2, "the record holds what the colony added to the nation");
+    Check(p.ColoniesFounded == 1, "the existing colony counter is unchanged");
+
+    long pPop = p.Population, tPop = persia.Population;
+    int pFarms = p.Farms, tFarms = persia.Farms, pMines = p.Mines, tMines = persia.Mines;
+    int rating = Rate(persia);
+    var r = eng.PresentColonyTo(persia.Id, colony.Id);
+    Check(r.Ok && colony.OwnerId == persia.Id, "the colony changes owner");
+    Check(p.Population == pPop - colony.Population && persia.Population == tPop + colony.Population, "its people move to the new owner");
+    Check(p.Farms == pFarms - 8 && persia.Farms == tFarms + 8 && p.Mines == pMines - 2 && persia.Mines == tMines + 2, "its buildings move to the new owner");
+    Check(Rate(persia) == rating + Balance.ColonyGiftRatingGain, "presenting a colony warms relations");
+    Check(eng.PresentColonyTo(persia.Id, colony.Id).Outcome == DipOutcome.Invalid, "a colony you gave away is no longer yours to give");
+    Check(!eng.CheckDiplomaticAction("colony", persia.Id).Available, "and the action closes when you own none");
+}
+
+using (var eng = NewDipEngine(24))
+{
+    var p = eng.State.PlayerNation;
+    var persia = Ai(eng, "persia");
+    var mine = new Colony { Name = "Mine", OwnerId = p.Id, FoundedById = p.Id, Population = 100, Farms = 1, Mines = 0 };
+    var theirs = new Colony { Name = "Theirs", OwnerId = "france", FoundedById = "france", Population = 100 };
+    eng.State.Colonies.Add(mine); eng.State.Colonies.Add(theirs);
+    var stolen = eng.PresentColonyTo(persia.Id, theirs.Id);
+    Check(stolen.Outcome == DipOutcome.Invalid && stolen.Message.Contains("do not own") && theirs.OwnerId == "france", "you cannot present a colony you do not own");
+    Check(eng.PresentColonyTo(persia.Id, "missing").Outcome == DipOutcome.Invalid, "unknown colony id");
+    p.Farms = 0;
+    Check(eng.PresentColonyTo(persia.Id, mine.Id).Message.Contains("no longer all yours") && mine.OwnerId == p.Id, "a colony whose buildings are gone cannot be handed over");
+    p.Farms = 50;
+    eng.DeclareWar(persia.Id);
+    Check(eng.PresentColonyTo(persia.Id, mine.Id).Outcome == DipOutcome.Invalid, "no colonies to a country at war with you");
+
+    // An old save: colonies were counted but never recorded.
+    p.ColoniesFounded = 3; eng.State.Colonies.Clear();
+    Check(!eng.CheckDiplomaticAction("colony", Ai(eng, "france").Id).Available, "colonies founded before records existed cannot be presented");
+}
+
+using (var eng = NewDipEngine(25))
+{
+    var p = eng.State.PlayerNation;
+    var france = Ai(eng, "france");   // Christianity vs the Ottoman Islam
+    double g0 = p.Gold;
+    var r = eng.SendMissionary(france.Id);
+    Check(r.Ok && Math.Abs(p.Gold - (g0 - Balance.MissionaryCost)) < 0.01, "a mission costs its price");
+    Check(Math.Abs(eng.MissionaryInfluenceOn(france.Id) - Balance.MissionaryInfluencePerMission) < 0.001, "a pragmatic country gains the base influence");
+    Check(france.Religion == "Christianity", "one mission does not convert");
+    Check(eng.SendMissionary(france.Id).Message.Contains("Available again"), "missions have a cooldown");
+    for (int i = 0; i < Balance.MissionaryCooldownDays; i++) eng.AdvanceOneDay();
+    eng.SendMissionary(france.Id);
+    Check(Math.Abs(eng.MissionaryInfluenceOn(france.Id) - 2 * Balance.MissionaryInfluencePerMission) < 0.001, "influence accumulates between missions");
+
+    // Stance and embassy change the effect.
+    var spain = Ai(eng, "spain"); spain.Stance = ReligiousStance.Devout;
+    int sr = Rate(spain);
+    eng.SendMissionary(spain.Id);
+    Check(Math.Abs(eng.MissionaryInfluenceOn(spain.Id) - Balance.MissionaryInfluencePerMission * 0.5) < 0.001, "a devout ruler halves the influence");
+    Check(Rate(spain) == sr - Balance.MissionaryDevoutRatingPenalty, "and resents the missionaries");
+    var england = Ai(eng, "england"); england.Stance = ReligiousStance.Tolerant;
+    eng.SendMissionary(england.Id);
+    Check(Math.Abs(eng.MissionaryInfluenceOn(england.Id) - Balance.MissionaryInfluencePerMission * 1.5) < 0.001, "a tolerant ruler welcomes it (x1.5)");
+    var dutch = Ai(eng, "dutch");
+    eng.EstablishEmbassy(dutch.Id);
+    eng.SendMissionary(dutch.Id);
+    Check(Math.Abs(eng.MissionaryInfluenceOn(dutch.Id) - Balance.MissionaryInfluencePerMission * 1.5) < 0.001, "an embassy helps the missionaries (x1.5)");
+}
+
+using (var eng = NewDipEngine(26))
+{
+    var p = eng.State.PlayerNation;
+    var france = Ai(eng, "france");
+    Check(Math.Abs(ReligionService.SellingPriceMult(france) - 1.05) < 1e-9 && ReligionService.PopulationGrowthBonus(france) == 0, "France starts with the Christian bonus only");
+    eng.State.MissionaryInfluence[france.Id] = 90;
+    int rating = Rate(france);
+    var r = eng.SendMissionary(france.Id);
+    Check(r.Ok && r.Message.Contains("adopts") && france.Religion == "Islam", "enough influence converts the country to the player's faith");
+    Check(!eng.State.MissionaryInfluence.ContainsKey(france.Id), "the influence is spent");
+    Check(Rate(france) == rating + Balance.MissionaryConversionRatingGain, "conversion warms relations");
+    Check(ReligionService.PopulationGrowthBonus(france) == 0.005 && Math.Abs(ReligionService.SellingPriceMult(france) - 1.0) < 1e-9,
+        "the existing religion effects now apply to the converted country");
+    Check(!eng.CheckDiplomaticAction("missionary", france.Id).Available, "no missionaries to a country that already shares the faith");
+
+    var ming = Ai(eng, "ming");   // Confucianism is not in the catalogue: it can still be converted away from
+    Check(eng.SendMissionary(ming.Id).Ok && eng.MissionaryInfluenceOn(ming.Id) > 0, "a country of an unlisted faith can be worked on");
+    var micronesia = Ai(eng, "micronesia"); micronesia.Religion = "";
+    Check(eng.SendMissionary(micronesia.Id).Message.Contains("no state religion"), "a country without a religion cannot be converted");
+
+    // The player's own faith must exist in the religion catalogue.
+    double g = p.Gold;
+    p.Religion = "Shinto";
+    var blocked = eng.CheckDiplomaticAction("missionary", Ai(eng, "spain").Id);
+    Check(!blocked.Available && blocked.Reason.Contains("missionary doctrine"), "a faith outside the catalogue cannot send missionaries");
+    Check(eng.SendMissionary(Ai(eng, "spain").Id).Outcome == DipOutcome.Invalid && p.Gold == g, "and nothing is spent trying");
+    p.Religion = "Islam";
+    var mughal = Ai(eng, "kazakh");
+    SetRating(mughal, 20);
+    Check(eng.CheckDiplomaticAction("missionary", Ai(eng, "spain").Id).Available, "back to a catalogued faith: allowed again");
+    mughal.Religion = "Hinduism";
+    Check(eng.SendMissionary(mughal.Id).Message.Contains("regards you too poorly"), "a hostile country expels missionaries");
+}
+
+Console.WriteLine("== 37. Save / load of treaties, loans, colonies, influence and cooldowns ==");
+using (var eng = NewDipEngine(2))
+{
+    var p = eng.State.PlayerNation;
+    var france = Ai(eng, "france"); var persia = Ai(eng, "persia"); var spain = Ai(eng, "spain");
+    var start = eng.State.CurrentDate;
+    eng.EstablishEmbassy(france.Id);
+    eng.ProposeNonAggression(france.Id);
+    Check(eng.ProposeTradeAgreement(france.Id).Ok, "trade agreement signed (embassy + pact goodwill)");
+    eng.EstablishEmbassy(persia.Id);
+    eng.SendTroops(persia.Id, 1500);
+    TreatyService.Add(eng.State, TreatyType.DefensiveAlliance, p, spain);
+    eng.State.Colonies.Add(new Colony { Name = "Saved", OwnerId = persia.Id, FoundedById = p.Id, Population = 5000, Farms = 8, Mines = 2, FoundedDate = start });
+    eng.State.MissionaryInfluence[france.Id] = 45;
+    eng.GiveGift(spain.Id, 500);
+    await eng.SaveAsync();
+
+    // Wreck the live state, then load.
+    eng.State.Treaties.Clear(); eng.State.TroopLoans.Clear(); eng.State.Colonies.Clear();
+    eng.State.MissionaryInfluence.Clear(); p.DiplomacyCooldowns.Clear(); france.HasTradePactWithPlayer = false;
+    await eng.LoadAsync();
+
+    var s = eng.State; var lp = s.PlayerNation;
+    Check(s.Treaties.Count == 5, "all five treaties are restored");
+    Check(s.Treaties.Count(x => x.Type == TreatyType.Embassy) == 2 && s.Treaties.Any(x => x.Type == TreatyType.DefensiveAlliance)
+          && s.Treaties.Any(x => x.Type == TreatyType.TradeAgreement), "treaty types survive the round trip");
+    Check(s.Treaties.Single(x => x.Type == TreatyType.NonAggression).ExpiresDate == start.AddDays(Balance.NapDays), "the pact's expiry date survives");
+    Check(TreatyService.HasEmbassy(s, lp.Id, "france") && !TreatyService.HasEmbassy(s, "france", lp.Id), "embassy direction survives");
+    Check(s.TroopLoans.Single().Soldiers == 1500 && s.TroopLoans.Single().ReturnDate == start.AddDays(Balance.TroopLoanDays), "the troop loan survives");
+    Check(s.Colonies.Single().OwnerId == "persia" && s.Colonies.Single().Population == 5000, "colony ownership survives");
+    Check(Math.Abs(s.MissionaryInfluence["france"] - 45) < 0.001, "missionary influence survives");
+    Check(lp.DiplomacyCooldowns.ContainsKey("gift_spain"), "cooldowns survive");
+    Check(s.OtherNations.First(x => x.Id == "france").HasTradePactWithPlayer, "the pact flag survives");
+
+    // And the loaded treaties are live, not just present.
+    var blocked = eng.DeclareWar("france");
+    Check(blocked is not null && blocked.Contains("non-aggression"), "a loaded pact still forbids war");
+    int soldiers = lp.Soldiers;
+    for (int i = 0; i < Balance.TroopLoanDays; i++) { lp.Gold = 1_000_000; eng.AdvanceOneDay(); }
+    Check(eng.State.TroopLoans.Count == 0 && lp.Soldiers == soldiers + 1500, "a loaded loan comes home on schedule");
+
+    // Old saves without any of the new fields still load, and a legacy pact flag becomes a treaty.
+    var node = JsonNode.Parse(JsonSerializer.Serialize(eng.State))!.AsObject();
+    foreach (var key in new[] { "Treaties", "TroopLoans", "Colonies", "MissionaryInfluence" }) node.Remove(key);
+    var old = JsonSerializer.Deserialize<GameState>(node.ToJsonString());
+    Check(old is not null && old.Treaties.Count == 0 && old.TroopLoans.Count == 0 && old.Colonies.Count == 0 && old.MissionaryInfluence.Count == 0,
+        "an old save without the new fields loads with empty collections");
+    foreach (var n in node["OtherNations"]!.AsArray())
+        if (n!["Id"]!.GetValue<string>() == "persia") n["HasTradePactWithPlayer"] = true;
+    Directory.CreateDirectory(saveFolder);
+    File.WriteAllText(Path.Combine(saveFolder, "savegame.json"), node.ToJsonString());
+    await eng.LoadAsync();
+    Check(TreatyService.Has(eng.State, TreatyType.TradeAgreement, eng.State.PlayerNation.Id, "persia"), "a legacy trade-pact flag is given its treaty on load");
+}
+
+Console.WriteLine("== 38. Diplomacy leaves population, tax, shortage and production rules alone ==");
+using (var engA = NewDipEngine(77))
+using (var engB = NewDipEngine(77))
+{
+    // World A uses every non-hostile action; world B does nothing. Gold differs, nothing else about the nation may.
+    var pA = engA.State.PlayerNation;
+    var france = Ai(engA, "france"); var persia = Ai(engA, "persia");
+    engA.EstablishEmbassy(france.Id); engA.ProposeNonAggression(france.Id); engA.ProposeTradeAgreement(france.Id);
+    engA.GiveGift(persia.Id, 500); engA.ImproveRelations(persia.Id); engA.SendMissionary(france.Id);
+    for (int i = 0; i < 60; i++) { engA.AdvanceOneDay(); engB.AdvanceOneDay(); }
+    var pB = engB.State.PlayerNation;
+    Check(pA.Population == pB.Population, "population is unaffected by diplomacy");
+    Check(pA.Soldiers == pB.Soldiers && pA.Workforce.Peasants == pB.Workforce.Peasants, "army and workforce are unaffected");
+    Check(pA.GetProduct("Wheat") == pB.GetProduct("Wheat") && pA.GetProduct("Wood") == pB.GetProduct("Wood"), "production and stocks are unaffected");
+    Check(pA.RulerRating == pB.RulerRating && pA.TaxApproval == pB.TaxApproval, "ruler rating and tax approval are unaffected");
+    Check(pA.LastShortageDeaths == pB.LastShortageDeaths, "shortage effects are unaffected");
 }
 
 Console.WriteLine(failures == 0 ? "\nALL CHECKS PASSED" : $"\n{failures} CHECK(S) FAILED");
