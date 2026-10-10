@@ -31,15 +31,22 @@ public static class PersonnelCatalog
 /// <summary>Population/personnel service.</summary>
 public static class PopulationService
 {
-    /// <summary>
-    /// People born per day: population x (base growth x growth multiplier + religion bonus).
-    /// Used by the daily tick and the Statistics screen so they always agree.
-    /// </summary>
-    public static long DailyBirths(Nation nation)
+    /// <summary>Births before any shortage: population x (base growth x growth multiplier + religion bonus).</summary>
+    public static long NormalDailyBirths(Nation nation)
     {
         double rate = Services.Balance.GrowthPerDayWithSurplus * nation.GrowthMult
                     + ReligionService.PopulationGrowthBonus(nation) / 100.0;   // Islam: +0.005 points
         return (long)(nation.Population * rate);
+    }
+
+    /// <summary>
+    /// People actually born per day: normal births reduced by the shortage-driven birth reduction.
+    /// Used by the daily tick and the Statistics screen so they always agree.
+    /// </summary>
+    public static long DailyBirths(Nation nation)
+    {
+        double reductionPct = ConsumptionService.BirthReductionPct(ConsumptionService.AverageShortagePct(nation));
+        return (long)(NormalDailyBirths(nation) * (1 - reductionPct / 100.0));
     }
 
     /// <summary>Get workforce count by group key.</summary>

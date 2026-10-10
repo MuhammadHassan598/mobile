@@ -28,6 +28,9 @@ public static class Balance
     // ---- Shortage effects: per 1% of an item's daily need left unmet ----
     public const double ShortageRatingDropFoodPerPct = 0.000001;
     public const double ShortageRatingDropMineralPerPct = 0.0000003;
+    /// <summary>Average shortage (percentage points) that does not yet reduce births; above it, births fall 1 point per point.</summary>
+    public const double BirthReductionShortageFreePct = 2.0;
+
     /// <summary>Deaths per day as a share of the population, per 1% of an item's need left unmet.</summary>
     /// <remarks>
     /// Births are ~0.015-0.02% of population per day, so births and deaths cancel where

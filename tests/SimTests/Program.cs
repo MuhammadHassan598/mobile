@@ -802,5 +802,46 @@ using (var engine25 = new GameEngine(new SimulationService(), new SaveService(sa
     Check(shownNet < 0, "a fully short nation shows a negative net change");
 }
 
+Console.WriteLine("== 26. Births fall with the average shortage (max(0, avg - 2)) ==");
+{
+    (double avg, double cut)[] cases = { (0, 0), (2, 0), (5, 3), (10, 8), (15, 13), (22.4, 20.4), (30, 28), (33, 31), (1, 0), (100, 98), (150, 100) };
+    foreach (var (avg, cut) in cases)
+    {
+        double expected = Math.Min(100, cut);
+        Check(Math.Abs(ConsumptionService.BirthReductionPct(avg) - expected) < 1e-9, $"{avg}% average shortage -> {expected}% fewer births");
+    }
+
+    var nb = new Nation { Population = 40_000_000 };
+    long normalB = PopulationService.NormalDailyBirths(nb);
+    Check(normalB > 0, $"normal births computed ({normalB:N0})");
+    Check(PopulationService.DailyBirths(nb) == normalB, "no shortage data: births not reduced");
+    foreach (var s in ConsumptionCatalog.All) nb.ShortagePct[s.Item] = 30;
+    Check(Math.Abs(ConsumptionService.AverageShortagePct(nb) - 30) < 1e-9, "average shortage over the 17 items = 30%");
+    Check(PopulationService.DailyBirths(nb) == (long)(normalB * 0.72), "30% shortage: births x 0.72 (e.g. 6,000 -> 4,320)");
+
+    // Average is dynamic: uses each item's own unmet %, not a fixed value.
+    var nc = new Nation { Population = 40_000_000 };
+    int i26 = 0;
+    foreach (var s in ConsumptionCatalog.All) nc.ShortagePct[s.Item] = i26++ < 5 ? 100 : 0;   // 5 of 17 items fully short
+    double avgMixed = 500.0 / 17;
+    Check(Math.Abs(ConsumptionService.AverageShortagePct(nc) - avgMixed) < 1e-9, "average follows each item's actual shortage");
+    Check(PopulationService.DailyBirths(nc) == (long)(PopulationService.NormalDailyBirths(nc) * (1 - (avgMixed - 2) / 100.0)), "births reduced by (average - 2)%");
+
+    // End to end: the tick uses the reduced births, and the screen's net matches the real change.
+    using var engine26 = new GameEngine(new SimulationService(), new SaveService(saveFolder));
+    var n26 = engine26.State.PlayerNation;
+    n26.ProductionBuildings.Clear();
+    foreach (var s in ConsumptionCatalog.All) n26.AddProduct(s.Item, -n26.GetProduct(s.Item));
+    n26.Population = 20_000_000; n26.ShortageDeathCarry = 0;
+    engine26.AdvanceOneDay();                              // everything short; fills ShortagePct
+    long normal26 = PopulationService.NormalDailyBirths(n26);
+    long actual26 = PopulationService.DailyBirths(n26);
+    Check(actual26 < normal26, "after a full-shortage day births are below normal");
+    long p26 = n26.Population;
+    engine26.AdvanceOneDay();
+    double shown26 = actual26 - n26.LastShortageDeaths;
+    Check(Math.Abs((n26.Population - p26) - shown26) <= Math.Max(2, normal26 * 0.0005), $"real change {n26.Population - p26:N0} matches shown net {shown26:N0}");
+}
+
 Console.WriteLine(failures == 0 ? "\nALL CHECKS PASSED" : $"\n{failures} CHECK(S) FAILED");
 return failures;

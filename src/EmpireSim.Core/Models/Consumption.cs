@@ -128,6 +128,23 @@ public static class ConsumptionService
         return report;
     }
 
+    /// <summary>
+    /// Average unmet % (percentage points) across all consumed items, from the nation's
+    /// latest daily shortage data. 0 when there is no data yet.
+    /// </summary>
+    public static double AverageShortagePct(Nation nation)
+    {
+        if (nation.ShortagePct.Count == 0) return 0;
+        double sum = 0;
+        foreach (var spec in ConsumptionCatalog.All)
+            if (nation.ShortagePct.TryGetValue(spec.Item, out double pct)) sum += pct;
+        return sum / ConsumptionCatalog.All.Count;
+    }
+
+    /// <summary>Birth reduction in percentage points: max(0, average shortage - 2), clamped 0-100.</summary>
+    public static double BirthReductionPct(double averageShortagePct) =>
+        Math.Clamp(Math.Max(0, averageShortagePct - Balance.BirthReductionShortageFreePct), 0, 100);
+
     /// <summary>Daily Ruler Rating loss: unmet % per item x the group's per-1% rate.</summary>
     public static double RatingDrop(ShortageReport report) =>
         Sum(report, Balance.ShortageRatingDropFoodPerPct, Balance.ShortageRatingDropMineralPerPct);
