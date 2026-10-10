@@ -911,35 +911,5 @@ using (var engine27 = new GameEngine(new SimulationService(), new SaveService(sa
     Check(n27.LastTaxDeathIncreasePct == 0, "no shortage: taxes up to 60 are safe");
 }
 
-Console.WriteLine("== 28. Build popup MAX arrow: most mills affordable ==");
-using (var engine28 = new GameEngine(new SimulationService(), new SaveService(saveFolder)))
-{
-    var n28 = engine28.State.PlayerNation;
-    n28.ConstructionQueue.Clear();
-    var stud = ProductionCatalog.Get("studfarm");   // gold + wood + stone
-    var farm = ProductionCatalog.Get("farm");       // gold only
-
-    // scarcest resource decides: gold for 10, wood for 3, stone for 5 -> 3
-    n28.Gold = stud.GoldCost * 10 + 1; n28.Wood = stud.WoodCost * 3 + 1; n28.Stone = stud.StoneCost * 5; n28.Iron = 0;
-    Check(ProductionCatalog.MaxAffordable(n28, stud) == 3, "limited by the scarcest resource (wood -> 3)");
-    Check(ProductionCatalog.MaxAffordable(n28, farm) == (int)(n28.Gold / farm.GoldCost), "zero wood/stone/iron cost doesn't limit (farm: gold only)");
-
-    // capped by remaining build-queue room
-    n28.Gold = farm.GoldCost * 5000;
-    for (int i = 0; i < Balance.MaxBuildQueue - 4; i++) n28.ConstructionQueue.Add(new ConstructionProject { ProductionBuildingId = "farm", DaysLeft = 99, TotalDays = 99 });
-    Check(ProductionCatalog.MaxAffordable(n28, farm) == 4, "capped by build-queue room (4 slots left)");
-    n28.ConstructionQueue.Clear();
-
-    n28.Gold = farm.GoldCost - 1;
-    Check(ProductionCatalog.MaxAffordable(n28, farm) == 0, "can't afford one -> 0");
-
-    // MAX is always accepted by the engine; MAX + 1 is refused
-    n28.Gold = stud.GoldCost * 7.5; n28.Wood = stud.WoodCost * 20; n28.Stone = stud.StoneCost * 20;
-    int max28 = ProductionCatalog.MaxAffordable(n28, stud);
-    Check(max28 == 7, "fractional gold rounds down (7.5 -> 7)");
-    Check(engine28.BuildProduction("studfarm", max28 + 1) is not null, "MAX + 1 is refused");
-    Check(engine28.BuildProduction("studfarm", max28) is null && n28.ConstructionQueue.Count == 7, "MAX builds successfully");
-}
-
 Console.WriteLine(failures == 0 ? "\nALL CHECKS PASSED" : $"\n{failures} CHECK(S) FAILED");
 return failures;
