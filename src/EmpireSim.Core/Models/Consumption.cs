@@ -147,14 +147,67 @@ public static class ConsumptionService
         return total;
     }
 
+    /// <summary>Average unmet % (percentage points) across all consumed items in a day's report.</summary>
+    public static double AverageShortagePct(ShortageReport report)
+    {
+        double sum = 0;
+        foreach (var spec in ConsumptionCatalog.All)
+            if (report.UnmetPct.TryGetValue(spec.Item, out double pct)) sum += pct;
+        return sum / ConsumptionCatalog.All.Count;
+    }
+
+    /// <summary>
+    /// True when every consumed item has a daily mill output above 150% of its daily need.
+    /// Uses the nation's existing mills (ProductionBuildings) and the existing need calculation.
+    /// </summary>
+    public static bool HasLargeSurplus(Nation nation)
+    {
+        foreach (var spec in ConsumptionCatalog.All)
+        {
+            double need = DailyNeed(spec, nation.Population);
+            if (need <= 0) return false;
+            var mill = ProductionCatalog.All.FirstOrDefault(b => b.Produces == spec.Item);
+            double output = mill is null ? 0 : nation.GetProductionBuilding(mill.Id) * OutputPerMill(nation, mill);
+            if (output <= need * Balance.SurplusOutputRatio) return false;
+        }
+        return true;
+    }
+
+    /// <summary>Safe tax threshold (0-100): surplus first, then average shortage, else the default.</summary>
+    public static double SafeTaxThreshold(Nation nation, double averageShortagePct)
+    {
+        if (HasLargeSurplus(nation)) return Balance.SafeTaxSurplus;
+        if (averageShortagePct < Balance.VeryLowAvgShortagePct) return Balance.SafeTaxVeryLowShortage;
+        if (averageShortagePct < Balance.LowAvgShortagePct) return Balance.SafeTaxLowShortage;
+        return Balance.SafeTaxDefault;
+    }
+
+    /// <summary>
+    /// Total extra deaths in % of the shortage deaths: for each of the six tax types,
+    /// max(0, rate - safe threshold) x 0.15, summed.
+    /// </summary>
+    public static double TaxDeathIncreasePct(TaxRates rates, double safeThreshold)
+    {
+        double total = 0;
+        foreach (var rate in new[] { rates.Peasants, rates.Craftsmen, rates.MilitaryPersonnel,
+                                     rates.Merchants, rates.Spies, rates.Saboteurs })
+            total += Math.Max(0, rate - safeThreshold) * Balance.TaxDeathIncreasePerPoint;
+        return total;
+    }
+
     /// <summary>
     /// Applies a day's shortage effects: Ruler Rating drops (clamped 0-100) and people die.
-    /// Fractional deaths accumulate on the nation until they add up to a whole person.
+    /// Shortage deaths are raised by the tax death increase. Fractional deaths accumulate
+    /// on the nation until they add up to a whole person.
     /// </summary>
     public static void ApplyShortageEffects(Nation nation, ShortageReport report)
     {
         double drop = RatingDrop(report);
-        double deaths = Deaths(report);
+        double safeTax = SafeTaxThreshold(nation, AverageShortagePct(report));
+        double taxIncreasePct = TaxDeathIncreasePct(nation.TaxRates, safeTax);
+        double deaths = Deaths(report) * (1 + taxIncreasePct / 100.0);
+        nation.LastSafeTaxThreshold = safeTax;
+        nation.LastTaxDeathIncreasePct = taxIncreasePct;
 
         nation.RulerRating = Math.Clamp(nation.RulerRating - drop, 0, 100);
 

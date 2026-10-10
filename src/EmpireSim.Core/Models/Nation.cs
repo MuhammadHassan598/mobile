@@ -349,6 +349,12 @@ public sealed class Nation
     /// <summary>Deaths caused by shortages on the last day (fractional).</summary>
     public double LastShortageDeaths { get; set; }
 
+    /// <summary>Safe tax threshold (0-100) used on the last day.</summary>
+    public double LastSafeTaxThreshold { get; set; } = 30;
+
+    /// <summary>Extra deaths (% of shortage deaths) caused by taxes above the safe threshold on the last day.</summary>
+    public double LastTaxDeathIncreasePct { get; set; }
+
     /// <summary>Ruler Rating lost to shortages on the last day.</summary>
     public double LastRatingDrop { get; set; }
 

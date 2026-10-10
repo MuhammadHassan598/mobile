@@ -28,8 +28,20 @@ public static class Balance
     // ---- Shortage effects: per 1% of an item's daily need left unmet ----
     public const double ShortageRatingDropFoodPerPct = 0.000001;
     public const double ShortageRatingDropMineralPerPct = 0.0000003;
-    public const double ShortageDeathsFoodPerPct = 1.0;
-    public const double ShortageDeathsMineralPerPct = 0.5;
+    public const double ShortageDeathsFoodPerPct = 1.3;       // people per day per 1% unmet (was 1.0, +30%)
+    public const double ShortageDeathsMineralPerPct = 0.55;   // people per day per 1% unmet (was 0.5, +10%)
+
+    // ---- Tax-driven extra deaths (rates and thresholds on the 0-100 tax scale) ----
+    /// <summary>Safe tax threshold by supply conditions, checked in this priority order.</summary>
+    public const double SafeTaxSurplus = 100;          // every item's mill output > 150% of its need
+    public const double SafeTaxVeryLowShortage = 70;   // average shortage < 10%
+    public const double SafeTaxLowShortage = 50;       // average shortage < 20%
+    public const double SafeTaxDefault = 30;           // otherwise
+    public const double SurplusOutputRatio = 1.5;
+    public const double VeryLowAvgShortagePct = 10;
+    public const double LowAvgShortagePct = 20;
+    /// <summary>Extra deaths, in % of the shortage deaths, per point of tax above the safe threshold (per tax type).</summary>
+    public const double TaxDeathIncreasePerPoint = 0.15;
 
     // ---- Raw materials (per in-game day) ----
     public const double IronPerMinePerDay = 2.0;

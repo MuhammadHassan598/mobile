@@ -116,6 +116,8 @@
             <div class="stat-row"><span>Net change per day:</span><b class="@(net < 0 ? "neg" : "")">@(net >= 0 ? "+" : "−")@Math.Abs(net).ToString("N0") people</b></div>
             <div class="stat-row"><span>Births per day:</span><b>+@births.ToString("N0")</b></div>
             <div class="stat-row"><span>Deaths per day (shortage):</span><b class="@(deaths > 0 ? "neg" : "")">−@deaths.ToString("N0")</b></div>
+            <div class="stat-row"><span>Safe tax threshold:</span><b>@_nation.LastSafeTaxThreshold.ToString("N0")%</b></div>
+            <div class="stat-row"><span>Extra deaths from high taxes:</span><b class="@(_nation.LastTaxDeathIncreasePct > 0 ? "neg" : "")">+@_nation.LastTaxDeathIncreasePct.ToString("N2")%</b></div>
             <div class="stat-row"><span>Net rate:</span><b class="@(net < 0 ? "neg" : "")">@netPct.ToString("+0.0000;−0.0000")%</b></div>
             <div class="stat-row"><span>Population:</span><b>@_nation.Population.ToString("N0")</b></div>
             <div class="stat-note">While any item is short there are no births, and the shortage causes deaths and lowers the ruler rating.</div>
