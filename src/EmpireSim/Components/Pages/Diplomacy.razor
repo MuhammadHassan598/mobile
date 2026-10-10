@@ -34,7 +34,7 @@
                     <span class="dip-name">@n.Name</span>
                     <span class="dip-res">
                         <span class="dip-res-icon">🌾</span>
-                        <span>@((int)n.Food)</span>
+                        <span>@((int)n.GetProduct("Wheat"))</span>
                     </span>
                     <button class="dip-help" @onclick="() => OpenAid(n)">HELP</button>
                 </div>

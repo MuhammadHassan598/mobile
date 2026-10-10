@@ -6,10 +6,6 @@ namespace EmpireSim.Core.Services;
 /// </summary>
 public static class Balance
 {
-    // ---- Food (per in-game day) ----
-    public const double FoodPerFarmPerDay = 10.0;
-    public const double FoodPerPersonPerDay = 0.000008;
-
     /// <summary>Every nation starts with this many days of need in each item (food and minerals).</summary>
     public const int StartingStockDays = 7;
 
@@ -27,8 +23,8 @@ public static class Balance
     public const long StartMidPopulation = 2_000_000;
 
     // ---- Shortage effects: per 1% of an item's daily need left unmet ----
-    public const double ShortageRatingDropFoodPerPct = 0.0001;
-    public const double ShortageRatingDropMineralPerPct = 0.00003;
+    public const double ShortageRatingDropFoodPerPct = 0.000001;
+    public const double ShortageRatingDropMineralPerPct = 0.0000003;
     public const double ShortageDeathsFoodPerPct = 1.0;
     public const double ShortageDeathsMineralPerPct = 0.5;
 
@@ -117,7 +113,7 @@ public static class Balance
 
     // ---- Colonisation ----
     public const double ColonyCostGold = 20;
-    public const double ColonyCostFood = 3000;
+    public const double ColonyCostFood = 3000;   // paid in Wheat
     public const int ColonyColonists = 2000;
     public const int ColonyDays = 30;
     public const int ColonyWarshipsRequired = 5;
@@ -132,7 +128,6 @@ public static class Balance
 
     // ---- Population ----
     public const double GrowthPerDayWithSurplus = 0.00015;   // ~5.6% per year
-    public const double StarvationDeclinePerDay = 0.001;     // ~30% per year while starving
 
     // ---- Army maintenance payday cycle ----
     public const int PaydayIntervalDays = 180;               // every 6 months

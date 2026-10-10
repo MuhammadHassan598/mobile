@@ -100,7 +100,6 @@ public static class Warfare
         winner.Population += Math.Max(0, loser.Population - popLoss);
 
         winner.Gold += loser.Gold;
-        winner.Food += loser.Food;
         winner.Wood += loser.Wood;
         winner.Stone += loser.Stone;
         winner.Iron += loser.Iron;

@@ -13,9 +13,7 @@
     <!-- Summary -->
     <div class="tax-summary">
         <div class="ts-row"><span>Tax Approval</span><b>@_nation.TaxApproval.ToString("N0") / 100 (@TaxationService.ApprovalLabel(_nation.TaxApproval))</b></div>
-        <div class="ts-row"><span>Food Supply Ratio</span><b>@FoodRatio().ToString("P0")</b></div>
         <div class="ts-row"><span>Est. Daily Revenue</span><b>@TaxationService.TotalRevenue(_nation.Workforce, _nation.TaxRates).ToString("N0") 🪙</b></div>
-        <div class="ts-row"><span>Tax Impact</span><b>@TaxImpact()</b></div>
     </div>
 
     @foreach (var g in Groups)
@@ -36,10 +34,6 @@
             <div class="tax-pop">Population: @GetCount(g.Key).ToString("N0")</div>
         </div>
     }
-
-    <div class="tax-note">
-        Food supply ≥ 150% of daily need substantially reduces tax disapproval.
-    </div>
 </div>
 
 @code {
@@ -118,31 +112,10 @@
         return TaxationService.GroupRevenue(count, income, GetRate(key));
     }
 
-    private double FoodRatio()
-    {
-        double need = TaxationService.DailyFoodNeed(_nation.Demographics, Balance.FoodPerPersonPerDay * _nation.Population);
-        double prod = 0;
-        foreach (var kvp in _nation.ProductionBuildings)
-        {
-            var b = ProductionCatalog.Get(kvp.Key);
-            if (b is not null && b.Category == ProductionCategory.Food)
-                prod += b.OutputPerDay * kvp.Value;
-        }
-        return TaxationService.FoodSupplyRatio(_nation.Food, prod, need);
-    }
-
-    private string TaxImpact()
-    {
-        double ratio = FoodRatio();
-        if (ratio >= 1.5) return "Reduced by food surplus";
-        if (ratio >= 1.0) return "Moderate";
-        return "High (food shortage!)";
-    }
-
     private string MoodIcon(string key)
     {
         double rate = GetRate(key);
-        double ratio = FoodRatio();
+        double ratio = TaxationService.NormalSupplyRatio; // food does not affect mood until the redesign
         // High tax + low food = bad mood
         if (rate > 30 && ratio < 1.0) return "😠";
         if (rate > 30 && ratio >= 1.5) return "😐"; // tolerated due to surplus

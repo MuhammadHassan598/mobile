@@ -105,39 +105,12 @@ public static class StatisticsService
         return (captured, capturedTarget, religious, religiousTarget, colonies, coloniesTarget);
     }
 
-    /// <summary>Food deficit by product.</summary>
-    public static List<(string Icon, string Name, double Deficit)> FoodDeficits(Nation n)
-    {
-        var result = new List<(string, string, double)>();
-        n.EnsureTaxationInitialized();
-        double need = TaxationService.DailyFoodNeed(n.Demographics, Services.Balance.FoodPerPersonPerDay * n.Population);
-        // Simple: if food stock < 7 days of need, show deficit
-        double daysOfStock = need > 0 ? n.Food / need : 999;
-        if (daysOfStock < 7)
-        {
-            result.Add(("🌾", "Food", Math.Max(0, need * 7 - n.Food)));
-        }
-        return result;
-    }
-
     /// <summary>Tax tolerance per group (0-100).</summary>
     public static List<(string Name, string Icon, double Tolerance)> TaxTolerance(Nation n)
     {
         n.EnsureTaxationInitialized();
-        double foodRatio = 1.0;
-        double need = TaxationService.DailyFoodNeed(n.Demographics, Services.Balance.FoodPerPersonPerDay * n.Population);
-        if (need > 0)
-        {
-            double prod = 0;
-            foreach (var kvp in n.ProductionBuildings)
-            {
-                var b = ProductionCatalog.Get(kvp.Key);
-                if (b is not null && b.Category == ProductionCategory.Food)
-                    prod += b.OutputPerDay * kvp.Value;
-            }
-            foodRatio = TaxationService.FoodSupplyRatio(n.Food, prod, need);
-        }
-        double toleranceMod = TaxationService.ToleranceModifier(foodRatio);
+        // Food does not move tolerance until the item-based redesign: neutral ratio.
+        double toleranceMod = TaxationService.ToleranceModifier(TaxationService.NormalSupplyRatio);
 
         var groups = new[]
         {

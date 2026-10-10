@@ -42,11 +42,6 @@ public sealed class SimulationService
     {
         nation.MigrateGoodsInventory();
 
-        // ---- Food ----
-        double produced = nation.Farms * Balance.FoodPerFarmPerDay;
-        double consumed = nation.Population * Balance.FoodPerPersonPerDay;
-        nation.Food += produced - consumed;
-
         // ---- Raw materials ----
         nation.Iron += nation.Mines * Balance.IronPerMinePerDay;
         nation.Wood += nation.Sawmills * Balance.WoodPerSawmillPerDay;
@@ -91,36 +86,18 @@ public sealed class SimulationService
             nation.ConstructionQueue.Remove(project);
         }
 
-        if (nation.Food < 0)
-        {
-            nation.Food = 0;
-            long lost = (long)(nation.Population * Balance.StarvationDeclinePerDay);
-            nation.Population = Math.Max(0, nation.Population - lost);
-            Warn(state, nation, $"Starvation in {nation.Name}! {lost:N0} souls lost — build farms or buy food.");
-        }
-        else
-        {
-            double growthRate = Balance.GrowthPerDayWithSurplus * nation.GrowthMult;
-            // Islam: +0.005 percentage points to growth rate
-            growthRate += ReligionService.PopulationGrowthBonus(nation) / 100.0;
-            nation.Population += (long)(nation.Population * growthRate);
-        }
+        // Population always grows; starvation comes only from item shortages (ConsumptionService).
+        double growthRate = Balance.GrowthPerDayWithSurplus * nation.GrowthMult;
+        // Islam: +0.005 percentage points to growth rate
+        growthRate += ReligionService.PopulationGrowthBonus(nation) / 100.0;
+        nation.Population += (long)(nation.Population * growthRate);
 
         // ---- Treasury: taxation system ----
         nation.EnsureTaxationInitialized();
         double taxMult = nation.HasCommander(CommanderRole.CommanderInChief) ? Balance.CinCTaxMult : 1.0;
 
-        // Food need from demographics
-        double dailyFoodNeed = TaxationService.DailyFoodNeed(nation.Demographics, Balance.FoodPerPersonPerDay * nation.Population);
-        // Daily food production (from food-category buildings)
-        double dailyFoodProd = 0;
-        foreach (var kvp in nation.ProductionBuildings)
-        {
-            var b = ProductionCatalog.Get(kvp.Key);
-            if (b is not null && b.Category == ProductionCategory.Food)
-                dailyFoodProd += b.OutputPerDay * kvp.Value;
-        }
-        double foodRatio = TaxationService.FoodSupplyRatio(nation.Food, dailyFoodProd, dailyFoodNeed);
+        // Food no longer moves tax approval: neutral ratio until the item-based redesign.
+        double foodRatio = TaxationService.NormalSupplyRatio;
 
         // Tax revenue
         double taxRevenue = TaxationService.TotalRevenue(nation.Workforce, nation.TaxRates) * taxMult * nation.TaxMult;
@@ -155,7 +132,7 @@ public sealed class SimulationService
         ConsumptionService.ApplyShortageEffects(nation, shortage);
         if (shortage.ShortItems.Any())
             Warn(state, nation, $"Shortage in {nation.Name}: {string.Join(", ", shortage.ShortItems)} — " +
-                $"{nation.LastShortageDeaths:N1} deaths/day, ruler rating -{nation.LastRatingDrop:N3}/day.");
+                $"{nation.LastShortageDeaths:N1} deaths/day, ruler rating -{nation.LastRatingDrop:0.######}/day.");
 
         // ---- Military crafting: progress projects, add 10 units on completion ----
         foreach (var proj in nation.MilitaryCraftQueue.ToList())
@@ -360,7 +337,6 @@ public sealed class SimulationService
 
         if (nation.Gold < 0) nation.Gold = 0;
         if (nation.Gold < 0) nation.Gold = 0;
-        if (nation.Food < 0) nation.Food = 0;
     }
 
     private static void Warn(GameState state, Nation nation, string message)
@@ -473,7 +449,7 @@ public sealed class SimulationService
             home.Population += Balance.ColonyStartPopulation;
             home.Farms += 8;
             home.Mines += 2;
-            home.Food += 2000;
+            home.AddProduct("Wheat", 2000);
             home.ColoniesFounded++;
             state.Log($"A colony was founded in {region.Name}! Settlers and riches flow to the homeland.");
         }

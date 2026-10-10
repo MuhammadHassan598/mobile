@@ -99,11 +99,11 @@
             </div>
         }
         <h3>FOOD & GOODS</h3>
-        @foreach (var kv in _nation.GoodsInventory.OrderByDescending(kv => kv.Value))
+        @foreach (var p in TradeCatalog.All.Where(x => x.Category == "FoodGoods"))
         {
             <div class="stock-row">
-                <span>📦</span><span class="sname">@kv.Key</span>
-                <span>@kv.Value.ToString("N0")</span>
+                <span>@p.Icon</span><span class="sname">@p.Name</span>
+                <span>@_nation.GetProductStock(p.Id).ToString("N0")</span>
             </div>
         }
     }

@@ -534,12 +534,12 @@ public sealed class GameEngine : IDisposable
 
         if (!nation.CanPay(def.GoldCost))
             return $"Insufficient Gold (need {def.GoldCost:N0}).";
-        if (def.FoodRequired > 0 && nation.Food < def.FoodRequired)
-            return $"Not enough Food (need {def.FoodRequired:N0}).";
+        if (def.FoodRequired > 0 && nation.GetProduct("Wheat") < def.FoodRequired)
+            return $"Not enough Wheat (need {def.FoodRequired:N0}).";
 
         nation.PayGold(def.GoldCost);
         if (def.FoodRequired > 0)
-            nation.Food -= def.FoodRequired;
+            nation.AddProduct("Wheat", -def.FoodRequired);
 
         nation.NationalEvents.Add(new NationalEventInstance
         {
@@ -733,11 +733,11 @@ public sealed class GameEngine : IDisposable
         if (n.Warships < Balance.ColonyWarshipsRequired)
             return $"Need {Balance.ColonyWarshipsRequired} warships to carry the colonists.";
         if (!n.CanPay(Balance.ColonyCostGold)) return "Not enough Gold.";
-        if (n.Food < Balance.ColonyCostFood) return "Not enough food for the voyage.";
+        if (n.GetProduct("Wheat") < Balance.ColonyCostFood) return "Not enough Wheat for the voyage.";
         if (n.Population < Balance.ColonyColonists) return "Not enough people to spare.";
 
         n.PayGold(Balance.ColonyCostGold);
-        n.Food -= Balance.ColonyCostFood;
+        n.AddProduct("Wheat", -Balance.ColonyCostFood);
         n.Population -= Balance.ColonyColonists;
         State.ActiveExpedition = new ColonyExpedition
         {

@@ -43,9 +43,6 @@ public sealed class Nation
     /// <summary>Income arrives as Gold.</summary>
     public void EarnGold(double amount) => Gold += amount;
 
-    /// <summary>Food stockpile in generic food units.</summary>
-    public double Food { get; set; }
-
     /// <summary>Wood stockpile. Produced by sawmills, used by workshops and construction.</summary>
     public double Wood { get; set; }
 
@@ -92,15 +89,17 @@ public sealed class Nation
         "iron" => Iron,
         "copper" => Copper,
         "lead" => Lead,
-        "food" => Food,
         "helmet" => Helmets,
         "dagger" => Daggers,
         "pike" => Pikes,
         "shotgun" => Shotguns,
         "arquebus" => Arquebuses,
         "shipparts" => ShipParts,
-        _ => GetGood(productId)
+        _ => GetGood(ProductKey(productId))
     };
+
+    /// <summary>Stock key of a trade product in <see cref="GoodsInventory"/> (its catalog name, e.g. "wheat" -> "Wheat").</summary>
+    private static string ProductKey(string productId) => TradeCatalog.Get(productId)?.Name ?? productId;
 
     /// <summary>Adds to product stock (negative to remove). Returns false if insufficient.</summary>
     public bool AdjustProductStock(string productId, double delta)
@@ -114,12 +113,11 @@ public sealed class Nation
             case "iron": Iron += delta; break;
             case "copper": Copper += delta; break;
             case "lead": Lead += delta; break;
-            case "food": Food += delta; break;
             case "helmet": case "dagger": case "pike":
             case "shotgun": case "arquebus": case "shipparts":
                 AddMilitaryItem(productId, delta); break;
             default:
-                AddGood(productId, delta); break;
+                AddGood(ProductKey(productId), delta); break;
         }
         return true;
     }

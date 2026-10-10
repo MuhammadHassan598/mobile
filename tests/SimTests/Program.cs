@@ -28,10 +28,10 @@ using (var engine = new GameEngine(new SimulationService(), new SaveService(save
     for (int i = 0; i < 200; i++) engine.AdvanceOneDay();
     var n = engine.State.PlayerNation;
     Console.WriteLine($"  day 0:   date=01-01-1600 pop={pop0:N0} treasury={tre0:N0} soldiers={sol0:N0}");
-    Console.WriteLine($"  day 200: date={engine.State.CurrentDate:dd-MM-yyyy} pop={n.Population:N0} treasury={n.Gold:N0} food={n.Food:N0} soldiers={n.Soldiers:N0}");
+    Console.WriteLine($"  day 200: date={engine.State.CurrentDate:dd-MM-yyyy} pop={n.Population:N0} treasury={n.Gold:N0} wheat={n.GetGood("Wheat"):N0} soldiers={n.Soldiers:N0}");
     Check(engine.State.CurrentDate == new DateOnly(1600, 7, 19), "date advanced to 19-07-1600");
-    Check(n.Gold >= 0 && n.Food >= 0 && n.Population > 0, "no negative stocks, nation survives");
-    Check(double.IsFinite(n.Gold) && double.IsFinite(n.Food), "stocks are finite numbers");
+    Check(n.Gold >= 0 && n.GetGood("Wheat") >= 0 && n.Population > 0, "no negative stocks, nation survives");
+    Check(double.IsFinite(n.Gold) && double.IsFinite(n.GetGood("Wheat")), "stocks are finite numbers");
     Check(n.Population > pop0, "population grows with food surplus");
     Check(engine.State.EventLog.Any(e => e.Contains("paid army maintenance")), "first payday was paid and logged");
 
@@ -435,7 +435,7 @@ using (var engine11 = new GameEngine(new SimulationService(), new SaveService(sa
         "colony refused without warships");
     n11.Warships = 5;
     n11.Gold = 100_000;
-    n11.Food = 100_000;
+    n11.GoodsInventory["Wheat"] = 100_000;
     var region = engine11.State.FrontierRegions[0];
     Check(engine11.FoundColony(region.Id) is null, "colony expedition launched");
     Check(engine11.State.ActiveExpedition is not null, "expedition at sea");
@@ -564,11 +564,14 @@ using (var engine18 = new GameEngine(new SimulationService(), new SaveService(sa
     var repA = ConsumptionService.Apply(n18);
     Check(Math.Abs(repA.UnmetPct["Wheat"] - 50) < 0.001, "wheat at half its need is 50% short");
     Check(Math.Abs(ConsumptionService.Deaths(repA) - 50) < 0.001, "50% food shortage = 50 deaths/day");
-    Check(Math.Abs(ConsumptionService.RatingDrop(repA) - 0.005) < 1e-9, "50% food shortage = 0.005 rating drop");
+    Check(Math.Abs(ConsumptionService.RatingDrop(repA) - 0.00005) < 1e-12, "50% food shortage = 0.00005 rating drop");
 
     // (b) every item 2% short: food 12 x 2 x 0.0001 + minerals 5 x 2 x 0.00003
     var rep2 = Report(2, 2);
-    Check(Math.Abs(ConsumptionService.RatingDrop(rep2) - (0.0024 + 0.0003)) < 1e-9, "all items 2% short = 0.0027 rating drop");
+    // 12 food x 2 x 0.000001 = 0.000024; 5 minerals x 2 x 0.0000003 = 0.000003 (user's 6-mineral example: 0.0000036 -> 0.0000276)
+    Check(Math.Abs(ConsumptionService.RatingDrop(rep2) - (0.000024 + 0.000003)) < 1e-12, "all items 2% short = 0.000027 rating drop");
+    Check(Math.Abs((12 * 2 * Balance.ShortageRatingDropFoodPerPct + 6 * 2 * Balance.ShortageRatingDropMineralPerPct) - 0.0000276) < 1e-12,
+          "rates reproduce the 18-item example: 0.0000276/day");
     Check(Math.Abs(ConsumptionService.Deaths(rep2) - (24 + 5)) < 1e-9, "all items 2% short = 29 deaths/day");
 
     // (c) fractional deaths accumulate: one mineral 1% short = 0.5/day
@@ -670,6 +673,68 @@ using (var engine21 = new GameEngine(new SimulationService(), new SaveService(sa
     Check(win.GetProductionBuilding("farm") == 8 && win.GetProductionBuilding("bakery") == 2, "annexation moves the loser's mills (added to existing)");
     Check(Math.Abs(win.Wood - (woodBefore + loseWood)) < 0.001, "loser's wood counted once");
     Check(!win.GoodsInventory.ContainsKey("Wood"), "no mineral keys in goods dictionary after annexation");
+}
+
+Console.WriteLine("== 22. Old Food number removed: Wheat pays for events/colonies, growth always applies ==");
+using (var engine22 = new GameEngine(new SimulationService(), new SaveService(saveFolder)))
+{
+    var n22 = engine22.State.PlayerNation;
+    Check(typeof(Nation).GetProperty("Food") is null, "Nation.Food no longer exists");
+
+    // Feast costs 1000 Wheat (+ gold)
+    n22.Gold = 1_000_000;
+    n22.GoodsInventory["Wheat"] = 500;
+    Check(engine22.StartNationalEvent("feast") is { } err22 && err22.Contains("Wheat"), "feast refused without enough Wheat");
+    n22.GoodsInventory["Wheat"] = 5_000;
+    Check(engine22.StartNationalEvent("feast") is null, "feast accepted with enough Wheat");
+    Check(Math.Abs(n22.GetGood("Wheat") - 4_000) < 0.001, "feast spent 1000 Wheat");
+
+    // Growth applies on a day with total shortage: no second starvation system.
+    n22.ProductionBuildings.Clear();
+    foreach (var s in ConsumptionCatalog.All) n22.AddProduct(s.Item, -n22.GetProduct(s.Item));
+    n22.Population = 20_000_000;
+    n22.ShortageDeathCarry = 0;
+    long before22 = n22.Population;
+    engine22.AdvanceOneDay();
+    long expectedGrowth = (long)(before22 * (Balance.GrowthPerDayWithSurplus * n22.GrowthMult + ReligionService.PopulationGrowthBonus(n22) / 100.0));
+    long deaths22 = (long)Math.Floor(n22.LastShortageDeaths);
+    Check(n22.Population >= before22 + expectedGrowth - deaths22 - 1 && n22.Population <= before22 + expectedGrowth - deaths22 + 1,
+          "full shortage day = normal growth minus only the shortage deaths");
+}
+
+Console.WriteLine("== 23. Per-item trade: each food item buyable/sellable with its own price ==");
+using (var engine23 = new GameEngine(new SimulationService(), new SaveService(saveFolder)))
+{
+    var foodItems = ConsumptionCatalog.All.Where(c => c.Group == ItemGroup.Food).Select(c => c.Item).ToList();
+    var foodProducts = TradeCatalog.All.Where(p => p.Category == "FoodGoods").ToList();
+    Check(foodItems.All(i => foodProducts.Any(p => p.Name == i)), "all 12 food items are trade products");
+    Check(foodProducts.All(p => MarketPricing.PricePer1000(p.Id, "ottoman") > 0), "every food item has a price");
+    Check(TradeCatalog.Get("food") is null, "generic Food product is gone");
+
+    var me = engine23.State.PlayerNation;
+    var other = engine23.State.OtherNations.First();
+    me.Population = 0; other.Population = 0;       // isolate from consumption
+    me.ProductionBuildings.Clear(); other.ProductionBuildings.Clear(); // ...and from mill output
+    me.Gold = 1_000_000; other.Gold = 1_000_000;
+    other.GoodsInventory["Wheat"] = 10_000;
+    double wheat0 = me.GetGood("Wheat"), gold0 = me.Gold;
+
+    Check(engine23.BuyProduct(other.Id, "wheat", 6_000) is not null, "cannot buy more than 50% of the seller's stock");
+    Check(engine23.BuyProduct(other.Id, "wheat", 1_000) is null, "bought 1,000 Wheat");
+    double price = MarketPricing.PricePer1000("wheat", other.Id);
+    Check(Math.Abs((gold0 - me.Gold) - MarketPricing.TotalValue(price, 1_000)) < 0.01, "gold paid at the Wheat price");
+    Check(Math.Abs(other.GetGood("Wheat") - 9_000) < 0.001, "seller stock reserved immediately");
+    for (int i = 0; i < 10; i++) engine23.AdvanceOneDay();
+    Check(Math.Abs(me.GetGood("Wheat") - (wheat0 + 1_000)) < 0.001, "Wheat delivered to the 'Wheat' stock");
+    Check(!me.GoodsInventory.ContainsKey("wheat"), "no lowercase duplicate stock key");
+
+    me.GoodsInventory["Bread"] = 500; other.GoodsInventory["Bread"] = 0;
+    double sellPrice = MarketPricing.PricePer1000("bread", me.Id);
+    Check(engine23.SellProduct(other.Id, "bread", 200, sellPrice) is null, "sold 200 Bread");
+    Check(Math.Abs(me.GetGood("Bread") - 300) < 0.001, "Bread deducted at sale");
+    for (int i = 0; i < 10; i++) engine23.AdvanceOneDay();
+    Check(Math.Abs(other.GetGood("Bread") - 200) < 0.001, "Bread delivered to the buyer's 'Bread' stock");
+    Check(engine23.State.TradeContracts.Last().Status == TradeStatus.Delivered, "sale contract completed and paid");
 }
 
 Console.WriteLine(failures == 0 ? "\nALL CHECKS PASSED" : $"\n{failures} CHECK(S) FAILED");

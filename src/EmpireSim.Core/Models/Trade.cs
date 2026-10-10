@@ -28,8 +28,19 @@ public static class TradeCatalog
         new("iron", "Iron", "⛓️", "Resource", 300),
         new("copper", "Copper", "🟤", "Resource", 250),
         new("lead", "Lead", "⚫", "Resource", 200),
-        // Food & Goods
-        new("food", "Food", "🌾", "FoodGoods", 50),
+        // Food & goods (one product per consumed item; Name = the stock key in GoodsInventory)
+        new("wheat", "Wheat", "🌾", "FoodGoods", 60),
+        new("flour", "Flour", "🥣", "FoodGoods", 90),
+        new("bread", "Bread", "🍞", "FoodGoods", 140),
+        new("milk", "Milk", "🥛", "FoodGoods", 100),
+        new("meat", "Meat", "🥩", "FoodGoods", 220),
+        new("salt", "Salt", "🧂", "FoodGoods", 180),
+        new("wool", "Wool", "🐑", "FoodGoods", 160),
+        new("fur", "Fur", "🦊", "FoodGoods", 400),
+        new("clothing", "Clothing", "🧵", "FoodGoods", 350),
+        new("hats", "Hats", "🎩", "FoodGoods", 450),
+        new("horses", "Horses", "🐎", "FoodGoods", 800),
+        new("perfume", "Perfume", "🌸", "FoodGoods", 900),
     };
 
     public static TradeProduct? Get(string id) => All.FirstOrDefault(p => p.Id == id);

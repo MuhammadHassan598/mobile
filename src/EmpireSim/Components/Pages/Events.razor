@@ -85,7 +85,7 @@
             <div class="c-row"><span>👑 Effect:</span><b>+@_info.RulerRatingEffect ruler rating</b></div>
             @if (_info.FoodRequired > 0)
             {
-                <div class="c-row"><span>🌾 Food:</span><b>@_info.FoodRequired.ToString("N0")</b></div>
+                <div class="c-row"><span>🌾 Wheat:</span><b>@_info.FoodRequired.ToString("N0")</b></div>
             }
             <div class="popup-actions">
                 <button class="popup-btn cancel" @onclick="() => _info = null">CLOSE</button>
@@ -99,7 +99,7 @@
 {
     var def = _selected;
     bool canAfford = _nation.Gold >= def.GoldCost;
-    bool hasFood = def.FoodRequired <= 0 || _nation.Food >= def.FoodRequired;
+    bool hasFood = def.FoodRequired <= 0 || _nation.GetProduct("Wheat") >= def.FoodRequired;
     bool valid = canAfford && hasFood;
 
     <div class="popup-overlay" @onclick="() => _selected = null">
@@ -117,7 +117,7 @@
             {
                 <div class="evt-section">
                     <div class="evt-sec-title">Requirements:</div>
-                    <div class="evt-req">🌾 @def.FoodRequired.ToString("N0") Food (have @_nation.Food.ToString("N0"))</div>
+                    <div class="evt-req">🌾 @def.FoodRequired.ToString("N0") Wheat (have @_nation.GetProduct("Wheat").ToString("N0"))</div>
                 </div>
             }
             @if (!canAfford)
@@ -126,7 +126,7 @@
             }
             @if (!hasFood)
             {
-                <div class="evt-insufficient">Not enough Food!</div>
+                <div class="evt-insufficient">Not enough Wheat!</div>
             }
             <div class="popup-actions">
                 <button class="popup-btn cancel" @onclick="() => _selected = null">CANCEL</button>

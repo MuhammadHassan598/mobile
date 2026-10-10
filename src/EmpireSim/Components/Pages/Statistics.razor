@@ -105,7 +105,6 @@
     }
     else if (_tab == 4)
     {
-        var deficits = StatisticsService.FoodDeficits(_nation);
         var tolerance = StatisticsService.TaxTolerance(_nation);
         double growthRate = Balance.GrowthPerDayWithSurplus * 100;
 
@@ -113,19 +112,7 @@
             <div class="stat-sec-title">BIRTH / MORTALITY RATE</div>
             <div class="stat-row"><span>Daily growth rate:</span><b>@growthRate.ToString("N4")%</b></div>
             <div class="stat-row"><span>Population:</span><b>@_nation.Population.ToString("N0")</b></div>
-            <div class="stat-note">Excess food affects your population and population growth rate.</div>
-        </div>
-        <div class="stat-section">
-            <div class="stat-sec-title">FOOD DEFICIT</div>
-            @if (!deficits.Any())
-            {
-                <div class="stat-row"><span>No deficits — food supply adequate.</span></div>
-            }
-            @foreach (var (icon, name, def) in deficits)
-            {
-                <div class="stat-row"><span>@icon @name</span><b class="neg">@def.ToString("N0")</b></div>
-            }
-            <div class="stat-row"><span>Food stock:</span><b>@_nation.Food.ToString("N0")</b></div>
+            <div class="stat-note">Item shortages (below) cause deaths and lower the ruler rating.</div>
         </div>
         <div class="stat-section">
             <div class="stat-sec-title">DAILY USAGE (BY POPULATION)</div>
@@ -141,8 +128,8 @@
             }
             <div class="stat-note">Daily usage / current stock.</div>
             <div class="stat-row"><span>Deaths today (shortage):</span><b class="@(_nation.LastShortageDeaths > 0 ? "neg" : "")">@_nation.LastShortageDeaths.ToString("N1")</b></div>
-            <div class="stat-row"><span>Ruler rating change today:</span><b class="@(_nation.LastRatingDrop > 0 ? "neg" : "")">-@_nation.LastRatingDrop.ToString("N4")</b></div>
-            <div class="stat-row"><span>Ruler rating:</span><b>@_nation.RulerRating.ToString("N3") / 100</b></div>
+            <div class="stat-row"><span>Ruler rating change today:</span><b class="@(_nation.LastRatingDrop > 0 ? "neg" : "")">-@_nation.LastRatingDrop.ToString("0.000000")</b></div>
+            <div class="stat-row"><span>Ruler rating:</span><b>@_nation.RulerRating.ToString("N5") / 100</b></div>
         </div>
         <div class="stat-section">
             <div class="stat-sec-title">TAX TOLERANCE</div>
