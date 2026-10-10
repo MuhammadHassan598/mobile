@@ -178,13 +178,15 @@ public sealed class SimulationService
                     // Buyer can't pay - cancel, return goods to player
                     if (seller is not null) seller.AdjustProductStock(tc.ProductId, tc.Quantity);
                     tc.Status = TradeStatus.Cancelled;
-                    state.Log($"Trade failed: buyer could not pay for {product.Name}.");
+                    state.LogMovement(MovementKind.Goods, MovementStatus.Failed, tc.SellerId, seller?.Name ?? "unknown", buyer.Id, buyer.Name,
+                        $"Trade failed: buyer could not pay for {product.Name}.");
                     continue;
                 }
             }
             tc.Status = TradeStatus.Delivered;
             tc.ActualDeliveryDate = state.CurrentDate;
-            state.Log($"Trade delivered: {tc.Quantity:N0} {product.Name} ({Currency.Cost(tc.TotalValue)}).");
+            state.LogMovement(MovementKind.Goods, MovementStatus.Completed, tc.SellerId, seller?.Name ?? "unknown", buyer.Id, buyer.Name,
+                $"Trade delivered: {tc.Quantity:N0} {product.Name} ({Currency.Cost(tc.TotalValue)}).");
         }
 
         // ---- National events: complete on date, apply ruler rating ----
@@ -374,12 +376,12 @@ public sealed class SimulationService
                     var outcome = Warfare.Invade(other, player,
                         other.Soldiers / 2, 1.0, _rng);
                     ArmyHelper.MergeStacks(other, outcome.AttackerSurvivors);
-                    state.Log($"{other.Name} invaded: {outcome.Summary}");
+                    state.LogMovement(MovementKind.March, MovementStatus.Completed, other, player, $"{other.Name} invaded: {outcome.Summary}");
                     state.ActiveWarnings.Add($"⚠ {other.Name} is invading!");
                     if (outcome.AttackerWon)
                     {
                         Warfare.AnnexNation(state, other, player);
-                        state.Log($"{player.Name} has fallen to {other.Name}!");
+                        state.LogMovement(MovementKind.War, MovementStatus.Completed, other, player, $"{player.Name} has fallen to {other.Name}!");
                         state.ActiveWarnings.Add($"⚠ {player.Name} has fallen to {other.Name}!");
                     }
                 }
@@ -390,7 +392,7 @@ public sealed class SimulationService
                 {
                     other.AtWarWithPlayer = false;
                     other.RelationToPlayer = -30;
-                    state.Log($"{other.Name} sued for peace.");
+                    state.LogMovement(MovementKind.War, MovementStatus.Completed, other, player, $"{other.Name} sued for peace.");
                     state.ActiveWarnings.Add($"{other.Name} sued for peace — the war is over.");
                 }
                 continue;
@@ -427,7 +429,7 @@ public sealed class SimulationService
                 other.HasTradePactWithPlayer = false;
                 other.RelationToPlayer = -100;
                 TreatyService.OnWar(state, player, other);
-                state.Log($"{other.Name} declared war on {player.Name}!");
+                state.LogMovement(MovementKind.War, MovementStatus.Completed, other, player, $"{other.Name} declared war on {player.Name}!");
                 state.ActiveWarnings.Add($"⚠ {other.Name} has DECLARED WAR on you!");
                 TreatyService.AllianceDefence(state, other, player);
             }
@@ -471,7 +473,8 @@ public sealed class SimulationService
                 Farms = 8,
                 Mines = 2,
             });
-            state.Log($"A colony was founded in {region.Name}! Settlers and riches flow to the homeland.");
+            state.LogMovement(MovementKind.Colony, MovementStatus.Completed, home.Id, home.Name, region.Id, region.Name,
+                $"A colony was founded in {region.Name}! Settlers and riches flow to the homeland.");
         }
         state.ActiveExpedition = null;
     }
@@ -500,8 +503,11 @@ public sealed class SimulationService
                 if (attacker is not null && !attacker.IsEliminated)
                 {
                     ArmyHelper.MergeStacks(attacker, march.Force);
-                    if (attacker.IsPlayer)
-                        state.Log($"🏳 The march on {march.TargetNationName} was called off — the army returns home.");
+                    string calledOff = attacker.IsPlayer
+                        ? $"🏳 The march on {march.TargetNationName} was called off — the army returns home."
+                        : $"🏳 {attacker.Name}'s march on {march.TargetNationName} was called off — the army returns home.";
+                    state.LogMovement(MovementKind.March, MovementStatus.Failed,
+                        march.AttackerNationId, march.AttackerNationName, march.TargetNationId, march.TargetNationName, calledOff);
                 }
                 continue;
             }
@@ -520,14 +526,14 @@ public sealed class SimulationService
 
             if (attacker.IsPlayer)
             {
-                state.Log($"{def.Name}: {outcome.Summary}");
+                state.LogMovement(MovementKind.March, MovementStatus.Completed, attacker, def, $"{def.Name}: {outcome.Summary}");
                 state.ActiveWarnings.Add(
                     $"⚔ Battle for {def.Name}: {(outcome.AttackerWon ? "victory — the country is ours" : "defeat")}!");
             }
             else
             {
                 // An ally fighting the player's enemy.
-                state.Log($"{attacker.Name} vs {def.Name}: {outcome.Summary}");
+                state.LogMovement(MovementKind.March, MovementStatus.Completed, attacker, def, $"{attacker.Name} vs {def.Name}: {outcome.Summary}");
             }
         }
     }

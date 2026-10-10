@@ -49,6 +49,13 @@ public static class TreatyService
         _ => "treaty"
     };
 
+    /// <summary>"an embassy", "a defensive alliance": the treaty name with the right article.</summary>
+    public static string WithArticle(TreatyType type)
+    {
+        string name = TypeName(type);
+        return "aeiou".Contains(name[0]) ? $"an {name}" : $"a {name}";
+    }
+
     // ---------------- Enforcement ----------------
 
     /// <summary>
@@ -180,7 +187,8 @@ public static class TreatyService
         var back = ArmyHelper.TakeBack(host, loan.Force);
         ArmyHelper.MergeStacks(owner, back);
         int returned = back.Sum(s => s.Count);
-        state.Log($"{returned:N0} of {loan.Soldiers:N0} loaned soldiers returned from {host.Name} to {owner.Name} ({why}).");
+        state.LogMovement(MovementKind.Troops, MovementStatus.Completed, host, owner,
+            $"{returned:N0} of {loan.Soldiers:N0} loaned soldiers returned from {host.Name} to {owner.Name} ({why}).");
         return returned;
     }
 
@@ -223,19 +231,20 @@ public static class TreatyService
             if (!Has(state, TreatyType.DefensiveAlliance, victim.Id, ally.Id)) continue;
             if (DiplomacyService.ToDisplayRating(ally.RelationToPlayer) < Balance.AllianceHonorMinRating)
             {
-                state.Log($"{ally.Name} ignores the call to defend you against {aggressor.Name}.");
+                state.LogMovement(MovementKind.March, MovementStatus.Failed, ally, aggressor, $"{ally.Name} ignores the call to defend you against {aggressor.Name}.");
                 continue;
             }
             int commit = (int)(ally.Soldiers * Balance.AllianceAidFraction);
             if (commit < Balance.MinInvasionForce)
             {
-                state.Log($"{ally.Name} is too weak to march against {aggressor.Name}.");
+                state.LogMovement(MovementKind.March, MovementStatus.Failed, ally, aggressor, $"{ally.Name} is too weak to march against {aggressor.Name}.");
                 continue;
             }
             var march = LaunchMarch(state, ally, aggressor, commit);
             if (march is null) continue;
             marched++;
-            state.Log($"🛡 {ally.Name} honours the alliance: {commit:N0} soldiers march on {aggressor.Name} ({march.DaysLeft} days).");
+            state.LogMovement(MovementKind.March, MovementStatus.UnderWay, ally, aggressor,
+                $"🛡 {ally.Name} honours the alliance: {commit:N0} soldiers march on {aggressor.Name} ({march.DaysLeft} days).");
             state.ActiveWarnings.Add($"🛡 {ally.Name} marches to defend you against {aggressor.Name}!");
         }
         return marched;
@@ -253,7 +262,10 @@ public static class TreatyService
         {
             if (t.IsActiveOn(state.CurrentDate)) continue;
             Remove(state, t);
-            state.Log($"The {TypeName(t.Type)} with {NameOf(state, t.Other(state.PlayerNation.Id))} has expired.");
+            string partnerId = t.Other(state.PlayerNation.Id);
+            state.LogMovement(t.Type == TreatyType.Embassy ? MovementKind.Mission : MovementKind.Treaty, MovementStatus.Completed,
+                state.PlayerNation.Id, state.PlayerNation.Name, partnerId, NameOf(state, partnerId),
+                $"The {TypeName(t.Type)} with {NameOf(state, partnerId)} has expired.");
         }
 
         foreach (var loan in state.TroopLoans.Where(l => state.CurrentDate >= l.ReturnDate).ToList())

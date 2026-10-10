@@ -71,6 +71,39 @@ public sealed class GameState
     /// <summary>Player missionary influence per target nation id (0 to the conversion threshold).</summary>
     public Dictionary<string, double> MissionaryInfluence { get; set; } = new();
 
+    /// <summary>Everything that moved between states, oldest first (the Movement Report). Capped at <see cref="MaxMovements"/>.</summary>
+    public List<MovementRecord> Movements { get; set; } = new();
+
+    public const int MaxMovements = 500;
+
+    /// <summary>
+    /// Records a movement between states for the Movement Report and writes the same line to the event log,
+    /// so a movement is never in one and missing from the other.
+    /// </summary>
+    public MovementRecord LogMovement(MovementKind kind, MovementStatus status,
+        string fromId, string fromName, string toId, string toName, string text)
+    {
+        var record = new MovementRecord
+        {
+            Date = CurrentDate,
+            Kind = kind,
+            Status = status,
+            FromId = fromId,
+            FromName = fromName,
+            ToId = toId,
+            ToName = toName,
+            Text = text,
+        };
+        Movements.Add(record);
+        if (Movements.Count > MaxMovements)
+            Movements.RemoveRange(0, Movements.Count - MaxMovements);
+        Log(text);
+        return record;
+    }
+
+    public MovementRecord LogMovement(MovementKind kind, MovementStatus status, Nation from, Nation to, string text) =>
+        LogMovement(kind, status, from.Id, from.Name, to.Id, to.Name, text);
+
     public void Log(string message)
     {
         EventLog.Add($"{CurrentDate:dd-MM-yyyy}: {message}");

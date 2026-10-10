@@ -454,7 +454,7 @@
             n.Gold += _aidPerCountry;
             int gain = DiplomacyService.AidRelationshipGain(_aidPerCountry);
             n.RelationToPlayer = Math.Min(100, n.RelationToPlayer + gain * 2); // convert to -100..100 scale
-            Engine.State.Log($"{player.Name} sent aid to {n.Name} (+{gain} relations).");
+            Engine.State.LogMovement(MovementKind.Gold, MovementStatus.Completed, player, n, $"{player.Name} sent aid to {n.Name} (+{gain} relations).");
         }
         _aidTarget = null;
         StateHasChanged();
@@ -709,13 +709,15 @@
                 case "Iron": target.Iron -= amount; player.Iron += amount; break;
             }
             target.RelationToPlayer = Math.Min(100, target.RelationToPlayer + 4);
-            Engine.State.Log($"{target.Name} accepted your demand for {amount:N0} {_demandRes}.");
+            Engine.State.LogMovement(_demandRes == "Gold" ? MovementKind.Gold : MovementKind.Goods, MovementStatus.Completed, target, Engine.State.PlayerNation,
+                $"{target.Name} accepted your demand for {amount:N0} {_demandRes}.");
             _actionMsg = $"{target.Name} accepted! (+{_demandRes})";
         }
         else
         {
             target.RelationToPlayer = Math.Max(-100, target.RelationToPlayer - 6);
-            Engine.State.Log($"{target.Name} refused your demand for {_demandRes}.");
+            Engine.State.LogMovement(_demandRes == "Gold" ? MovementKind.Gold : MovementKind.Goods, MovementStatus.Failed, target, Engine.State.PlayerNation,
+                $"{target.Name} refused your demand for {_demandRes}.");
             _actionMsg = $"{target.Name} refused. (-6 relations)";
         }
         _demandTarget = null;

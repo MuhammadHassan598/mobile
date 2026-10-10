@@ -319,7 +319,7 @@ public sealed partial class GameEngine : IDisposable
         if (stack is null) n.Units.Add(new UnitStack { Type = UnitType.Musketeer, Count = contingent });
         else stack.Count += contingent;
 
-        State.Log($"{ally.Name} sent {contingent:N0} allied troops.");
+        State.LogMovement(MovementKind.Troops, MovementStatus.Completed, ally, n, $"{ally.Name} sent {contingent:N0} allied troops.");
         StateChanged?.Invoke();
         return $"{ally.Name} sends {contingent:N0} troops!";
     }
@@ -368,7 +368,7 @@ public sealed partial class GameEngine : IDisposable
             Status = TradeStatus.InTransit, IsPlayerBuyer = true
         };
         State.TradeContracts.Add(contract);
-        State.Log($"Bought {quantity:N0} {product.Name} from {seller.Name} for {Currency.Cost(total)}. Delivery in {days}d.");
+        State.LogMovement(MovementKind.Goods, MovementStatus.UnderWay, seller, buyer, $"Bought {quantity:N0} {product.Name} from {seller.Name} for {Currency.Cost(total)}. Delivery in {days}d.");
         StateChanged?.Invoke();
         return null;
     }
@@ -404,7 +404,7 @@ public sealed partial class GameEngine : IDisposable
             Status = TradeStatus.InTransit, IsPlayerBuyer = false
         };
         State.TradeContracts.Add(contract);
-        State.Log($"Sold {quantity:N0} {product.Name} to {buyer.Name} for {Currency.Cost(total)}. Delivery in {days}d.");
+        State.LogMovement(MovementKind.Goods, MovementStatus.UnderWay, seller, buyer, $"Sold {quantity:N0} {product.Name} to {buyer.Name} for {Currency.Cost(total)}. Delivery in {days}d.");
         StateChanged?.Invoke();
         return null;
     }
@@ -695,7 +695,7 @@ public sealed partial class GameEngine : IDisposable
             TotalDays = days,
         });
 
-        State.Log($"⚔ {commit:N0} soldiers march on {owner.Name} — arrival in {days} days.");
+        State.LogMovement(MovementKind.March, MovementStatus.UnderWay, player, owner, $"⚔ {commit:N0} soldiers march on {owner.Name} — arrival in {days} days.");
         StateChanged?.Invoke();
         return (true, $"Your army marches on {owner.Name} — arrival in {days} days.");
     }
@@ -758,7 +758,7 @@ public sealed partial class GameEngine : IDisposable
             DaysLeft = Balance.ColonyDays,
             TotalDays = Balance.ColonyDays,
         };
-        State.Log($"A colony expedition sails for {region.Name} ({Balance.ColonyDays} days).");
+        State.LogMovement(MovementKind.Colony, MovementStatus.UnderWay, n.Id, n.Name, region.Id, region.Name, $"A colony expedition sails for {region.Name} ({Balance.ColonyDays} days).");
         StateChanged?.Invoke();
         return null;
     }
@@ -882,7 +882,7 @@ public sealed partial class GameEngine : IDisposable
 
         State.PlayerNation.PayGold(Balance.GiftCost);
         n.RelationToPlayer = Math.Min(100, n.RelationToPlayer + Balance.GiftRelationGain);
-        State.Log($"Sent a gift to {n.Name} (+{Balance.GiftRelationGain} relations).");
+        State.LogMovement(MovementKind.Gold, MovementStatus.Completed, State.PlayerNation, n, $"Sent a gift to {n.Name} (+{Balance.GiftRelationGain} relations).");
         StateChanged?.Invoke();
         return null;
     }
@@ -898,7 +898,7 @@ public sealed partial class GameEngine : IDisposable
         n.HasTradePactWithPlayer = false;
         n.RelationToPlayer = -100;
         TreatyService.OnWar(State, State.PlayerNation, n);
-        State.Log($"You declared war on {n.Name}!");
+        State.LogMovement(MovementKind.War, MovementStatus.Completed, State.PlayerNation, n, $"You declared war on {n.Name}!");
         StateChanged?.Invoke();
         return null;
     }
@@ -913,7 +913,7 @@ public sealed partial class GameEngine : IDisposable
         State.PlayerNation.PayGold(Balance.PeaceTributeCost);
         n.AtWarWithPlayer = false;
         n.RelationToPlayer = -20;
-        State.Log($"You sued for peace with {n.Name} (tribute {Balance.PeaceTributeCost:N0} gold).");
+        State.LogMovement(MovementKind.War, MovementStatus.Completed, State.PlayerNation, n, $"You sued for peace with {n.Name} (tribute {Balance.PeaceTributeCost:N0} gold).");
         StateChanged?.Invoke();
         return null;
     }
@@ -931,7 +931,7 @@ public sealed partial class GameEngine : IDisposable
         n.HasTradePactWithPlayer = true;
         if (!TreatyService.Has(State, TreatyType.TradeAgreement, State.PlayerNation.Id, n.Id))
             TreatyService.Add(State, TreatyType.TradeAgreement, State.PlayerNation, n);
-        State.Log($"Signed a trade pact with {n.Name}.");
+        State.LogMovement(MovementKind.Treaty, MovementStatus.Completed, State.PlayerNation, n, $"Signed a trade pact with {n.Name}.");
         StateChanged?.Invoke();
         return null;
     }
@@ -943,7 +943,7 @@ public sealed partial class GameEngine : IDisposable
         n.HasTradePactWithPlayer = false;
         var treaty = TreatyService.Find(State, TreatyType.TradeAgreement, State.PlayerNation.Id, n.Id);
         if (treaty is not null) TreatyService.Remove(State, treaty);
-        State.Log($"Cancelled the trade pact with {n.Name}.");
+        State.LogMovement(MovementKind.Treaty, MovementStatus.Completed, State.PlayerNation, n, $"Cancelled the trade pact with {n.Name}.");
         StateChanged?.Invoke();
     }
 
@@ -966,19 +966,19 @@ public sealed partial class GameEngine : IDisposable
             n.PayGold(tribute);
             player.Gold += tribute;
             n.RelationToPlayer = Math.Max(-100, n.RelationToPlayer - 20);
-            State.Log($"{n.Name} paid tribute: {Currency.Cost(tribute)}.");
+            State.LogMovement(MovementKind.Gold, MovementStatus.Completed, n, player, $"{n.Name} paid tribute: {Currency.Cost(tribute)}.");
         }
         else
         {
             n.RelationToPlayer = Math.Max(-100, n.RelationToPlayer - 30);
-            State.Log($"{n.Name} refused your tribute demand.");
+            State.LogMovement(MovementKind.Gold, MovementStatus.Failed, n, player, $"{n.Name} refused your tribute demand.");
             if (_sim.RollChance(Balance.TributeRefusalWarChance))
             {
                 n.AtWarWithPlayer = true;
                 n.HasTradePactWithPlayer = false;
                 n.RelationToPlayer = -100;
                 TreatyService.OnWar(State, player, n);
-                State.Log($"{n.Name} declared war over your insult!");
+                State.LogMovement(MovementKind.War, MovementStatus.Completed, n, player, $"{n.Name} declared war over your insult!");
                 State.ActiveWarnings.Add($"⚠ {n.Name} has DECLARED WAR on you!");
                 TreatyService.AllianceDefence(State, n, player);
             }
@@ -1012,7 +1012,7 @@ public sealed partial class GameEngine : IDisposable
         else
             net.Strength = Math.Min(Balance.MaxNetworkStrength,
                 net.Strength + Balance.EstablishNetworkStrength);
-        State.Log($"Spy network operating in {n.Name}.");
+        State.LogMovement(MovementKind.Mission, MovementStatus.Completed, State.PlayerNation, n, $"Spy network operating in {n.Name}.");
         StateChanged?.Invoke();
         return null;
     }
@@ -1036,7 +1036,7 @@ public sealed partial class GameEngine : IDisposable
         net.Strength /= 2;
         target.RelationToPlayer = Math.Max(-100,
             target.RelationToPlayer - Balance.DiscoveryRelationHit);
-        State.Log($"Our spy was caught ({deed}) in {target.Name}!");
+        State.LogMovement(MovementKind.Mission, MovementStatus.Failed, State.PlayerNation, target, $"Our spy was caught ({deed}) in {target.Name}!");
         State.ActiveWarnings.Add($"🕵 Our spy was caught in {target.Name}!");
     }
 
@@ -1052,7 +1052,7 @@ public sealed partial class GameEngine : IDisposable
         double amount = target!.Gold * frac;
         target.PayGold(amount);
         State.PlayerNation.Gold += amount;
-        State.Log($"Spies stole {Currency.Cost(amount)} from {target.Name}.");
+        State.LogMovement(MovementKind.Gold, MovementStatus.Completed, target, State.PlayerNation, $"Spies stole {Currency.Cost(amount)} from {target.Name}.");
         if (_sim.RollChance(Balance.StealDiscoveryChance))
             Discover(net!, target, "theft");
         StateChanged?.Invoke();
@@ -1085,7 +1085,7 @@ public sealed partial class GameEngine : IDisposable
             case BuildingType.Sawmill: target.Sawmills--; break;
             case BuildingType.Workshop: target.Workshops--; break;
         }
-        State.Log($"Spies sabotaged a {pick.name} in {target.Name}.");
+        State.LogMovement(MovementKind.Mission, MovementStatus.Completed, State.PlayerNation, target, $"Spies sabotaged a {pick.name} in {target.Name}.");
         if (_sim.RollChance(Balance.SabotageDiscoveryChance))
             Discover(net!, target, "sabotage");
         StateChanged?.Invoke();
@@ -1101,7 +1101,7 @@ public sealed partial class GameEngine : IDisposable
 
         int deserters = (int)(target!.Soldiers * Balance.InciteDesertionFraction);
         ArmyHelper.RemoveSoldiers(target, deserters);
-        State.Log($"Spies incited revolt in {target.Name}: {deserters:N0} soldiers deserted.");
+        State.LogMovement(MovementKind.Mission, MovementStatus.Completed, State.PlayerNation, target, $"Spies incited revolt in {target.Name}: {deserters:N0} soldiers deserted.");
         if (_sim.RollChance(Balance.InciteDiscoveryChance))
             Discover(net!, target, "sedition");
         StateChanged?.Invoke();

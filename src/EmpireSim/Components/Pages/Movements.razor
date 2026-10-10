@@ -1,0 +1,232 @@
+@page "/movements"
+@using EmpireSim.Core.Models
+@using EmpireSim.Core.Services
+@inject GameEngine Engine
+@inject NavigationManager Nav
+@implements IDisposable
+
+@{
+    var state = Engine.State;
+    var events = MovementReport.Events(state, _stateId);
+    var missions = MovementReport.ActiveMissions(state, _stateId);
+}
+
+<div class="mov-wrap">
+    <div class="mov-header">
+        <button class="mov-back" @onclick='() => Nav.NavigateTo("/")'>◀ BACK</button>
+        <h2>MOVEMENT REPORT</h2>
+        <span class="mov-spacer"></span>
+    </div>
+
+    <!-- State filter and grouping -->
+    <div class="mov-controls">
+        <button class="mov-state" @onclick="() => _picker = true" title="Filter by state">
+            <span class="mov-state-emblem">@(_stateId is null ? "🌍" : Emblem(_stateId))</span>
+            <span class="mov-state-name">@(_stateId is null ? "All" : NameOf(_stateId))</span>
+        </button>
+        <div class="mov-seg">
+            <button class="@(_byState ? "active" : "")" @onclick="() => _byState = true">By state</button>
+            <button class="@(!_byState ? "active" : "")" @onclick="() => _byState = false">By date</button>
+        </div>
+    </div>
+
+    <div class="mov-tabs">
+        <button class="@(_tab == 0 ? "active" : "")" @onclick="() => _tab = 0">Events <span class="mov-count">@events.Count</span></button>
+        <button class="@(_tab == 1 ? "active" : "")" @onclick="() => _tab = 1">Mission location <span class="mov-count">@missions.Count</span></button>
+    </div>
+
+    @if (_tab == 0)
+    {
+        @if (events.Count == 0)
+        {
+            <div class="mov-empty">
+                <div class="mov-empty-title">No events</div>
+                <div class="mov-empty-ico">🪖</div>
+                <div class="mov-empty-hint">Troops, gold, goods, colonies, missions and treaties between states will be listed here.</div>
+            </div>
+        }
+        else if (_byState)
+        {
+            @foreach (var g in MovementReport.EventsByState(state, _stateId))
+            {
+                <div class="mov-group"><span class="mov-group-emblem">@Emblem(g.StateId)</span> @g.StateName <span class="mov-count">@g.Items.Count</span></div>
+                @foreach (var m in g.Items) { @EventRow(m) }
+            }
+        }
+        else
+        {
+            @foreach (var m in events) { @EventRow(m) }
+        }
+    }
+    else
+    {
+        @if (missions.Count == 0)
+        {
+            <div class="mov-empty">
+                <div class="mov-empty-title">No missions</div>
+                <div class="mov-empty-ico">🧭</div>
+                <div class="mov-empty-hint">Armies on the march, loaned troops, shipments, expeditions, spies, missionaries and embassies abroad will be shown here.</div>
+            </div>
+        }
+        else if (_byState)
+        {
+            @foreach (var g in MovementReport.MissionsByState(state, _stateId))
+            {
+                <div class="mov-group"><span class="mov-group-emblem">@Emblem(g.StateId)</span> @g.StateName <span class="mov-count">@g.Items.Count</span></div>
+                @foreach (var m in g.Items) { @MissionRow(m) }
+            }
+        }
+        else
+        {
+            @foreach (var m in missions) { @MissionRow(m) }
+        }
+    }
+</div>
+
+<!-- State picker -->
+@if (_picker)
+{
+    <div class="mov-overlay" @onclick="() => _picker = false">
+        <div class="mov-panel" @onclick:stopPropagation>
+            <div class="mov-panel-title">Show movements of</div>
+            <button class="mov-pick @(_stateId is null ? "active" : "")" @onclick="() => Pick(null)">
+                <span class="mov-pick-emblem">🌍</span><span class="mov-pick-name">All states</span>
+            </button>
+            @foreach (var n in InvolvedStates())
+            {
+                <button class="mov-pick @(_stateId == n.Id ? "active" : "")" @onclick="() => Pick(n.Id)">
+                    <span class="mov-pick-emblem">@n.Emblem</span>
+                    <span class="mov-pick-name">@n.Name</span>
+                    <span class="mov-count">@CountFor(n.Id)</span>
+                </button>
+            }
+            @if (!InvolvedStates().Any())
+            {
+                <div class="mov-empty-hint">No state has moved anything yet.</div>
+            }
+            <button class="mov-close" @onclick="() => _picker = false">CLOSE</button>
+        </div>
+    </div>
+}
+
+@code {
+    private int _tab;                 // 0 events, 1 mission location
+    private bool _byState;            // false = by date (default)
+    private bool _picker;
+    private string? _stateId;         // null = all states
+
+    protected override void OnInitialized() => Engine.StateChanged += OnStateChanged;
+    private void OnStateChanged() => InvokeAsync(StateHasChanged);
+    public void Dispose() => Engine.StateChanged -= OnStateChanged;
+
+    private void Pick(string? id)
+    {
+        _stateId = id;
+        _picker = false;
+    }
+
+    private string Emblem(string id) =>
+        Engine.State.AllNations().FirstOrDefault(n => n.Id == id)?.Emblem ?? "🌍";
+
+    private string NameOf(string id) =>
+        Engine.State.AllNations().FirstOrDefault(n => n.Id == id)?.Name ?? id;
+
+    /// <summary>Countries that appear in any saved movement or live mission (the player's own is not a useful filter).</summary>
+    private IEnumerable<Nation> InvolvedStates()
+    {
+        var state = Engine.State;
+        var ids = new HashSet<string>();
+        foreach (var m in state.Movements) { ids.Add(m.FromId); ids.Add(m.ToId); }
+        foreach (var m in MovementReport.ActiveMissions(state)) { ids.Add(m.FromId); ids.Add(m.LocationId); }
+        return state.OtherNations.Where(n => ids.Contains(n.Id)).OrderBy(n => n.Name);
+    }
+
+    private int CountFor(string id) =>
+        Engine.State.Movements.Count(m => m.Involves(id)) + MovementReport.ActiveMissions(Engine.State, id).Count;
+
+    private static string StatusClass(MovementStatus s) => s switch
+    {
+        MovementStatus.Completed => "done",
+        MovementStatus.UnderWay => "going",
+        _ => "failed"
+    };
+
+    private RenderFragment EventRow(MovementRecord m) => @<div class="mov-row @StatusClass(m.Status)">
+        <span class="mov-ico">@MovementReport.Icon(m.Kind)</span>
+        <div class="mov-body">
+            <div class="mov-text">@m.Text</div>
+            <div class="mov-meta">@m.Date.ToString("dd-MM-yyyy") · @Emblem(m.FromId) @m.FromName ➜ @Emblem(m.ToId) @m.ToName</div>
+        </div>
+        <span class="mov-pill @StatusClass(m.Status)">@MovementReport.StatusName(m.Status)</span>
+    </div>;
+
+    private RenderFragment MissionRow(Mission m) => @<div class="mov-row going">
+        <span class="mov-ico">@MovementReport.Icon(m.Kind)</span>
+        <div class="mov-body">
+            <div class="mov-text">@m.Text</div>
+            <div class="mov-meta">@Emblem(m.FromId) @m.FromName ➜ @Emblem(m.LocationId) @m.LocationName</div>
+            @if (m.Progress is { } p)
+            {
+                <div class="mov-bar"><div class="mov-bar-fill" style="width: @((p * 100).ToString("0"))%"></div></div>
+            }
+            <div class="mov-meta">
+                @if (m.Due is { } due)
+                {
+                    @($"Due {due:dd-MM-yyyy} · {m.DaysLeft} day{(m.DaysLeft == 1 ? "" : "s")} left")
+                }
+                else
+                {
+                    @("Stationed there")
+                }
+            </div>
+        </div>
+    </div>;
+}
+
+<style>
+.mov-wrap { background: linear-gradient(#f0e0b0, #e8d090); min-height: 100vh; padding: 10px 8px 90px; font-family: Georgia, serif; color: #3d2b1f; }
+.mov-header { display: flex; align-items: center; margin-bottom: 10px; }
+.mov-back { background: linear-gradient(#7a5230, #4a2e14); color: #f5e6c4; border: 2px solid #2e1c0c; border-radius: 6px; padding: 8px 14px; cursor: pointer; font-family: inherit; }
+.mov-header h2 { flex: 1; text-align: center; margin: 0; letter-spacing: 2px; font-size: 1.1rem; color: #3d2b1f; }
+.mov-spacer { width: 80px; }
+.mov-controls { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.mov-state { display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 64px; padding: 4px 8px; background: linear-gradient(#3b2a1a, #1f160d); border: 2px solid #c9a227; border-radius: 10px; color: #f5e6c4; cursor: pointer; font-family: inherit; }
+.mov-state-emblem { font-size: 1.5rem; line-height: 1.1; }
+.mov-state-name { font-size: 0.62rem; max-width: 70px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mov-seg { flex: 1; display: flex; border: 2px solid #2e1c0c; border-radius: 6px; overflow: hidden; }
+.mov-seg button { flex: 1; padding: 10px 4px; background: #f7ead0; color: #3d2b1f; border: none; cursor: pointer; font-family: inherit; font-weight: bold; font-size: 0.85rem; }
+.mov-seg button.active { background: linear-gradient(#4a4a4a, #262626); color: #f5e6c4; }
+.mov-tabs { display: flex; margin-bottom: 8px; border-radius: 6px; overflow: hidden; border: 2px solid #8b6914; }
+.mov-tabs button { flex: 1; padding: 10px 4px; background: rgba(139,105,20,.25); color: #3d2b1f; border: none; cursor: pointer; font-family: inherit; font-weight: bold; font-size: 0.9rem; }
+.mov-tabs button.active { background: linear-gradient(#7a5230, #4a2e14); color: #f5e6c4; }
+.mov-count { display: inline-block; min-width: 18px; padding: 0 5px; border-radius: 9px; background: rgba(0,0,0,.18); font-size: 0.72rem; text-align: center; font-weight: bold; }
+.mov-empty { text-align: center; padding: 28px 12px; }
+.mov-empty-title { font-weight: bold; font-size: 1.05rem; margin-bottom: 14px; }
+.mov-empty-ico { width: 120px; height: 120px; margin: 0 auto 14px; border-radius: 50%; border: 4px solid #6b5a3a; display: flex; align-items: center; justify-content: center; font-size: 3.4rem; opacity: 0.6; }
+.mov-empty-hint { font-size: 0.85rem; color: #5a4a2a; max-width: 300px; margin: 0 auto; }
+.mov-group { display: flex; align-items: center; gap: 6px; margin: 12px 0 6px; padding-bottom: 4px; border-bottom: 2px solid #8b6914; font-weight: bold; font-size: 0.95rem; color: #5a3a1a; }
+.mov-group-emblem { font-size: 1.3rem; }
+.mov-group .mov-count { margin-left: auto; }
+.mov-row { display: flex; align-items: flex-start; gap: 8px; background: rgba(255,255,255,.35); border: 1px solid #c9b98a; border-left: 4px solid #8b6914; border-radius: 6px; padding: 8px; margin-bottom: 5px; }
+.mov-row.done { border-left-color: #2e7d32; }
+.mov-row.going { border-left-color: #1565c0; }
+.mov-row.failed { border-left-color: #b71c1c; }
+.mov-ico { font-size: 1.4rem; width: 34px; height: 34px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #f7ead0, #c9a96a 70%); border: 2px solid #2e1c0c; }
+.mov-body { flex: 1; min-width: 0; }
+.mov-text { font-size: 0.88rem; line-height: 1.25; }
+.mov-meta { font-size: 0.74rem; color: #5a4a2a; margin-top: 2px; }
+.mov-pill { flex-shrink: 0; align-self: center; font-size: 0.66rem; font-weight: bold; padding: 2px 7px; border-radius: 10px; color: #fff; }
+.mov-pill.done { background: #2e7d32; }
+.mov-pill.going { background: #1565c0; }
+.mov-pill.failed { background: #b71c1c; }
+.mov-bar { height: 7px; margin: 5px 0 2px; background: #d4b896; border-radius: 4px; overflow: hidden; }
+.mov-bar-fill { height: 100%; background: linear-gradient(#42a5f5, #1565c0); }
+.mov-overlay { position: fixed; inset: 0; z-index: 100; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; padding: 12px; }
+.mov-panel { background: linear-gradient(#f5e6c4, #e2cb92); border: 3px double #8b6914; border-radius: 10px; padding: 14px; max-width: 360px; width: 100%; max-height: 80vh; overflow-y: auto; font-family: Georgia, serif; color: #3d2b1f; }
+.mov-panel-title { font-weight: bold; text-align: center; margin-bottom: 8px; letter-spacing: 1px; }
+.mov-pick { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px; margin-bottom: 4px; background: rgba(255,255,255,.4); border: 2px solid #c9b98a; border-radius: 8px; cursor: pointer; font-family: inherit; color: #3d2b1f; text-align: left; }
+.mov-pick.active { border-color: #c9a227; background: rgba(201,162,39,.25); }
+.mov-pick-emblem { font-size: 1.5rem; width: 34px; text-align: center; }
+.mov-pick-name { flex: 1; font-weight: bold; font-size: 0.92rem; }
+.mov-close { width: 100%; margin-top: 8px; padding: 10px; background: linear-gradient(#8a8a8a, #5a5a5a); color: #fff; border: 2px solid #2e1c0c; border-radius: 6px; cursor: pointer; font-family: inherit; font-weight: bold; }
+</style>

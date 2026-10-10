@@ -147,4 +147,11 @@ grace-warning → desertion path. All must print PASS.
   dependency: the game has no research system and no vassals / independence / AI-vs-AI wars yet.
   Rules live in `GameEngine.Diplomacy.cs` and `TreatyService.cs`; numbers in `Balance.cs`;
   11 new SimTests sections (28–38).
+- [x] **Movement Report (done)** — the main menu's 🧭 Movements tile opens `/movements`: an **Events** tab
+  (every transfer between states — gold, goods, troops, marches, colonies, envoys, missionaries, spies,
+  treaties, war and peace — with date, from ➜ to and a Done / Under way / Refused status; saved with the
+  game, newest 500 kept) and a **Mission location** tab (what is on the road or posted abroad right now:
+  marching armies, troop loans, shipments, the colony expedition, spy networks, missionaries, embassies,
+  with progress and days left). Filter by state; group *By state* or *By date*. Every movement site calls
+  `GameState.LogMovement`, which also writes the usual event-log line. Read side: `MovementReport.cs`.
 - [ ] Tune everything in `Balance.cs`.

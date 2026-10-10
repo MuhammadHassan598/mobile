@@ -148,6 +148,6 @@ public static class Warfare
         state.SpyNetworks.RemoveAll(s => s.TargetNationId == loser.Id);
         state.MarchingArmies.RemoveAll(m =>
             m.AttackerNationId == loser.Id || m.TargetNationId == loser.Id);
-        state.Log($"{loser.Name} has been annexed by {winner.Name}!");
+        state.LogMovement(MovementKind.War, MovementStatus.Completed, winner, loser, $"{loser.Name} has been annexed by {winner.Name}!");
     }
 }

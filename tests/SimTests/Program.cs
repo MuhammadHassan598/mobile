@@ -1728,5 +1728,218 @@ using (var engB = NewDipEngine(77))
     Check(pA.LastShortageDeaths == pB.LastShortageDeaths, "shortage effects are unaffected");
 }
 
+Console.WriteLine("== 39. Movement report: every movement between states is recorded ==");
+using (var eng = NewDipEngine(31))
+{
+    var p = eng.State.PlayerNation;
+    var persia = Ai(eng, "persia"); var france = Ai(eng, "france"); var nepal = Ai(eng, "nepal");
+    bool Has(MovementKind kind, MovementStatus status, string from, string to) =>
+        eng.State.Movements.Any(m => m.Kind == kind && m.Status == status && m.FromId == from && m.ToId == to);
+
+    Check(eng.State.Movements.Count == 0, "a new game has no movements yet");
+    Check(MovementReport.Events(eng.State).Count == 0 && MovementReport.ActiveMissions(eng.State).Count == 0, "nothing to report at the start");
+
+    eng.GiveGift(persia.Id, 1000);
+    var gift = eng.State.Movements.Last();
+    Check(gift.Kind == MovementKind.Gold && gift.Status == MovementStatus.Completed && gift.FromId == p.Id && gift.ToId == persia.Id
+          && gift.FromName == p.Name && gift.ToName == persia.Name && gift.Date == eng.State.CurrentDate, "a gift is recorded: gold from us to them, with date and names");
+    Check(HasLog(eng, gift.Text), "the same line is still in the event log");
+
+    eng.EstablishEmbassy(persia.Id);
+    Check(Has(MovementKind.Mission, MovementStatus.Completed, p.Id, persia.Id), "an embassy is recorded as a mission");
+    Check(eng.ProposeNonAggression(persia.Id).Ok && Has(MovementKind.Treaty, MovementStatus.Completed, p.Id, persia.Id), "a pact is recorded as a treaty");
+    Check(HasLog(eng, "Signed an embassy with Iran.") && HasLog(eng, "Signed a non-aggression pact with Iran."), "records read naturally (an embassy, a pact)");
+    eng.SendTroops(persia.Id, 1000);
+    Check(Has(MovementKind.Troops, MovementStatus.UnderWay, p.Id, persia.Id), "lent soldiers are recorded as under way");
+    eng.GiveArmy(france.Id, 500);
+    Check(Has(MovementKind.Troops, MovementStatus.Completed, p.Id, france.Id), "given soldiers are recorded as done");
+    eng.ImproveRelations(france.Id);
+    Check(Has(MovementKind.Mission, MovementStatus.Completed, p.Id, france.Id), "envoys are recorded as a mission");
+    var refusedAid = eng.AskForAid(france.Id, "Gold");
+    Check(refusedAid.Outcome == DipOutcome.Rejected && Has(MovementKind.Gold, MovementStatus.Failed, france.Id, p.Id), "a refused request for aid is recorded as refused");
+    SetRating(france, 65); p.DiplomacyCooldowns.Clear();
+    Check(eng.AskForAid(france.Id, "Gold").Ok && Has(MovementKind.Gold, MovementStatus.Completed, france.Id, p.Id), "aid received is recorded: gold from them to us");
+    eng.SendMissionary(france.Id);
+    Check(Has(MovementKind.Mission, MovementStatus.Completed, p.Id, france.Id) && eng.State.Movements.Last().Text.Contains("influence"), "missionaries are recorded");
+    eng.EstablishNetwork(france.Id);
+    Check(eng.State.Movements.Last().Text.Contains("Spy network"), "a spy network is recorded");
+
+    // Trade shipments: placed under way, delivered later.
+    int before = eng.State.Movements.Count;
+    eng.BuyProduct(france.Id, "wheat", 1000);
+    Check(Has(MovementKind.Goods, MovementStatus.UnderWay, france.Id, p.Id), "a purchase is recorded: goods from them to us, under way");
+    eng.SellProduct(france.Id, "wheat", 100, 500);
+    Check(Has(MovementKind.Goods, MovementStatus.UnderWay, p.Id, france.Id), "a sale is recorded: goods from us to them, under way");
+    for (int i = 0; i < 8; i++) eng.AdvanceOneDay();
+    Check(Has(MovementKind.Goods, MovementStatus.Completed, france.Id, p.Id) && Has(MovementKind.Goods, MovementStatus.Completed, p.Id, france.Id),
+        "both shipments are recorded again when they arrive");
+
+    // War and marches.
+    eng.DeclareWar(nepal.Id);
+    Check(Has(MovementKind.War, MovementStatus.Completed, p.Id, nepal.Id), "a declaration of war is recorded");
+    var (okInvade, _) = eng.LaunchInvasion(nepal.Id, 600);
+    Check(okInvade && Has(MovementKind.March, MovementStatus.UnderWay, p.Id, nepal.Id), "a launched invasion is recorded as under way");
+    int marchDays = eng.State.MarchingArmies[0].TotalDays;
+    for (int i = 0; i < marchDays; i++) { p.Gold = 1_000_000; eng.AdvanceOneDay(); }
+    Check(Has(MovementKind.March, MovementStatus.Completed, p.Id, nepal.Id), "the battle on arrival is recorded as done");
+
+    // Colonies.
+    p.Warships = 5; p.Gold = 100_000; p.GoodsInventory["Wheat"] = 100_000;
+    var region = eng.State.FrontierRegions[0];
+    eng.FoundColony(region.Id);
+    Check(Has(MovementKind.Colony, MovementStatus.UnderWay, p.Id, region.Id), "an expedition is recorded: us to the region, under way");
+    for (int i = 0; i < Balance.ColonyDays; i++) { p.Gold = 1_000_000; eng.AdvanceOneDay(); }
+    Check(Has(MovementKind.Colony, MovementStatus.Completed, p.Id, region.Id), "the founding is recorded when the colony is established");
+    var spainC = Ai(eng, "mughal");
+    eng.PresentColonyTo(spainC.Id, eng.State.Colonies[0].Id);
+    Check(Has(MovementKind.Colony, MovementStatus.Completed, p.Id, spainC.Id), "presenting a colony is recorded");
+
+    // Loans come home.
+    for (int i = 0; i < Balance.TroopLoanDays; i++) { p.Gold = 1_000_000; eng.AdvanceOneDay(); }
+    Check(Has(MovementKind.Troops, MovementStatus.Completed, persia.Id, p.Id), "the return of lent soldiers is recorded: from the host back to us");
+    Check(eng.State.Movements.All(m => m.FromName.Length > 0 && m.ToName.Length > 0 && m.Text.Length > 0), "every record has names and text");
+}
+
+using (var eng = NewDipEngine(21))
+{
+    // AI-initiated movements are recorded too.
+    var p = eng.State.PlayerNation;
+    var persia = Ai(eng, "persia");
+    for (int i = 0; i < 600 && !persia.AtWarWithPlayer; i++) { persia.RelationToPlayer = -100; p.Gold = 1_000_000; eng.AdvanceOneDay(); }
+    Check(eng.State.Movements.Any(m => m.Kind == MovementKind.War && m.FromId == persia.Id && m.ToId == p.Id), "an AI declaration of war on us is recorded");
+}
+
+using (var eng = NewDipEngine(34))
+{
+    // Allied marches, recalls, treaty expiry, tribute and annexation.
+    var p = eng.State.PlayerNation;
+    var spain = Ai(eng, "spain"); var persia = Ai(eng, "persia"); var france = Ai(eng, "france");
+    TreatyService.Add(eng.State, TreatyType.DefensiveAlliance, p, spain);
+    TreatyService.AllianceDefence(eng.State, persia, p);
+    Check(eng.State.Movements.Any(m => m.Kind == MovementKind.March && m.Status == MovementStatus.UnderWay && m.FromId == spain.Id && m.ToId == persia.Id),
+        "an ally's march against our attacker is recorded");
+    persia.AtWarWithPlayer = false;   // peace: the ally's march is called off on arrival
+    int allyDays = eng.State.MarchingArmies[0].TotalDays;
+    for (int i = 0; i < allyDays; i++) eng.AdvanceOneDay();
+    Check(eng.State.Movements.Any(m => m.Kind == MovementKind.March && m.Status == MovementStatus.Failed && m.FromId == spain.Id && m.ToId == persia.Id),
+        "an ally's recalled march is recorded as failed");
+
+    p.Units = UnitCatalog.SeedArmy(20000);
+    france.Units = UnitCatalog.SeedArmy(5000);
+    Check(eng.DemandTribute(france.Id) is null && eng.State.Movements.Any(m => m.Kind == MovementKind.Gold && m.Status == MovementStatus.Completed && m.FromId == france.Id && m.ToId == p.Id),
+        "tribute paid to us is recorded");
+    Warfare.AnnexNation(eng.State, p, france);
+    Check(eng.State.Movements.Any(m => m.Kind == MovementKind.War && m.FromId == p.Id && m.ToId == france.Id && m.Text.Contains("annexed")), "an annexation is recorded");
+}
+
+using (var eng = NewDipEngine(35))
+{
+    var p = eng.State.PlayerNation;
+    var persia = Ai(eng, "persia");
+    eng.EstablishEmbassy(persia.Id);
+    eng.ProposeNonAggression(persia.Id);
+    for (int i = 0; i < Balance.NapDays; i++) { p.Gold = 1_000_000_000; eng.AdvanceOneDay(); }
+    Check(eng.State.Movements.Any(m => m.Kind == MovementKind.Treaty && m.Text.Contains("has expired")), "an expired pact is recorded");
+}
+
+Console.WriteLine("== 40. Movement report: events, missions, filters, cap, save/load ==");
+using (var eng = NewDipEngine(36))
+{
+    var s = eng.State; var p = s.PlayerNation;
+    var persia = Ai(eng, "persia"); var spain = Ai(eng, "spain"); var france = Ai(eng, "france");
+    var d0 = s.CurrentDate;
+    s.LogMovement(MovementKind.Gold, MovementStatus.Completed, p, persia, "a");
+    s.CurrentDate = d0.AddDays(1);
+    s.LogMovement(MovementKind.Gold, MovementStatus.Completed, persia, p, "b");
+    s.LogMovement(MovementKind.March, MovementStatus.Completed, spain, france, "c");   // neither side is the player
+
+    Check(string.Join("", MovementReport.Events(s).Select(x => x.Text)) == "cba", "events are newest first, even within one day");
+    Check(string.Join("", MovementReport.Events(s, persia.Id).Select(x => x.Text)) == "ba", "filtering by a state keeps only movements that involve it");
+    Check(string.Join("", MovementReport.Events(s, spain.Id).Select(x => x.Text)) == "c" && MovementReport.Events(s, france.Id).Count == 1,
+        "both sides of a movement between two other states see it");
+    Check(MovementReport.Events(s, Ai(eng, "mughal").Id).Count == 0, "a state with no movements has an empty list");
+
+    var groups = MovementReport.EventsByState(s);
+    Check(groups.Count == 2 && groups[0].StateId == spain.Id && groups[1].StateId == persia.Id, "by state: grouped under the state concerned, newest news first");
+    Check(string.Join("", groups[1].Items.Select(x => x.Text)) == "ba" && groups[0].Items.Count == 1, "by state: each group lists its events newest first");
+    Check(MovementReport.EventsByState(s, persia.Id).Single().StateId == persia.Id, "by state with a filter shows just that state");
+    Check(MovementReport.Counterpart(s, s.Movements[0]).Id == persia.Id && MovementReport.Counterpart(s, s.Movements[1]).Id == persia.Id,
+        "the counterpart is the other side from the player's point of view");
+}
+
+using (var eng = NewDipEngine(37))
+{
+    // Mission location: everything on the road or posted abroad right now.
+    var s = eng.State; var p = s.PlayerNation;
+    var persia = Ai(eng, "persia"); var spain = Ai(eng, "spain"); var france = Ai(eng, "france");
+    Check(MovementReport.ActiveMissions(s).Count == 0, "no missions at the start");
+
+    eng.EstablishEmbassy(persia.Id);
+    eng.EstablishNetwork(france.Id);
+    eng.SendMissionary(spain.Id);
+    eng.SendTroops(persia.Id, 1500);
+    var allyMarch = TreatyService.LaunchMarch(s, spain, persia, 800)!;
+    eng.BuyProduct(france.Id, "wheat", 1000);
+    p.Warships = 5; p.Gold = 100_000; p.GoodsInventory["Wheat"] = 100_000;
+    eng.FoundColony(s.FrontierRegions[0].Id);
+
+    var all = MovementReport.ActiveMissions(s);
+    Check(all.Count == 7, "embassy, spy network, missionaries, loan, march, shipment and expedition are all listed");
+    var embassy = all.Single(x => x.Text.StartsWith("Embassy"));
+    var spy = all.Single(x => x.Text.StartsWith("Spy network"));
+    var mission = all.Single(x => x.Text.StartsWith("Missionaries"));
+    Check(embassy.LocationId == persia.Id && spy.LocationId == france.Id && mission.LocationId == spain.Id, "stationed missions say where they are");
+    Check(embassy.Due is null && embassy.Progress is null && spy.DaysLeft is null && mission.Due is null, "stationed missions have no end date");
+    var loan = all.Single(x => x.Kind == MovementKind.Troops);
+    Check(loan.FromId == p.Id && loan.LocationId == persia.Id && loan.DaysLeft == Balance.TroopLoanDays && loan.Due == s.CurrentDate.AddDays(Balance.TroopLoanDays)
+          && loan.Progress == 0 && loan.Text.Contains("1,500"), "a troop loan shows who lent how many to whom, and when they return");
+    var march = all.Single(x => x.Kind == MovementKind.March);
+    Check(march.FromId == spain.Id && march.LocationId == persia.Id && march.DaysLeft == allyMarch.DaysLeft && march.Text.Contains("800"), "a marching army shows where it is going and when it arrives");
+    var ship = all.Single(x => x.Kind == MovementKind.Goods);
+    Check(ship.FromId == france.Id && ship.LocationId == p.Id && ship.DaysLeft is >= 3 and <= 7 && ship.Text.Contains("Wheat"), "a shipment in transit shows its goods and delivery date");
+    var exp = all.Single(x => x.Kind == MovementKind.Colony);
+    Check(exp.DaysLeft == Balance.ColonyDays && exp.LocationName == s.ActiveExpedition!.RegionName, "the colony expedition shows its destination and days left");
+    var dues = all.Select(x => x.Due ?? DateOnly.MaxValue).ToList();
+    Check(dues.SequenceEqual(dues.OrderBy(x => x)), "missions are ordered by arrival, stationed ones last");
+
+    Check(MovementReport.ActiveMissions(s, persia.Id).Count == 3, "filtering by a state shows what is in it (embassy, loan, ally march)");
+    Check(MovementReport.ActiveMissions(s, spain.Id).Count == 2, "...and what it sent (missionaries there, its own army marching)");
+    var byState = MovementReport.MissionsByState(s);
+    Check(byState.Single(x => x.StateId == persia.Id).Items.Count == 3 && byState.Sum(x => x.Items.Count) == 7, "missions group by where they are");
+
+    // They leave the list once they are over.
+    for (int i = 0; i < 8; i++) { p.Gold = 1_000_000; eng.AdvanceOneDay(); }
+    Check(!MovementReport.ActiveMissions(s).Any(x => x.Kind == MovementKind.Goods), "a delivered shipment leaves the mission list");
+    for (int i = 8; i < Balance.TroopLoanDays; i++) { p.Gold = 1_000_000; eng.AdvanceOneDay(); }
+    Check(s.MarchingArmies.Count == 0 && !MovementReport.ActiveMissions(s).Any(x => x.Kind == MovementKind.March), "a finished (here: recalled) march leaves the mission list");
+    Check(!MovementReport.ActiveMissions(s).Any(x => x.Kind is MovementKind.Troops or MovementKind.Colony), "the loan and the expedition leave the list when they end");
+    Check(MovementReport.ActiveMissions(s).Count(x => x.Text.StartsWith("Embassy") || x.Text.StartsWith("Spy") || x.Text.StartsWith("Missionaries")) == 3,
+        "stationed missions stay until they end");
+}
+
+using (var eng = NewDipEngine(38))
+{
+    // The record is capped, and survives save / load (old saves without it load empty).
+    var s = eng.State;
+    for (int i = 0; i < 600; i++) s.LogMovement(MovementKind.Gold, MovementStatus.Completed, "a", "A", "b", "B", $"m{i}");
+    Check(s.Movements.Count == GameState.MaxMovements && s.Movements[0].Text == "m100" && s.Movements[^1].Text == "m599", "only the newest 500 movements are kept");
+
+    s.Movements.Clear();
+    var p = s.PlayerNation; var persia = Ai(eng, "persia");
+    eng.GiveGift(persia.Id, 500);
+    eng.EstablishEmbassy(persia.Id);
+    var saved = s.Movements.Select(x => (x.Kind, x.Status, x.Date, x.FromId, x.ToId, x.Text)).ToList();
+    await eng.SaveAsync();
+    eng.State.Movements.Clear();
+    await eng.LoadAsync();
+    var loaded = eng.State.Movements.Where(x => !x.Text.Contains("Game saved") && !x.Text.Contains("Save loaded")).Select(x => (x.Kind, x.Status, x.Date, x.FromId, x.ToId, x.Text)).ToList();
+    Check(saved.Count == 2 && loaded.SequenceEqual(saved), "movement records survive save / load unchanged");
+
+    var node = JsonNode.Parse(JsonSerializer.Serialize(eng.State))!.AsObject();
+    node.Remove("Movements");
+    var old = JsonSerializer.Deserialize<GameState>(node.ToJsonString());
+    Check(old is not null && old.Movements.Count == 0, "an old save without movements loads with an empty report");
+}
+
 Console.WriteLine(failures == 0 ? "\nALL CHECKS PASSED" : $"\n{failures} CHECK(S) FAILED");
 return failures;
