@@ -60,6 +60,8 @@ public static class DiplomaticActionCatalog
     public const string Sovereignty = "sovereignty";
     public const string PresentColony = "colony";
     public const string Missionary = "missionary";
+    public const string AskAttack = "askattack";
+    public const string Annex = "annex";
 
     public static readonly IReadOnlyList<DiplomaticActionSpec> All = new List<DiplomaticActionSpec>
     {
@@ -77,9 +79,8 @@ public static class DiplomaticActionCatalog
             $"Embassy there; relations {Balance.TradeAgreementMinRating}+; {Currency.Cost(Balance.TradeAgreementCost)}. They must agree.",
             $"Goods you buy from them cost {1 - Balance.TradeAgreementImportMult:P0} less, goods you sell them pay {Balance.TradeAgreementExportMult - 1:P0} more, plus the daily pact income."),
         new(Research, "Research Contract", "📚", DiplomaticTab.Treaties,
-            "Needs a research system.",
-            "Shared research. Not available: the game has no research or technology mechanic yet.",
-            BlockedReason: "Needs a research system — the game has no research or technology mechanic yet."),
+            $"Embassy there; relations {Balance.ResearchContractMinRating}+; {Currency.Cost(Balance.ResearchContractCost)}; at most {Balance.ResearchContractMax} contracts. They must agree.",
+            $"For {Balance.ResearchContractDays} days the partner hands you {Balance.ResearchContractShare:P0} of its daily research points (bigger countries research more). Spend points on technologies on the Research page."),
         new(SendTroops, "Send Troops", "🪖", DiplomaticTab.Treaties,
             $"Embassy there; relations {Balance.SendTroopsMinRating}+; keep {Balance.MinHomeGuard:N0} soldiers at home. They must agree.",
             $"Lends soldiers to their army for {Balance.TroopLoanDays} days, then what is left comes home. Raises relations. Recalled at once if war breaks out."),
@@ -104,15 +105,29 @@ public static class DiplomaticActionCatalog
             $"At peace; they must rate you at least {Balance.AidAcceptScore} (embassy and shared faith help) and hold some of the resource.",
             $"They give {Balance.AidRequestFraction:P0} of the resource you ask for. Costs {Balance.AidRequestRatingCost} relations; cooldown {Balance.AidCooldownDays} days."),
         new(Sovereignty, "Support Sovereignty", "⚖️", DiplomaticTab.Relations,
-            "Needs vassals / independence rules.",
-            "Not available: the game has no vassals, independence or wars between AI countries to support.",
-            BlockedReason: "Needs a sovereignty system — the game has no vassals, independence or AI-vs-AI wars yet."),
+            $"Embassy there; relations {Balance.SovereigntyMinRating}+; {Currency.Cost(Balance.SovereigntyCost)}. They must agree.",
+            $"You guarantee their independence for {Balance.SovereigntyDays} days: nobody may annex them (the same shield as an Assembly ban) and you may not attack them. They warm to you and trust you more."),
         new(Missionary, "Missionary Work", "📿", DiplomaticTab.Relations,
             $"Your faith is in the religion catalogue; they follow another; at peace; relations {Balance.MissionaryMinRating}+; {Currency.Cost(Balance.MissionaryCost)}.",
             $"Adds religious influence (devout rulers resist, tolerant ones welcome it). At {Balance.MissionaryConversionThreshold:N0} influence they adopt your faith and its bonuses."),
     };
 
-    public static DiplomaticActionSpec? Get(string id) => All.FirstOrDefault(a => a.Id == id);
+    /// <summary>
+    /// The two hostile-page actions that open a sheet (the other hostile buttons act directly).
+    /// Kept apart from <see cref="All"/>, which is the 14 diplomacy actions of the treaties and relations pages.
+    /// </summary>
+    public static readonly IReadOnlyList<DiplomaticActionSpec> HostileActions = new List<DiplomaticActionSpec>
+    {
+        new(AskAttack, "Ask Attack", "🤝", DiplomaticTab.Hostile,
+            $"At peace with them; relations {Balance.AskAttackMinRating}+ (no alliance needed); you are at war with someone else. They must agree.",
+            $"They march {Balance.CallToArmsFraction:P0} of their own army on your enemy. Their spoils are their own. Cooldown {Balance.AskAttackCooldownDays} days."),
+        new(Annex, "Annex", "🏰", DiplomaticTab.Hostile,
+            $"Your military power is more than {Balance.AnnexPowerRatio:0}x theirs; {Currency.Cost(Balance.AnnexCost)}; not guaranteed, Assembly-protected or bound to you by a pact or alliance; one annexation per {Balance.AnnexCooldownDays} days.",
+            "They submit at once: their people, treasury, resources, buildings and lands become yours, and they cease to exist."),
+    };
+
+    public static DiplomaticActionSpec? Get(string id) =>
+        All.FirstOrDefault(a => a.Id == id) ?? HostileActions.FirstOrDefault(a => a.Id == id);
 
     public static IEnumerable<DiplomaticActionSpec> ForTab(DiplomaticTab tab) => All.Where(a => a.Tab == tab);
 }

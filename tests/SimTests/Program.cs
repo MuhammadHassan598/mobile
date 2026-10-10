@@ -950,12 +950,15 @@ using (var eng = NewDipEngine())
     Check(Can("missionary", france), "missionaries can go to a country of another faith");
     Check(!Can("missionary", persia) && Why("missionary", persia).Contains("already follows"), "no missionaries to a country of your own faith");
 
-    // The two actions the game has no system for are visible but disabled, with the missing dependency as the reason.
-    Check(!Can("research", france) && Why("research", france).ToLower().Contains("research system"), "research contract is blocked: no research system");
-    Check(!Can("sovereignty", france) && Why("sovereignty", france).ToLower().Contains("sovereignty system"), "support sovereignty is blocked: no sovereignty system");
+    // Research Contract and Support Sovereignty are real now: like the other pacts they need an embassy first.
+    Check(all.All(x => x.BlockedReason is null), "no action is blocked on a missing system any more");
+    Check(!Can("research", france) && Why("research", france).Contains("embassy"), "research contract needs an embassy first");
+    Check(!Can("sovereignty", france) && Why("sovereignty", france).Contains("embassy"), "support sovereignty needs an embassy first");
     double goldBefore = p.Gold;
-    Check(eng.ResearchContract(france.Id).Outcome == DipOutcome.Invalid && eng.SupportSovereignty(france.Id).Outcome == DipOutcome.Invalid
-          && p.Gold == goldBefore, "blocked actions do nothing and cost nothing");
+    Check(eng.ProposeResearchContract(france.Id).Outcome == DipOutcome.Invalid && eng.ProposeSovereigntyGuarantee(france.Id).Outcome == DipOutcome.Invalid
+          && p.Gold == goldBefore, "refused for lack of an embassy: nothing is spent");
+    Check(DiplomaticActionCatalog.HostileActions.Select(x => x.Id).SequenceEqual(new[] { "askattack", "annex" })
+          && DiplomaticActionCatalog.Get("annex") is not null && all.Count == 14, "Ask Attack and Annex have sheets without changing the 14 diplomacy actions");
     Check(!eng.CheckDiplomaticAction("bogus", france.Id).Available, "unknown action is unavailable");
     Check(!eng.CheckDiplomaticAction("embassy", "nowhere").Available, "unknown country is unavailable");
 
@@ -1977,6 +1980,360 @@ using (var eng = NewDipEngine(42))
     Check(rejected.Status == MovementStatus.Failed && rejected.Text.StartsWith("Assembly REJECTED") && rejected.ToId == persia.Id,
         "a rejected proposal is recorded as refused");
     Check(MovementReport.Events(s, persia.Id).Count(m => m.Kind == MovementKind.Assembly) == 2, "both assembly records show under the target's state");
+}
+
+Console.WriteLine("== 42. Allied assistance: the troops come out of the ally's army ==");
+using (var eng = NewDipEngine(51))
+{
+    var p = eng.State.PlayerNation; var spain = Ai(eng, "spain");
+    spain.Warships = 500;   // warships must not inflate the contingent (the old rule counted 100 power each)
+    SetRating(spain, 80);
+    int pBefore = p.Soldiers, sBefore = spain.Soldiers;
+    var typeBefore = Enum.GetValues<UnitType>().ToDictionary(t => t, t => CountOf(t, p) + CountOf(t, spain));
+    int ratingBefore = Rate(spain);
+    string msg = eng.RequestAlliedAssistance(spain.Id);
+    int expected = (int)(sBefore * Balance.AlliedHelpFraction);
+    Check(msg.Contains("sends") && p.Soldiers == pBefore + expected, "the player receives 10% of the ally's SOLDIERS (not its warship power)");
+    Check(spain.Soldiers == sBefore - expected, "the ally loses exactly what the player gains");
+    Check(p.Soldiers + spain.Soldiers == pBefore + sBefore, "no soldiers are created");
+    Check(Enum.GetValues<UnitType>().All(t => CountOf(t, p) + CountOf(t, spain) == typeBefore[t]), "every unit type is conserved: moved, not copied");
+    Check(Rate(spain) == ratingBefore - Balance.AlliedHelpRatingCost, "asking costs a little goodwill");
+    Check(eng.State.Movements.Any(m => m.Kind == MovementKind.Troops && m.Status == MovementStatus.Completed && m.FromId == spain.Id && m.ToId == p.Id),
+        "the transfer is in the Movement Report");
+    Check(eng.RequestAlliedAssistance(spain.Id).Contains("Available again"), "asking again at once is on cooldown (no more infinite troops)");
+
+    for (int i = 0; i < Balance.AlliedHelpCooldownDays; i++) eng.AdvanceOneDay();
+    SetRating(spain, 80);
+    int s2 = spain.Soldiers, p2 = p.Soldiers, again = (int)(s2 * Balance.AlliedHelpFraction);
+    Check(eng.RequestAlliedAssistance(spain.Id).Contains("sends") && spain.Soldiers == s2 - again && p.Soldiers == p2 + again,
+        "after the cooldown the ally can be asked again, and shrinks again");
+
+    var france = Ai(eng, "france");
+    SetRating(france, 69);
+    int f0 = france.Soldiers, pp = p.Soldiers;
+    Check(eng.RequestAlliedAssistance(france.Id).Contains("relations too low") && france.Soldiers == f0 && p.Soldiers == pp, "below relations 70 nothing moves");
+    Check(eng.RequestAlliedAssistance("nowhere") == "Nation not found.", "unknown country");
+    var persia = Ai(eng, "persia");
+    SetRating(persia, 90);
+    persia.Units = new List<UnitStack> { new() { Type = UnitType.Musketeer, Count = 5 } };
+    Check(eng.RequestAlliedAssistance(persia.Id).Contains("no troops to spare"), "an ally with a token army has nothing to spare");
+}
+
+Console.WriteLine("== 43. Annexation protection: Assembly ban and sovereignty guarantee ==");
+using (var eng = NewDipEngine(52))
+{
+    var s = eng.State; var p = s.PlayerNation; var persia = Ai(eng, "persia");
+    Check(TreatyService.AnnexationBlock(s, persia.Id) is null, "nothing protects a country at the start");
+
+    // The Assembly passes an annexation ban.
+    eng.SubmitProposal("annexation_ban", persia.Id, 120, 30);
+    foreach (var n in s.AllNations().Where(n => n.Id != persia.Id)) s.AssemblyProposals.Single().Votes[n.Id] = true;
+    for (int i = 0; i < 30; i++) { p.Gold = 1_000_000_000; eng.AdvanceOneDay(); }
+    var block = TreatyService.AnnexationBlock(s, persia.Id);
+    Check(block is not null && block.Contains("Assembly") && block.Contains(s.CurrentDate.AddDays(120).ToString("dd-MM-yyyy")), "the passed ban protects the country, naming the end date");
+
+    p.Units = UnitCatalog.SeedArmy(6000);
+    persia.Units = UnitCatalog.SeedArmy(3500);
+    eng.DeclareWar(persia.Id);
+    var (okLaunch, launchMsg) = eng.LaunchInvasion(persia.Id, 3000);
+    Check(!okLaunch && launchMsg.Contains("forbidden annexing") && s.MarchingArmies.Count == 0 && p.Soldiers == 6000, "an invasion of a protected country is refused and no soldiers leave");
+    Check(eng.AnnexCountry(persia.Id).Message.Contains("forbidden annexing"), "the Annex action is refused too");
+
+    // A march already on the road when the ban begins: the battle is fought but the country survives.
+    s.ActiveAssemblyPolicies.Clear();
+    Check(eng.LaunchInvasion(persia.Id, 3000).ok, "invasion launched while the country is unprotected");
+    s.ActiveAssemblyPolicies.Add(new ActiveAssemblyPolicy { TypeId = "annexation_ban", TargetId = persia.Id, ActivationDate = s.CurrentDate, ExpirationDate = s.CurrentDate.AddDays(120) });
+    int days = s.MarchingArmies[0].TotalDays;
+    for (int i = 0; i < days; i++) { p.Gold = 1_000_000_000; eng.AdvanceOneDay(); }
+    Check(!persia.IsEliminated && persia.AtWarWithPlayer, "the winner of the battle cannot annex a protected country: it survives");
+    Check(s.Movements.Any(m => m.Kind == MovementKind.War && m.Status == MovementStatus.Failed && m.Text.Contains("could not annex")), "the refused annexation is recorded");
+    Check(persia.Soldiers < 3500, "the battle itself still happened (casualties stand)");
+
+    // Once the protection ends the same country can be annexed.
+    s.ActiveAssemblyPolicies.Clear();
+    Check(TreatyService.AnnexationBlock(s, persia.Id) is null, "with the ban gone nothing protects it");
+    Check(eng.LaunchInvasion(persia.Id, 3000).ok, "invasion launched again");
+    int days2 = s.MarchingArmies[0].TotalDays;
+    for (int i = 0; i < days2; i++) { p.Gold = 1_000_000_000; eng.AdvanceOneDay(); }
+    Check(persia.IsEliminated, "unprotected, the defeated country is annexed");
+}
+
+using (var eng = NewDipEngine(53))
+{
+    // A sovereignty guarantee is the same shield, and also binds the guarantor.
+    var s = eng.State; var p = s.PlayerNation; var persia = Ai(eng, "persia"); var spain = Ai(eng, "spain");
+    TreatyService.Add(s, TreatyType.SovereigntyGuarantee, p, persia, Balance.SovereigntyDays);
+    var block = TreatyService.AnnexationBlock(s, persia.Id);
+    Check(block is not null && block.Contains("guaranteed"), "a guaranteed country cannot be annexed");
+    Check(eng.AnnexCountry(persia.Id).Message.Contains("guaranteed"), "so the Annex action refuses it");
+    var war = eng.DeclareWar(persia.Id);
+    Check(war is not null && war.Contains("guaranteed") && !persia.AtWarWithPlayer, "the guarantor cannot declare war on the country it guaranteed");
+
+    // Shield against a third party: an ally's army wins the battle but cannot annex the guaranteed country.
+    persia.AtWarWithPlayer = true;
+    persia.Units = UnitCatalog.SeedArmy(1200);
+    p.Units = UnitCatalog.SeedArmy(2000);   // keeps the beaten AI from suing for peace, which would recall the march
+    var march = TreatyService.LaunchMarch(s, spain, persia, 2700)!;
+    for (int i = 0; i < march.TotalDays; i++) { p.Gold = 1_000_000_000; eng.AdvanceOneDay(); }
+    Check(persia.Soldiers < 1200, "the ally's army did fight the battle");
+    Check(!persia.IsEliminated, "a third party cannot annex a guaranteed country either");
+    Check(HasLog(eng, "could not annex Iran"), "and the refusal is logged");
+}
+
+Console.WriteLine("== 44. Ask Attack: a friendly country (no alliance) joins your war ==");
+using (var eng = NewDipEngine(54))
+{
+    var s = eng.State; var p = s.PlayerNation; var spain = Ai(eng, "spain"); var nepal = Ai(eng, "nepal"); var france = Ai(eng, "france");
+    Check(!eng.CheckDiplomaticAction("askattack", spain.Id).Available && eng.CheckDiplomaticAction("askattack", spain.Id).Reason.Contains("regards you too poorly"),
+        "unavailable below relations 70");
+    SetRating(spain, 70);
+    Check(eng.AskToAttack(spain.Id, nepal.Id).Message.Contains("not at war with anyone else"), "nothing to join while you are at peace");
+    eng.DeclareWar(nepal.Id);
+    Check(eng.CheckDiplomaticAction("askattack", spain.Id).Available, "available at relations 70 with a war on");
+    Check(eng.AskToAttack(spain.Id, france.Id).Message.Contains("at war with"), "the enemy must be a country you are at war with");
+
+    int playerBefore = p.Soldiers, spainBefore = spain.Soldiers;
+    var yes = eng.AskToAttack(spain.Id, nepal.Id);
+    int commit = (int)(spainBefore * Balance.CallToArmsFraction);
+    Check(yes.Ok && !TreatyService.Has(s, TreatyType.DefensiveAlliance, p.Id, spain.Id), "a non-ally agrees");
+    Check(spain.Soldiers == spainBefore - commit && p.Soldiers == playerBefore, "the friend's own soldiers march; the player's army is untouched");
+    var march = s.MarchingArmies.Single(x => x.AttackerNationId == spain.Id);
+    Check(march.TargetNationId == nepal.Id && march.Strength == commit, "a normal tracked march on the enemy");
+    Check(s.Movements.Any(m => m.Kind == MovementKind.March && m.Status == MovementStatus.UnderWay && m.Text.Contains("agrees to attack")), "recorded in the Movement Report");
+    Check(eng.AskToAttack(spain.Id, nepal.Id).Message.Contains("Available again"), "the cooldown stops repeat requests");
+
+    // The friend can say no: an enemy that dwarfs it.
+    p.DiplomacyCooldowns.Clear(); s.MarchingArmies.Clear();
+    nepal.Units = UnitCatalog.SeedArmy(100_000);
+    var no = eng.AskToAttack(spain.Id, nepal.Id);
+    Check(no.Outcome == DipOutcome.Rejected && no.Message.Contains("too strong") && s.MarchingArmies.Count == 0, "a friend refuses an enemy that dwarfs it, and nothing marches");
+    // At war with the friend itself: closed.
+    spain.AtWarWithPlayer = true;
+    Check(!eng.CheckDiplomaticAction("askattack", spain.Id).Available, "no requests to a country you are at war with");
+}
+
+Console.WriteLine("== 45. Annex: a country far weaker than you submits ==");
+using (var eng = NewDipEngine(55))
+{
+    var s = eng.State; var p = s.PlayerNation; var easter = Ai(eng, "easter"); var micronesia = Ai(eng, "micronesia"); var france = Ai(eng, "france");
+    p.Units = UnitCatalog.SeedArmy(20000);
+    Check(!eng.CheckDiplomaticAction("annex", france.Id).Available && eng.CheckDiplomaticAction("annex", france.Id).Reason.Contains("3x"),
+        "a country not much weaker than you cannot be annexed (reason names the 3x rule)");
+    Check(eng.AnnexCountry(france.Id).Outcome == DipOutcome.Invalid && !france.IsEliminated, "refused, and nothing happens");
+
+    // Protections.
+    TreatyService.Add(s, TreatyType.NonAggression, p, easter, 365);
+    Check(eng.AnnexCountry(easter.Id).Message.Contains("non-aggression"), "a pact bars annexing the partner");
+    s.Treaties.Clear();
+    TreatyService.Add(s, TreatyType.DefensiveAlliance, p, easter);
+    Check(eng.AnnexCountry(easter.Id).Message.Contains("allied"), "an alliance bars annexing the ally");
+    s.Treaties.Clear();
+    p.Gold = Balance.AnnexCost - 1;
+    Check(eng.AnnexCountry(easter.Id).Message.Contains("Needs"), "cannot afford the settlement");
+    p.Gold = 50_000;
+
+    // Embassy and a lent army make the country part of our diplomacy; annexing ends all of it.
+    eng.EstablishEmbassy(easter.Id);
+    long popBefore = p.Population, easterPop = easter.Population;
+    double gold = p.Gold, easterGold = easter.Gold;
+    int battlesWon = p.BattlesWon;
+    var r = eng.AnnexCountry(easter.Id);
+    Check(r.Ok && easter.IsEliminated, "the weak country submits and is annexed");
+    Check(Math.Abs(p.Gold - (gold - Balance.AnnexCost + easterGold)) < 0.01, "the settlement is paid and the country's treasury is absorbed");
+    Check(p.Population > popBefore && p.Population - popBefore <= easterPop, "its people join ours");
+    Check(s.NationsAnnexedByPlayer == 1 && p.BattlesWon == battlesWon, "it counts as an annexation but not as a battle won");
+    Check(!s.Treaties.Any(x => x.Involves(easter.Id)), "its treaties end with it");
+    Check(s.Movements.Any(m => m.Kind == MovementKind.War && m.FromId == p.Id && m.ToId == easter.Id && m.Text.Contains("annexed")), "recorded in the Movement Report");
+
+    // One annexation per cooldown.
+    var second = eng.AnnexCountry(micronesia.Id);
+    Check(second.Outcome == DipOutcome.Invalid && second.Message.Contains("available again"), "a second annexation must wait");
+    for (int i = 0; i < Balance.AnnexCooldownDays; i++) { p.Gold = 1_000_000; eng.AdvanceOneDay(); }
+    Check(eng.AnnexCountry(micronesia.Id).Ok && micronesia.IsEliminated, "after the cooldown the next one is possible");
+
+    // Even at war: an annexation also ends the war and recalls the armies marching on it.
+    var nepal = Ai(eng, "nepal");
+    nepal.Units = UnitCatalog.SeedArmy(2000);
+    for (int i = 0; i < Balance.AnnexCooldownDays; i++) { p.Gold = 1_000_000; eng.AdvanceOneDay(); }
+    eng.DeclareWar(nepal.Id);   // (declared only now, so the beaten AI has no days to sue for peace)
+    eng.LaunchInvasion(nepal.Id, 700);
+    int home = p.Soldiers;
+    Check(eng.AnnexCountry(nepal.Id).Ok && !nepal.AtWarWithPlayer && s.MarchingArmies.Count == 0 && p.Soldiers == home + 700,
+        "annexing a country at war ends the war and the army marching on it comes home");
+}
+
+Console.WriteLine("== 46. Research: points, technologies and the research contract ==");
+Check(TechnologyCatalog.All.Count == 3 && TechnologyCatalog.All.Select(t => t.Id).Distinct().Count() == 3 && TechnologyCatalog.All.All(t => t.Cost > 0 && t.Effect.Length > 0),
+    "three technologies, each with a cost and an effect text");
+using (var eng = NewDipEngine(61))
+{
+    var s = eng.State; var p = s.PlayerNation;
+    Check(Math.Abs(ResearchService.DailyPoints(p) - 4.0) < 1e-9 && Math.Abs(eng.ResearchPerDay - 4.0) < 1e-9,
+        "the Ottomans (30 million people) research 4 points a day: 1 + 1 per 10 million");
+    Check(p.ResearchPoints == 0 && p.Technologies.Count == 0 && p.CurrentResearchId is null, "nothing researched at the start");
+    for (int i = 0; i < 10; i++) eng.AdvanceOneDay();
+    Check(p.ResearchPoints > 39.9 && p.ResearchPoints < 42, "points bank every day, even with nothing chosen");
+    Check(p.BattleStrengthMult == 1.0 && p.TradeIncomeMult == 1.0 && LawService.GeneralProdOutputMult(p) == 1.0, "no technology: every multiplier is exactly 1.0");
+
+    Check(eng.StartResearch("nope") == "Unknown technology.", "an unknown technology is refused");
+    Check(eng.StartResearch("drill_manuals") is null && p.CurrentResearchId == "drill_manuals", "a technology can be chosen");
+    Check(eng.StartResearch("drill_manuals")!.Contains("already being researched"), "choosing the same one again is refused");
+    p.ResearchPoints = 399;
+    eng.AdvanceOneDay();
+    Check(p.Technologies.Contains("drill_manuals") && p.CurrentResearchId is null, "the technology completes the day the points cover its cost");
+    Check(p.ResearchPoints > 0 && p.ResearchPoints < 10, "its cost is spent and the surplus stays banked");
+    Check(HasLog(eng, "Research complete: Drill Manuals"), "completion is logged");
+    Check(Math.Abs(p.BattleStrengthMult - 1.05) < 1e-9, "Drill Manuals: +5% battle strength");
+    p.ActiveEdicts.Add(EdictType.MilitaryDrills);
+    Check(Math.Abs(p.BattleStrengthMult - 1.10 * 1.05) < 1e-9, "it stacks with the Military Drills edict");
+    Check(eng.StartResearch("drill_manuals")!.Contains("already researched"), "a finished technology cannot be researched again");
+    p.Technologies.Add("merchant_law");
+    Check(Math.Abs(p.TradeIncomeMult - 1.10) < 1e-9, "Merchant Law: +10% trade income");
+    p.Technologies.Add("improved_tools");
+    Check(Math.Abs(LawService.GeneralProdOutputMult(p) - 1.05) < 1e-9, "Improved Tools: +5% production output");
+}
+
+using (var engA = NewDipEngine(62))
+using (var engB = NewDipEngine(62))
+{
+    // Improved Tools really raises what the mills make.
+    engA.State.PlayerNation.Technologies.Add("improved_tools");
+    engA.AdvanceOneDay(); engB.AdvanceOneDay();
+    double stockA = engA.State.PlayerNation.GoodsInventory.Values.Sum(), stockB = engB.State.PlayerNation.GoodsInventory.Values.Sum();
+    Check(stockA > stockB, "with Improved Tools the mills produce more");
+}
+
+using (var engA = NewDipEngine(66))
+using (var engB = NewDipEngine(66))
+{
+    // Banking points and even choosing a technology change nothing else; AI countries never research.
+    engA.StartResearch("improved_tools");
+    for (int i = 0; i < 40; i++) { engA.AdvanceOneDay(); engB.AdvanceOneDay(); }
+    var pA = engA.State.PlayerNation; var pB = engB.State.PlayerNation;
+    Check(pA.Technologies.Count == 0 && pA.ResearchPoints > 150, "the technology is still being researched");
+    Check(pA.Population == pB.Population && pA.Gold == pB.Gold && pA.Soldiers == pB.Soldiers && pA.GetProduct("Wheat") == pB.GetProduct("Wheat"),
+        "population, treasury, army and stocks are unaffected by researching");
+    Check(engA.State.OtherNations.All(n => n.ResearchPoints == 0 && n.Technologies.Count == 0 && n.CurrentResearchId is null), "AI countries never research");
+}
+
+using (var eng = NewDipEngine(63))
+{
+    var s = eng.State; var p = s.PlayerNation; var mughal = Ai(eng, "mughal");   // 100 million people, Islam like the Ottomans
+    Check(eng.ProposeResearchContract(mughal.Id).Message.Contains("embassy"), "a research contract needs an embassy first");
+    eng.EstablishEmbassy(mughal.Id);
+    double g0 = p.Gold;
+    var r = eng.ProposeResearchContract(mughal.Id);
+    Check(r.Ok && Math.Abs(p.Gold - (g0 - Balance.ResearchContractCost)) < 0.01, "contract signed for its price (50 + embassy 5 + shared faith 5 reaches the 60 asked)");
+    var contract = s.Treaties.Single(x => x.Type == TreatyType.ResearchContract);
+    Check(contract.NationAId == p.Id && contract.NationBId == mughal.Id && contract.ExpiresDate == s.CurrentDate.AddDays(Balance.ResearchContractDays), "tracked, with a one-year term");
+    Check(Math.Abs(ResearchService.ContractIncome(s) - 5.5) < 1e-6 && Math.Abs(eng.ResearchPerDay - 9.5) < 1e-6,
+        "the partner (11 points a day) hands over half: +5.5 on top of our own 4");
+    Check(eng.ProposeResearchContract(mughal.Id).Message.Contains("already have a research contract"), "no second contract with the same partner");
+    for (int i = 0; i < 10; i++) eng.AdvanceOneDay();
+    Check(p.ResearchPoints > 94 && p.ResearchPoints < 100, "the contract income banks every day");
+
+    // The cap on contracts.
+    TreatyService.Add(s, TreatyType.ResearchContract, p, Ai(eng, "spain"), 365);
+    TreatyService.Add(s, TreatyType.ResearchContract, p, Ai(eng, "france"), 365);
+    Check(eng.ProposeResearchContract(Ai(eng, "england").Id).Message.Contains("most allowed"), "at most three contracts at a time");
+
+    // Cancelling and war end the benefit.
+    int rating = Rate(mughal);
+    Check(eng.CancelTreaty(TreatyType.ResearchContract, mughal.Id).Ok && Rate(mughal) == rating - Balance.BreakMinorTreatyRatingPenalty,
+        "a contract can be cancelled for a small relations cost");
+    Check(Math.Abs(ResearchService.ContractIncome(s) - (ResearchService.DailyPoints(Ai(eng, "spain")) + ResearchService.DailyPoints(Ai(eng, "france"))) * 0.5) < 1e-6,
+        "only the remaining partners still pay");
+    eng.DeclareWar("spain");
+    Check(ResearchService.Contracts(s).Count == 1, "war with a partner ends its contract");
+}
+
+using (var engA = NewDipEngine(67))
+using (var engB = NewDipEngine(67))
+{
+    // The real benefit: the contract finishes a technology sooner.
+    TreatyService.Add(engA.State, TreatyType.ResearchContract, engA.State.PlayerNation, Ai(engA, "mughal"), 365);
+    engA.StartResearch("drill_manuals"); engB.StartResearch("drill_manuals");
+    for (int i = 0; i < 45; i++) { engA.AdvanceOneDay(); engB.AdvanceOneDay(); }
+    Check(engA.State.PlayerNation.Technologies.Contains("drill_manuals") && !engB.State.PlayerNation.Technologies.Contains("drill_manuals"),
+        "with a research contract the technology is done in 45 days; without one it is not");
+}
+
+using (var eng = NewDipEngine(68))
+{
+    // A contract runs out after its term.
+    var s = eng.State; var p = s.PlayerNation;
+    TreatyService.Add(s, TreatyType.ResearchContract, p, Ai(eng, "mughal"), Balance.ResearchContractDays);
+    for (int i = 0; i < Balance.ResearchContractDays; i++) { p.Gold = 1_000_000_000; eng.AdvanceOneDay(); }
+    Check(ResearchService.Contracts(s).Count == 0 && ResearchService.ContractIncome(s) == 0 && HasLog(eng, "research contract with Mughal Empire has expired"),
+        "the contract expires after a year and the income stops");
+}
+
+Console.WriteLine("== 47. Support Sovereignty: an independence guarantee ==");
+using (var eng = NewDipEngine(65))
+{
+    var s = eng.State; var p = s.PlayerNation; var persia = Ai(eng, "persia"); var france = Ai(eng, "france");
+    Check(eng.ProposeSovereigntyGuarantee(persia.Id).Message.Contains("embassy"), "a guarantee needs an embassy first");
+    eng.EstablishEmbassy(persia.Id);
+    Check(eng.ProposeSovereigntyGuarantee(persia.Id).Message.Contains("regards you too poorly"), "relations 55+ are needed");
+    SetRating(persia, 60);
+    int scoreBefore = TreatyService.Score(s, persia);
+    double g0 = p.Gold;
+    var r = eng.ProposeSovereigntyGuarantee(persia.Id);
+    Check(r.Ok && Math.Abs(p.Gold - (g0 - Balance.SovereigntyCost)) < 0.01, "the guarantee is given for its price");
+    var treaty = s.Treaties.Single(x => x.Type == TreatyType.SovereigntyGuarantee);
+    Check(treaty.NationAId == p.Id && treaty.NationBId == persia.Id && treaty.ExpiresDate == s.CurrentDate.AddDays(Balance.SovereigntyDays), "tracked, with a two-year term");
+    Check(TreatyService.Has(s, TreatyType.SovereigntyGuarantee, p.Id, persia.Id) && !TreatyService.Has(s, TreatyType.SovereigntyGuarantee, persia.Id, p.Id),
+        "the guarantee runs one way: we guarantee them");
+    Check(TreatyService.Score(s, persia) == scoreBefore + Balance.SovereigntyScoreBonus, "a guaranteed country trusts us more");
+    Check(eng.ProposeSovereigntyGuarantee(persia.Id).Message.Contains("already guarantee"), "no second guarantee");
+
+    // It binds the guarantor and shields the country.
+    var war = eng.DeclareWar(persia.Id);
+    Check(war is not null && war.Contains("guaranteed") && !persia.AtWarWithPlayer, "we cannot declare war on a country we guaranteed");
+    var tribute = eng.DemandTribute(persia.Id);
+    Check(tribute is not null && tribute.Contains("guaranteed"), "nor demand tribute");
+    Check(eng.EstablishNetwork(persia.Id) is null, "a spy network may still be set up");
+    string?[] spy = { eng.SpySteal(persia.Id), eng.SpySabotage(persia.Id), eng.SpyInciteRevolt(persia.Id) };
+    Check(spy.All(x => x is not null && x.Contains("guaranteed")), "but hostile spy work is barred");
+    Check(eng.AnnexCountry(persia.Id).Message.Contains("guaranteed"), "and it cannot be annexed");
+    Check(s.Movements.Any(m => m.Kind == MovementKind.Treaty && m.Text.Contains("sovereignty guarantee")), "the guarantee is in the Movement Report");
+
+    // It warms relations faster than an embassy alone.
+    eng.EstablishEmbassy(france.Id);
+    double p0 = persia.RelationToPlayer, f0 = france.RelationToPlayer;
+    for (int i = 0; i < 10; i++) eng.AdvanceOneDay();
+    Check((persia.RelationToPlayer - p0) - (france.RelationToPlayer - f0) > 2.0, "a guarantee warms relations faster than an embassy alone");
+
+    // Walking away costs relations and frees us.
+    int rating = Rate(persia);
+    Check(eng.CancelTreaty(TreatyType.SovereigntyGuarantee, persia.Id).Ok && Rate(persia) == rating - Balance.BreakPactRatingPenalty, "cancelling the guarantee costs relations like breaking a pact");
+    Check(TreatyService.AnnexationBlock(s, persia.Id) is null && eng.DeclareWar(persia.Id) is null, "afterwards the country is unprotected and war is possible");
+}
+
+using (var eng = NewDipEngine(69))
+{
+    // Research and guarantee data survive save / load; old saves without research fields load clean.
+    var s = eng.State; var p = s.PlayerNation; var mughal = Ai(eng, "mughal"); var persia = Ai(eng, "persia");
+    p.Technologies.Add("merchant_law"); p.ResearchPoints = 123.5; p.CurrentResearchId = "improved_tools";
+    TreatyService.Add(s, TreatyType.ResearchContract, p, mughal, 365);
+    TreatyService.Add(s, TreatyType.SovereigntyGuarantee, p, persia, 730);
+    await eng.SaveAsync();
+    p.Technologies.Clear(); p.ResearchPoints = 0; p.CurrentResearchId = null; s.Treaties.Clear();
+    await eng.LoadAsync();
+    var lp = eng.State.PlayerNation;
+    Check(lp.Technologies.SequenceEqual(new[] { "merchant_law" }) && Math.Abs(lp.ResearchPoints - 123.5) < 1e-9 && lp.CurrentResearchId == "improved_tools",
+        "technologies, banked points and the current research survive save / load");
+    Check(eng.State.Treaties.Count(x => x.Type is TreatyType.ResearchContract or TreatyType.SovereigntyGuarantee) == 2
+          && TreatyService.Has(eng.State, TreatyType.SovereigntyGuarantee, lp.Id, "persia") && ResearchService.Contracts(eng.State).Count == 1,
+        "the research contract and the guarantee survive, and are live after loading");
+    Check(Math.Abs(lp.TradeIncomeMult - 1.10) < 1e-9, "a loaded technology still works");
+
+    var node = JsonNode.Parse(JsonSerializer.Serialize(eng.State))!.AsObject();
+    var playerNode = node["PlayerNation"]!.AsObject();
+    foreach (var key in new[] { "Technologies", "ResearchPoints", "CurrentResearchId" }) playerNode.Remove(key);
+    var old = JsonSerializer.Deserialize<GameState>(node.ToJsonString());
+    Check(old is not null && old.PlayerNation.Technologies.Count == 0 && old.PlayerNation.ResearchPoints == 0 && old.PlayerNation.CurrentResearchId is null,
+        "an old save without research fields loads with nothing researched");
 }
 
 Console.WriteLine(failures == 0 ? "\nALL CHECKS PASSED" : $"\n{failures} CHECK(S) FAILED");

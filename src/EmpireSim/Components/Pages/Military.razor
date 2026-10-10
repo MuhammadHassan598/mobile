@@ -217,7 +217,7 @@
         }
 
         <h3>ALLIED ASSISTANCE</h3>
-        <div class="mil-sub" style="margin-bottom:6px">Request troops from allies (relations ≥ 70).</div>
+        <div class="mil-sub" style="margin-bottom:6px">A friend (relations ≥ 70) hands over @(Balance.AlliedHelpFraction.ToString("P0")) of its soldiers: they leave its army and join yours. Costs @Balance.AlliedHelpRatingCost relations; once every @Balance.AlliedHelpCooldownDays days per friend.</div>
         @foreach (var a in Engine.State.OtherNations.Where(n => DiplomacyService.ToDisplayRating(n.RelationToPlayer) >= 70).OrderBy(n => n.Name).Take(10))
         {
             <div class="mil-row">

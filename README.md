@@ -137,16 +137,25 @@ grace-warning → desertion path. All must print PASS.
   defeat on losing everything (or an AI reaching hegemony), dashboard
   banners; 5-year autoplay validation (a passive player survives).
   12 new SimTests.
-- [x] **Diplomatic actions (done, 12 of 14)** — the country panel has three pages (⚔️ hostile ·
-  🏛️ treaties & cooperation · 🎁 relations & expansion). Real mechanics, all saved with the game:
+- [x] **Diplomatic actions (done, all 14 + Ask Attack and Annex)** — the country panel has three pages
+  (⚔️ hostile · 🏛️ treaties & cooperation · 🎁 relations & expansion). Real mechanics, all saved with the game:
   Embassy, Non-Aggression Pact (enforced at war declaration, tribute, spy ops, AI war and marches),
   Defensive Alliance (allies march on whoever attacks you), Trade Agreement (cheaper imports, richer
-  exports), Send Troops (temporary loan), Call to Arms (the ally's own army joins your war), Give Army,
-  Send a Gift, Improve Relations, Ask for Aid, Present a Colony, Missionary Work (uses the existing
-  religions). **Research Contract** and **Support Sovereignty** are shown disabled with their missing
-  dependency: the game has no research system and no vassals / independence / AI-vs-AI wars yet.
-  Rules live in `GameEngine.Diplomacy.cs` and `TreatyService.cs`; numbers in `Balance.cs`;
-  11 new SimTests sections (28–38).
+  exports), Send Troops (temporary loan), Call to Arms and Ask Attack (the friend's own army joins your
+  war; Ask Attack needs relations 70+ but no alliance), Give Army, Send a Gift, Improve Relations, Ask for
+  Aid, Present a Colony, Missionary Work (uses the existing religions), **Research Contract** (the partner
+  shares half its daily research for a year), **Support Sovereignty** (a two-year independence guarantee:
+  nobody may annex the country, you may not attack it) and **Annex** (a country under a third of your
+  power submits, for 10,000 gold, one per 30 days).
+  Annexation protection is one shared check (`TreatyService.AnnexationBlock`): an Assembly
+  `annexation_ban` policy or a sovereignty guarantee stops invasions from being launched, stops a won
+  battle from annexing, and blocks the Annex action. Military → Allied Assistance now moves troops OUT of
+  the ally's army (10%, −2 relations, 30-day cooldown) instead of copying them.
+  **Research** (`/research`, 🔬 tile): the player banks 1 point a day + 1 per 10 million people (+ contract
+  income) and spends it on 3 technologies (battle strength, trade income, production output). AI
+  countries never research, so nothing changes for them.
+  Rules live in `GameEngine.Diplomacy.cs`, `TreatyService.cs` and `ResearchService.cs`; numbers in
+  `Balance.cs`; 20 new SimTests sections (28–47).
 - [x] **Movement Report (done)** — the main menu's 🧭 Movements tile opens `/movements`: an **Events** tab
   (every transfer between states — gold, goods, troops, marches, colonies, envoys, missionaries, spies,
   treaties, war and peace — with date, from ➜ to and a Done / Under way / Refused status; saved with the

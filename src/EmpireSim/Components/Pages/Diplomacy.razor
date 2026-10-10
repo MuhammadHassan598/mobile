@@ -184,9 +184,9 @@
                             <button class="action-btn" @onclick="() => DoSabotage(p)">💣<span>Sabotage</span></button>
                             <button class="action-btn" @onclick="() => DoInsult(p)">😠<span>Insult</span></button>
                             <button class="action-btn" @onclick="() => DoCoup(p)">👑<span>Coup</span></button>
-                            <button class="action-btn" @onclick="() => DoAnnex(p)">🏰<span>Annex</span></button>
+                            <button class="action-btn" @onclick="() => OpenSheet(DiplomaticActionCatalog.Get(DiplomaticActionCatalog.Annex)!)">🏰<span>Annex</span></button>
                             <button class="action-btn" @onclick="() => _demandTarget = p">💰<span>Demand</span></button>
-                            <button class="action-btn" @onclick="() => DoAskAttack(p)">🤝<span>Ask Attack</span></button>
+                            <button class="action-btn" @onclick="() => OpenSheet(DiplomaticActionCatalog.Get(DiplomaticActionCatalog.AskAttack)!)">🤝<span>Ask Attack</span></button>
                         </div>
                     }
                     else
@@ -338,6 +338,7 @@
                         </div>
                         break;
                     case DiplomaticActionCatalog.CallToArms:
+                    case DiplomaticActionCatalog.AskAttack:
                         <div class="sheet-input">
                             <div class="popup-section-title">Join our war against</div>
                             <select class="dip-input" @bind="_enemyId">
@@ -359,6 +360,17 @@
                             </select>
                         </div>
                         break;
+                    case DiplomaticActionCatalog.Research:
+                        <div class="sheet-input">
+                            <div class="dip-hint">Their research: @ResearchService.DailyPoints(t).ToString("0.0") points a day → you would receive @((ResearchService.DailyPoints(t) * Balance.ResearchContractShare).ToString("0.0")) a day.</div>
+                            <div class="dip-hint">Your research now: @Engine.ResearchPerDay.ToString("0.0") a day. Contracts held: @ResearchService.Contracts(Engine.State).Count / @Balance.ResearchContractMax.</div>
+                        </div>
+                        break;
+                    case DiplomaticActionCatalog.Annex:
+                        <div class="sheet-input">
+                            <div class="dip-hint">Military power: yours @DiplomacyService.MilitaryPower(Engine.State.PlayerNation).ToString("N0") · theirs @DiplomacyService.MilitaryPower(t).ToString("N0") (needs more than @Balance.AnnexPowerRatio.ToString("0")x).</div>
+                        </div>
+                        break;
                     case DiplomaticActionCatalog.Missionary:
                         <div class="sheet-input">
                             <div class="dip-hint">Our faith: @Engine.State.PlayerNation.Religion → theirs: @t.Religion</div>
@@ -375,7 +387,7 @@
 
             @if (canCancel && _armed)
             {
-                <div class="sheet-warn">⚠ Cancelling costs relations (−@(CancelType(sp.Id) is TreatyType.NonAggression or TreatyType.DefensiveAlliance ? Balance.BreakPactRatingPenalty : Balance.BreakMinorTreatyRatingPenalty)). Tap again to confirm.</div>
+                <div class="sheet-warn">⚠ Cancelling costs relations (−@(CancelType(sp.Id) is TreatyType.NonAggression or TreatyType.DefensiveAlliance or TreatyType.SovereigntyGuarantee ? Balance.BreakPactRatingPenalty : Balance.BreakMinorTreatyRatingPenalty)). Tap again to confirm.</div>
             }
 
             @if (!string.IsNullOrEmpty(_sheetMsg))
@@ -500,9 +512,9 @@
     private void SetQtyPct(int pct) =>
         _qty = Math.Clamp((int)(Engine.SpareSoldiers * pct / 100.0), 1, Math.Max(1, Engine.SpareSoldiers));
 
-    /// <summary>Soldier transfers and colony gifts are permanent: they need a second tap.</summary>
+    /// <summary>Soldier transfers, colony gifts and annexations are permanent: they need a second tap.</summary>
     private static bool NeedsConfirm(string id) =>
-        id is DiplomaticActionCatalog.GiveArmy or DiplomaticActionCatalog.PresentColony;
+        id is DiplomaticActionCatalog.GiveArmy or DiplomaticActionCatalog.PresentColony or DiplomaticActionCatalog.Annex;
 
     private static TreatyType? CancelType(string id) => id switch
     {
@@ -510,17 +522,20 @@
         DiplomaticActionCatalog.NonAggression => TreatyType.NonAggression,
         DiplomaticActionCatalog.Alliance => TreatyType.DefensiveAlliance,
         DiplomaticActionCatalog.Trade => TreatyType.TradeAgreement,
+        DiplomaticActionCatalog.Research => TreatyType.ResearchContract,
+        DiplomaticActionCatalog.Sovereignty => TreatyType.SovereigntyGuarantee,
         _ => null
     };
 
     private bool IsInForce(string id, Nation n) =>
         CancelType(id) is { } type && TreatyService.Has(Engine.State, type, Engine.State.PlayerNation.Id, n.Id);
 
+    /// <summary>" until dd-MM-yyyy" for a treaty that has an end date (pacts, research contracts, guarantees).</summary>
     private string TreatyEndNote(string id, Nation n)
     {
-        if (id != DiplomaticActionCatalog.NonAggression) return "";
-        var pact = TreatyService.Find(Engine.State, TreatyType.NonAggression, Engine.State.PlayerNation.Id, n.Id);
-        return pact?.ExpiresDate is { } end ? $" until {end:dd-MM-yyyy}" : "";
+        if (CancelType(id) is not { } type) return "";
+        var treaty = TreatyService.Find(Engine.State, type, Engine.State.PlayerNation.Id, n.Id);
+        return treaty?.ExpiresDate is { } end ? $" until {end:dd-MM-yyyy}" : "";
     }
 
     private string TreatySummary(Nation n)
@@ -533,6 +548,8 @@
         if (pact is not null) parts.Add($"🕊️ Pact until {pact.ExpiresDate:dd-MM-yyyy}");
         if (TreatyService.Has(s, TreatyType.DefensiveAlliance, pid, n.Id)) parts.Add("🛡️ Alliance");
         if (TreatyService.Has(s, TreatyType.TradeAgreement, pid, n.Id)) parts.Add("📜 Trade");
+        if (TreatyService.Has(s, TreatyType.ResearchContract, pid, n.Id)) parts.Add("📚 Research");
+        if (TreatyService.Has(s, TreatyType.SovereigntyGuarantee, pid, n.Id)) parts.Add("⚖️ Guaranteed");
         int lent = s.TroopLoans.Where(l => l.OwnerId == pid && l.HostId == n.Id).Sum(l => l.Soldiers);
         if (lent > 0) parts.Add($"🪖 {lent:N0} lent");
         return parts.Count == 0 ? "none" : string.Join(" · ", parts);
@@ -555,6 +572,10 @@
             DiplomaticActionCatalog.Aid => "ASK FOR AID",
             DiplomaticActionCatalog.PresentColony => "PRESENT",
             DiplomaticActionCatalog.Missionary => "SEND MISSIONARIES",
+            DiplomaticActionCatalog.Research => "PROPOSE CONTRACT",
+            DiplomaticActionCatalog.Sovereignty => "GUARANTEE",
+            DiplomaticActionCatalog.AskAttack => "ASK TO ATTACK",
+            DiplomaticActionCatalog.Annex => "ANNEX",
             _ => "CONFIRM"
         };
     }
@@ -578,14 +599,16 @@
             DiplomaticActionCatalog.NonAggression => Engine.ProposeNonAggression(t.Id),
             DiplomaticActionCatalog.Alliance => Engine.ProposeAlliance(t.Id),
             DiplomaticActionCatalog.Trade => Engine.ProposeTradeAgreement(t.Id),
-            DiplomaticActionCatalog.Research => Engine.ResearchContract(t.Id),
+            DiplomaticActionCatalog.Research => Engine.ProposeResearchContract(t.Id),
             DiplomaticActionCatalog.SendTroops => Engine.SendTroops(t.Id, _qty),
             DiplomaticActionCatalog.CallToArms => Engine.CallToArms(t.Id, _enemyId),
             DiplomaticActionCatalog.GiveArmy => Engine.GiveArmy(t.Id, _qty),
             DiplomaticActionCatalog.Gift => Engine.GiveGift(t.Id, _giftAmt),
             DiplomaticActionCatalog.Improve => Engine.ImproveRelations(t.Id),
             DiplomaticActionCatalog.Aid => Engine.AskForAid(t.Id, _aidRes),
-            DiplomaticActionCatalog.Sovereignty => Engine.SupportSovereignty(t.Id),
+            DiplomaticActionCatalog.Sovereignty => Engine.ProposeSovereigntyGuarantee(t.Id),
+            DiplomaticActionCatalog.AskAttack => Engine.AskToAttack(t.Id, _enemyId),
+            DiplomaticActionCatalog.Annex => Engine.AnnexCountry(t.Id),
             DiplomaticActionCatalog.PresentColony => Engine.PresentColonyTo(t.Id, _colonyId),
             DiplomaticActionCatalog.Missionary => Engine.SendMissionary(t.Id),
             _ => DipResult.Invalid("Unknown action.")
@@ -659,23 +682,6 @@
         if (result is null) target.RelationToPlayer -= 20;
     }
 
-    private void DoAnnex(Nation target)
-    {
-        if (!CheckCooldown(target, "annex", 60)) return;
-        double pp = DiplomacyService.MilitaryPower(Engine.State.PlayerNation);
-        double tp = DiplomacyService.MilitaryPower(target);
-        if (pp > tp * 3)
-        {
-            _actionMsg = $"{target.Name} accepts annexation! (Overwhelming power)";
-            // Annexation handled via warfare system
-        }
-        else
-        {
-            target.RelationToPlayer = Math.Max(-100, target.RelationToPlayer - 15);
-            _actionMsg = $"{target.Name} refuses annexation. (-15 relations)";
-        }
-    }
-
     private void DoDemand()
     {
         if (_demandTarget is null) return;
@@ -722,21 +728,6 @@
             _actionMsg = $"{target.Name} refused. (-6 relations)";
         }
         _demandTarget = null;
-    }
-
-    private void DoAskAttack(Nation target)
-    {
-        if (!CheckCooldown(target, "askattack", 14)) return;
-        int rating = DiplomacyService.ToDisplayRating(target.RelationToPlayer);
-        if (rating >= 70)
-        {
-            _actionMsg = $"{target.Name} agrees to attack! (AI will consider)";
-            Engine.State.Log($"{target.Name} agreed to join your war.");
-        }
-        else
-        {
-            _actionMsg = $"{target.Name} refuses. (Relations too low)";
-        }
     }
 }
 
