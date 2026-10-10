@@ -350,7 +350,7 @@ public sealed class Nation
     public double LastShortageDeaths { get; set; }
 
     /// <summary>Safe tax threshold (0-100) used on the last day.</summary>
-    public double LastSafeTaxThreshold { get; set; } = 30;
+    public double LastSafeTaxThreshold { get; set; } = 60;
 
     /// <summary>Extra deaths (% of shortage deaths) caused by taxes above the safe threshold on the last day.</summary>
     public double LastTaxDeathIncreasePct { get; set; }

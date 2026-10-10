@@ -147,15 +147,6 @@ public static class ConsumptionService
         return total;
     }
 
-    /// <summary>Average unmet % (percentage points) across all consumed items in a day's report.</summary>
-    public static double AverageShortagePct(ShortageReport report)
-    {
-        double sum = 0;
-        foreach (var spec in ConsumptionCatalog.All)
-            if (report.UnmetPct.TryGetValue(spec.Item, out double pct)) sum += pct;
-        return sum / ConsumptionCatalog.All.Count;
-    }
-
     /// <summary>
     /// True when every consumed item has a daily mill output above 150% of its daily need.
     /// Uses the nation's existing mills (ProductionBuildings) and the existing need calculation.
@@ -173,13 +164,15 @@ public static class ConsumptionService
         return true;
     }
 
-    /// <summary>Safe tax threshold (0-100): surplus first, then average shortage, else the default.</summary>
-    public static double SafeTaxThreshold(Nation nation, double averageShortagePct)
+    /// <summary>
+    /// Safe tax threshold (0-100), in priority order: large surplus 100; any item short 30
+    /// (whatever the size of the shortage); otherwise (no shortage, no large surplus) 60.
+    /// </summary>
+    public static double SafeTaxThreshold(Nation nation, ShortageReport report)
     {
         if (HasLargeSurplus(nation)) return Balance.SafeTaxSurplus;
-        if (averageShortagePct < Balance.VeryLowAvgShortagePct) return Balance.SafeTaxVeryLowShortage;
-        if (averageShortagePct < Balance.LowAvgShortagePct) return Balance.SafeTaxLowShortage;
-        return Balance.SafeTaxDefault;
+        if (report.ShortItems.Any()) return Balance.SafeTaxShortage;
+        return Balance.SafeTaxNormal;
     }
 
     /// <summary>
@@ -197,14 +190,19 @@ public static class ConsumptionService
 
     /// <summary>
     /// Applies a day's shortage effects: Ruler Rating drops (clamped 0-100) and people die.
-    /// Shortage deaths are raised by the tax death increase. Fractional deaths accumulate
+    /// Shortage deaths are raised by the tax death increase, and a tax in the danger zone
+    /// also lowers the rating by 0.05 per month. Fractional deaths accumulate
     /// on the nation until they add up to a whole person.
     /// </summary>
     public static void ApplyShortageEffects(Nation nation, ShortageReport report)
     {
-        double drop = RatingDrop(report);
-        double safeTax = SafeTaxThreshold(nation, AverageShortagePct(report));
+        double safeTax = SafeTaxThreshold(nation, report);
         double taxIncreasePct = TaxDeathIncreasePct(nation.TaxRates, safeTax);
+        double drop = RatingDrop(report);
+        // Any tax in the danger zone (above the safe threshold) costs a flat 0.05 rating per month,
+        // whatever the level, spread over the days of the month.
+        if (taxIncreasePct > 0)
+            drop += Balance.TaxDangerRatingDropPerMonth / Balance.DaysPerMonth;
         double deaths = Deaths(report) * (1 + taxIncreasePct / 100.0);
         nation.LastSafeTaxThreshold = safeTax;
         nation.LastTaxDeathIncreasePct = taxIncreasePct;

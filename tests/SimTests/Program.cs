@@ -841,19 +841,23 @@ using (var engine27 = new GameEngine(new SimulationService(), new SaveService(sa
     // thresholds (no surplus: tiny output)
     SetOutput(0.1);
     Check(!ConsumptionService.HasLargeSurplus(n27), "no surplus when output is far below need");
-    Check(ConsumptionService.SafeTaxThreshold(n27, 5) == 70, "average shortage 5% -> safe threshold 70");
-    Check(ConsumptionService.SafeTaxThreshold(n27, 9.99) == 70 && ConsumptionService.SafeTaxThreshold(n27, 10) == 50, "edge: <10% is 70, 10% is 50");
-    Check(ConsumptionService.SafeTaxThreshold(n27, 15) == 50, "average shortage 15% -> safe threshold 50");
-    Check(ConsumptionService.SafeTaxThreshold(n27, 19.99) == 50 && ConsumptionService.SafeTaxThreshold(n27, 20) == 30, "edge: <20% is 50, 20% is 30");
-    Check(ConsumptionService.SafeTaxThreshold(n27, 33) == 30, "average shortage 33% -> default 30");
+    ShortageReport OneShort(string item, double pct) { var r = new ShortageReport(); foreach (var s in ConsumptionCatalog.All) r.UnmetPct[s.Item] = s.Item == item ? pct : 0; return r; }
+    Check(ConsumptionService.SafeTaxThreshold(n27, Rep(0)) == 60, "no shortage, no large surplus -> safe threshold 60");
+    Check(ConsumptionService.SafeTaxThreshold(n27, OneShort("Salt", 0.1)) == 30, "one item 0.1% short -> 30");
+    Check(ConsumptionService.SafeTaxThreshold(n27, OneShort("Iron", 5)) == 30, "a mineral 5% short -> 30");
+    Check(ConsumptionService.SafeTaxThreshold(n27, Rep(5)) == 30 && ConsumptionService.SafeTaxThreshold(n27, Rep(15)) == 30
+          && ConsumptionService.SafeTaxThreshold(n27, Rep(33)) == 30 && ConsumptionService.SafeTaxThreshold(n27, Rep(100)) == 30,
+          "any shortage (5%, 15%, 33%, 100%) -> 30, no matter how big");
 
-    // surplus: all 17 items above 150% of need -> 100, and it beats the shortage rules
+    // surplus: all 17 items above 150% of need -> 100, and it beats the shortage rule
     SetOutput(1.6);
     Check(ConsumptionService.HasLargeSurplus(n27), "all items at 160% output = large surplus");
-    Check(ConsumptionService.SafeTaxThreshold(n27, 50) == 100, "surplus takes priority over average shortage");
+    Check(ConsumptionService.SafeTaxThreshold(n27, Rep(0)) == 100, "large surplus -> safe threshold 100");
+    Check(ConsumptionService.SafeTaxThreshold(n27, Rep(50)) == 100, "surplus takes priority over shortage");
     var wheatMill = ProductionCatalog.All.First(b => b.Produces == "Wheat");
     n27.ProductionBuildings[wheatMill.Id] = (int)(ConsumptionService.DailyNeed(ConsumptionCatalog.All.First(c => c.Item == "Wheat"), n27.Population) * 1.4 / ConsumptionService.OutputPerMill(n27, wheatMill));
     Check(!ConsumptionService.HasLargeSurplus(n27), "one item below 150% cancels the surplus rule");
+    Check(ConsumptionService.SafeTaxThreshold(n27, Rep(0)) == 60, "...and with no shortage the threshold falls back to 60");
 
     // tax death increase = sum over six types of max(0, rate - threshold) x 0.15
     var all100 = new TaxRates { Peasants = 100, Craftsmen = 100, MilitaryPersonnel = 100, Merchants = 100, Spies = 100, Saboteurs = 100 };
@@ -875,11 +879,36 @@ using (var engine27 = new GameEngine(new SimulationService(), new SaveService(sa
     ConsumptionService.ApplyShortageEffects(n27, Rep(30));
     Check(Math.Abs(n27.LastShortageDeaths - 550.5) < 1e-6, "default taxes: deaths stay at 550.5");
 
-    // 5% average shortage, taxes 100%: threshold 70 -> 6 x 30 x 0.15 = 27%
+    // Danger-zone tax -> flat 0.05 rating per month (0.05/30 per day), whatever the level
+    var shortOnly = ConsumptionService.RatingDrop(Rep(30));
+    n27.RulerRating = 50; n27.ShortageDeathCarry = 0;
+    n27.TaxRates = all100;
+    ConsumptionService.ApplyShortageEffects(n27, Rep(30));
+    Check(Math.Abs(n27.LastRatingDrop - (shortOnly + 0.05 / 30)) < 1e-12, "tax in danger zone adds 0.05/30 rating drop per day");
+    n27.TaxRates = new TaxRates { Peasants = 31, Craftsmen = 0, MilitaryPersonnel = 0, Merchants = 0, Spies = 0, Saboteurs = 0 };
+    ConsumptionService.ApplyShortageEffects(n27, Rep(30));
+    Check(Math.Abs(n27.LastRatingDrop - (shortOnly + 0.05 / 30)) < 1e-12, "same flat drop for one tax just 1 point over (level doesn't matter)");
+    n27.TaxRates = new TaxRates();
+    ConsumptionService.ApplyShortageEffects(n27, Rep(30));
+    Check(Math.Abs(n27.LastRatingDrop - shortOnly) < 1e-12, "taxes within the safe zone: no extra rating drop");
+    n27.RulerRating = 50; n27.TaxRates = all100;
+    for (int d = 0; d < 30; d++) ConsumptionService.ApplyShortageEffects(n27, Rep(0));
+    Check(Math.Abs((50 - n27.RulerRating) - 0.05) < 1e-9, "30 days in the danger zone = exactly 0.05 rating lost");
+
+    // Small shortage (5%) still uses threshold 30: taxes 100% -> 6 x 70 x 0.15 = +63%
     n27.TaxRates = all100; n27.ShortageDeathCarry = 0;
     ConsumptionService.ApplyShortageEffects(n27, Rep(5));
     double base5 = 12 * 5 * 1.3 + 5 * 5 * 0.55;
-    Check(Math.Abs(n27.LastShortageDeaths - base5 * 1.27) < 1e-6, "5% short, taxes 100%: threshold 70 -> +27% deaths");
+    Check(n27.LastSafeTaxThreshold == 30 && Math.Abs(n27.LastShortageDeaths - base5 * 1.63) < 1e-6, "5% short, taxes 100%: threshold 30 -> +63% deaths");
+
+    // No shortage, no surplus: threshold 60 -> taxes 100% = 6 x 40 x 0.15 = +36% (deaths themselves are 0)
+    n27.ShortageDeathCarry = 0;
+    ConsumptionService.ApplyShortageEffects(n27, Rep(0));
+    Check(n27.LastSafeTaxThreshold == 60 && Math.Abs(n27.LastTaxDeathIncreasePct - 36) < 1e-9, "no shortage: threshold 60, taxes 100% = +36%");
+    // ...and taxes at 60 or below are safe then
+    n27.TaxRates = new TaxRates { Peasants = 60, Craftsmen = 60, MilitaryPersonnel = 60, Merchants = 60, Spies = 60, Saboteurs = 60 };
+    ConsumptionService.ApplyShortageEffects(n27, Rep(0));
+    Check(n27.LastTaxDeathIncreasePct == 0, "no shortage: taxes up to 60 are safe");
 }
 
 Console.WriteLine(failures == 0 ? "\nALL CHECKS PASSED" : $"\n{failures} CHECK(S) FAILED");

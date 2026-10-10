@@ -33,15 +33,15 @@ public static class Balance
 
     // ---- Tax-driven extra deaths (rates and thresholds on the 0-100 tax scale) ----
     /// <summary>Safe tax threshold by supply conditions, checked in this priority order.</summary>
-    public const double SafeTaxSurplus = 100;          // every item's mill output > 150% of its need
-    public const double SafeTaxVeryLowShortage = 70;   // average shortage < 10%
-    public const double SafeTaxLowShortage = 50;       // average shortage < 20%
-    public const double SafeTaxDefault = 30;           // otherwise
+    public const double SafeTaxSurplus = 100;   // every item's mill output > 150% of its need
+    public const double SafeTaxShortage = 30;   // any item short, however small or large the shortage
+    public const double SafeTaxNormal = 60;     // no shortage, but not in large surplus
     public const double SurplusOutputRatio = 1.5;
-    public const double VeryLowAvgShortagePct = 10;
-    public const double LowAvgShortagePct = 20;
     /// <summary>Extra deaths, in % of the shortage deaths, per point of tax above the safe threshold (per tax type).</summary>
     public const double TaxDeathIncreasePerPoint = 0.15;
+    /// <summary>Ruler Rating lost per month while any tax is above the safe threshold (flat, whatever the level).</summary>
+    public const double TaxDangerRatingDropPerMonth = 0.05;
+    public const double DaysPerMonth = 30;
 
     // ---- Raw materials (per in-game day) ----
     public const double IronPerMinePerDay = 2.0;
