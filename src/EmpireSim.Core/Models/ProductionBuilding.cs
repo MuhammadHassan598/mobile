@@ -88,4 +88,18 @@ public static class ProductionCatalog
         if (spec.IronCost > 0) parts.Add($"{spec.IronCost:N0} iron");
         return string.Join(" + ", parts);
     }
+
+    /// <summary>
+    /// Most mills of this type the nation can pay for right now and still fit in the build
+    /// queue — the same checks <see cref="GameEngine.BuildProduction"/> makes, so MAX always succeeds.
+    /// </summary>
+    public static int MaxAffordable(Nation nation, ProductionBuildingSpec spec)
+    {
+        double max = Balance.MaxBuildQueue - nation.ConstructionQueue.Count;
+        if (spec.GoldCost > 0) max = Math.Min(max, Math.Floor(nation.Gold / spec.GoldCost));
+        if (spec.WoodCost > 0) max = Math.Min(max, Math.Floor(nation.Wood / spec.WoodCost));
+        if (spec.StoneCost > 0) max = Math.Min(max, Math.Floor(nation.Stone / spec.StoneCost));
+        if (spec.IronCost > 0) max = Math.Min(max, Math.Floor(nation.Iron / spec.IronCost));
+        return (int)Math.Max(0, max);
+    }
 }

@@ -152,50 +152,50 @@
         double reqWood = _popupSpec.WoodCost * qty;
         double reqStone = _popupSpec.StoneCost * qty;
         double reqIron = _popupSpec.IronCost * qty;
-        int totalDays = _popupSpec.BuildDays * qty;
+        double perDayQty = _popupSpec.OutputPerDay * qty;
         bool canAfford = _nation.CanPay(reqGold) && _nation.Wood >= reqWood && _nation.Stone >= reqStone && _nation.Iron >= reqIron;
+        // One card per resource this mill actually costs (cost x qty on top, stock below).
+        var costs = new List<(string Icon, string Label, double Need, double Have)>();
+        if (reqWood > 0) costs.Add(("🪵", "Wood", reqWood, _nation.Wood));
+        if (reqGold > 0) costs.Add(("🪙", "Gold", reqGold, _nation.Gold));
+        if (reqStone > 0) costs.Add(("🪨", "Stone", reqStone, _nation.Stone));
+        if (reqIron > 0) costs.Add(("⛓️", "Iron", reqIron, _nation.Iron));
 
         <div class="popup-overlay" @onclick="ClosePopup">
-            <div class="popup-panel" @onclick:stopPropagation>
-                <div class="popup-header">
-                    <span class="popup-icon">@_popupSpec.Icon</span>
-                    <span class="popup-title">Build @_popupSpec.Name</span>
+            <div class="build-panel" @onclick:stopPropagation>
+                <button class="build-close" @onclick="ClosePopup" title="Close">✕</button>
+                <div class="build-title">
+                    <span class="build-title-icon">@_popupSpec.Icon</span>
+                    <span>@_popupSpec.Name.ToUpperInvariant()</span>
                 </div>
-                <div class="popup-section">
-                    <div class="popup-section-title">Quantity</div>
-                    <div class="popup-qty-row">
-                        <button class="qty-btn" @onclick="() => _popupQty = Math.Max(1, _popupQty - 1)">−</button>
-                        <input type="number" class="qty-input" @bind="_popupQty" min="1" max="100" />
-                        <button class="qty-btn" @onclick="() => _popupQty = Math.Min(100, _popupQty + 1)">+</button>
-                    </div>
+                <div class="build-costs">
+                    @foreach (var c in costs)
+                    {
+                        <div class="build-cost-card">
+                            <div class="build-cost-need @(c.Have >= c.Need ? "" : "lack")">-@c.Need.ToString("N0")</div>
+                            <div class="build-cost-icon">@c.Icon</div>
+                            <div class="build-cost-have">@c.Have.ToString("N0")</div>
+                            <div class="build-cost-label">@c.Label</div>
+                        </div>
+                    }
                 </div>
-                <div class="popup-section">
-                    <div class="popup-section-title">Current Balance</div>
-                    <div class="popup-res-row">
-                        <span>🪙 Gold: @_nation.Gold.ToString("N0")</span>
-                        <span>🪵 Wood: @_nation.Wood.ToString("N0")</span>
-                        <span>🪨 Stone: @_nation.Stone.ToString("N0")</span>
-                    </div>
+                <div class="build-line">
+                    <span class="build-line-label">Quantity:</span>
+                    <span class="build-qty">
+                        <input type="number" class="build-qty-input" @bind="_popupQty" min="1" />
+                        <button class="build-max-btn" @onclick="FillMax" title="Max you can afford">⬆</button>
+                    </span>
                 </div>
-                <div class="popup-section">
-                    <div class="popup-section-title">Required (×@qty)</div>
-                    <div class="popup-res-row">
-                        <span class="@(_nation.Gold >= reqGold ? "ok" : "lack")">🪙 @reqGold.ToString("N0")</span>
-                        <span class="@(_nation.Wood >= reqWood ? "ok" : "lack")">🪵 @reqWood.ToString("N0")</span>
-                        <span class="@(_nation.Stone >= reqStone ? "ok" : "lack")">🪨 @reqStone.ToString("N0")</span>
-                        @if (reqIron > 0)
-                        {
-                            <span class="@(_nation.Iron >= reqIron ? "ok" : "lack")">⛓️ @reqIron.ToString("N0")</span>
-                        }
-                    </div>
+                <div class="build-line">
+                    <span class="build-line-label">Production per day:</span>
+                    <span class="build-line-value">@perDayQty.ToString("N0") <span class="build-line-icon">@_popupSpec.Icon</span></span>
                 </div>
-                <div class="popup-section">
-                    <div class="popup-section-title">Construction Time</div>
-                    <div class="popup-time">⏱️ @_popupSpec.BuildDays days each · @totalDays days total</div>
+                <div class="build-line">
+                    <span class="build-line-label">Total time:</span>
+                    <span class="build-line-value">@_popupSpec.BuildDays <span class="build-line-icon">⏱️</span></span>
                 </div>
-                <div class="popup-actions">
-                    <button class="popup-btn cancel" @onclick="ClosePopup">Cancel</button>
-                    <button class="popup-btn confirm" @onclick="ConfirmBuild" disabled="@(!canAfford)">Build @qty</button>
+                <div class="build-actions">
+                    <button class="build-btn" @onclick="ConfirmBuild" disabled="@(!canAfford)">BUILD</button>
                 </div>
             </div>
         </div>
@@ -230,6 +230,13 @@
     }
 
     private void ClosePopup() { _popupSpec = null; _popupQty = 1; }
+
+    // Up-arrow: fill in the most mills affordable now (at least 1, so the red costs show why).
+    private void FillMax()
+    {
+        if (_popupSpec is not null)
+            _popupQty = Math.Max(1, ProductionCatalog.MaxAffordable(_nation, _popupSpec));
+    }
 
     private void ConfirmBuild()
     {
@@ -332,20 +339,62 @@
 .popup-title { font-size: 1.15rem; font-weight: bold; }
 .popup-section { margin-bottom: 12px; }
 .popup-section-title { font-size: 0.85rem; font-weight: bold; color: #8b6914; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
-.popup-res-row { display: flex; gap: 12px; flex-wrap: wrap; font-size: 0.95rem; }
-.popup-res-row .ok { color: #2a6b2a; }
-.popup-res-row .lack { color: #8B0000; font-weight: bold; }
-.popup-time { font-size: 1rem; }
 .popup-actions { display: flex; gap: 10px; margin-top: 14px; }
 .popup-btn { flex: 1; padding: 10px; border-radius: 6px; cursor: pointer; font-family: inherit; font-size: 1rem; border: 2px solid #2e1c0c; transition: transform 0.1s; }
 .popup-btn:active { transform: translateY(1px); }
 .popup-btn.cancel { background: linear-gradient(#8a8a8a, #5a5a5a); color: #fff; }
 .popup-btn.confirm { background: linear-gradient(#7a5230, #4a2e14); color: #f5e6c4; }
 .popup-btn.confirm:disabled { opacity: 0.4; cursor: not-allowed; }
-.popup-qty-row { display: flex; align-items: center; gap: 8px; justify-content: center; }
-.qty-btn { width: 36px; height: 36px; border-radius: 50%; background: linear-gradient(#7a5230, #4a2e14); color: #f5e6c4; border: 2px solid #2e1c0c; font-size: 1.2rem; cursor: pointer; display: flex; align-items: center; justify-content: center; }
-.qty-btn:active { transform: translateY(1px); }
-.qty-input { width: 70px; text-align: center; font-size: 1.1rem; padding: 6px; border: 2px solid #8b6914; border-radius: 6px; background: #fffdf5; color: #3d2b1f; font-family: inherit; }
+/* Build mill popup (competitor style: resource cards, MAX arrow, label/value rows) */
+.build-panel {
+    position: relative; width: 100%; max-width: 320px; max-height: 85vh; overflow-y: auto;
+    background: radial-gradient(ellipse at 50% 0%, rgba(255,255,255,.45), transparent 65%), linear-gradient(#f5e6c4, #e2cb92);
+    border: 3px double #8b6914; border-radius: 10px; padding: 14px 16px 16px;
+    box-shadow: 0 8px 24px rgba(0,0,0,.5); font-family: Georgia, serif; color: #3d2b1f;
+}
+.build-close {
+    position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, #f7ead0, #d9bd85); border: 2px solid #3d2b1f;
+    color: #3d2b1f; font-size: 0.95rem; font-weight: bold; cursor: pointer; padding: 0;
+    display: flex; align-items: center; justify-content: center;
+}
+.build-close:active { transform: translateY(1px); }
+.build-title { display: flex; align-items: center; justify-content: center; gap: 8px; margin: 2px 30px 14px; font-weight: bold; font-size: 1.05rem; letter-spacing: 1px; }
+.build-title-icon { font-size: 1.8rem; }
+.build-costs { display: flex; justify-content: center; gap: 10px; margin-bottom: 14px; }
+.build-cost-card {
+    flex: 0 1 76px; min-width: 0; text-align: center; padding: 5px 4px 6px;
+    background: linear-gradient(#efdcae, #dcc088); border: 2px solid #8b6914; border-radius: 6px;
+    box-shadow: inset 0 0 8px rgba(139,105,20,.2), 0 1px 3px rgba(0,0,0,.3);
+}
+.build-cost-need { font-size: 0.72rem; font-weight: bold; color: #3d2b1f; font-family: Arial, sans-serif; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.build-cost-need.lack { color: #c62828; }
+.build-cost-icon { font-size: 1.7rem; line-height: 1.25; }
+.build-cost-have { background: #1f1f1f; color: #f5e6c4; font-size: 0.72rem; font-family: Arial, sans-serif; border-radius: 2px; padding: 1px 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.build-cost-label { font-size: 0.75rem; margin-top: 2px; }
+.build-line { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 0; border-bottom: 1px solid rgba(139,105,20,.45); font-size: 0.95rem; }
+.build-line-label { font-weight: bold; }
+.build-line-value { display: flex; align-items: center; gap: 4px; }
+.build-line-icon { font-size: 1rem; }
+.build-qty { display: flex; align-items: stretch; flex: 0 1 150px; min-width: 0; }
+.build-qty-input {
+    flex: 1; min-width: 0; padding: 5px 8px; font-size: 1rem; font-family: inherit; color: #3d2b1f;
+    background: #fffdf5; border: 2px solid #8b6914; border-right: none; border-radius: 4px 0 0 4px;
+}
+.build-max-btn {
+    width: 34px; flex-shrink: 0; padding: 0; cursor: pointer; font-size: 0.95rem; color: #3d2b1f;
+    background: linear-gradient(#f7ead0, #d9bd85); border: 2px solid #8b6914; border-radius: 0 4px 4px 0;
+}
+.build-max-btn:active { filter: brightness(.9); }
+.build-actions { display: flex; justify-content: flex-end; margin-top: 16px; }
+.build-btn {
+    min-width: 120px; padding: 10px 16px; border-radius: 6px; cursor: pointer;
+    background: linear-gradient(#3a3a3a, #1f1f1f); border: 2px solid #000; color: #f5e6c4;
+    font-family: inherit; font-size: 1rem; font-weight: bold; letter-spacing: 1px;
+    box-shadow: 0 2px 4px rgba(0,0,0,.5);
+}
+.build-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.build-btn:not(:disabled):active { transform: translateY(1px); }
 .info-line { font-size: 0.95rem; margin-bottom: 4px; }
 .info-line b { color: #2a1f14; }
 /* Military grid: 3 per row, 2 rows */
