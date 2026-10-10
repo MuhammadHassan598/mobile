@@ -106,11 +106,17 @@
     else if (_tab == 4)
     {
         var tolerance = StatisticsService.TaxTolerance(_nation);
-        double growthRate = Balance.GrowthPerDayWithSurplus * 100;
+        long births = PopulationService.DailyBirths(_nation);
+        double deaths = _nation.LastShortageDeaths;
+        double net = births - deaths;
+        double netPct = _nation.Population > 0 ? net / _nation.Population * 100 : 0;
 
         <div class="stat-section">
             <div class="stat-sec-title">BIRTH / MORTALITY RATE</div>
-            <div class="stat-row"><span>Daily growth rate:</span><b>@growthRate.ToString("N4")%</b></div>
+            <div class="stat-row"><span>Net change per day:</span><b class="@(net < 0 ? "neg" : "")">@(net >= 0 ? "+" : "−")@Math.Abs(net).ToString("N0") people</b></div>
+            <div class="stat-row"><span>Births per day:</span><b>+@births.ToString("N0")</b></div>
+            <div class="stat-row"><span>Deaths per day (shortage):</span><b class="@(deaths > 0 ? "neg" : "")">−@deaths.ToString("N0")</b></div>
+            <div class="stat-row"><span>Net rate:</span><b class="@(net < 0 ? "neg" : "")">@netPct.ToString("+0.0000;−0.0000")%</b></div>
             <div class="stat-row"><span>Population:</span><b>@_nation.Population.ToString("N0")</b></div>
             <div class="stat-note">Item shortages (below) cause deaths and lower the ruler rating.</div>
         </div>

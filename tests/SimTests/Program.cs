@@ -760,5 +760,30 @@ using (var engine24 = new GameEngine(new SimulationService(), new SaveService(sa
     Check(Math.Abs((ott.Gold - goldBefore) - est) < est * 0.01 + 5, $"top-bar income estimate matches the real daily gain (est {est:N0}, got {ott.Gold - goldBefore:N0})");
 }
 
+Console.WriteLine("== 25. Net population change per day = births - shortage deaths ==");
+using (var engine25 = new GameEngine(new SimulationService(), new SaveService(saveFolder)))
+{
+    var n25 = engine25.State.PlayerNation;
+    // (a) fully supplied: one day's gain equals the shown births
+    n25.Population = 30_000_000;
+    foreach (var s in ConsumptionCatalog.All) n25.AddProduct(s.Item, DailyNeedBig(s) - n25.GetProduct(s.Item));
+    double DailyNeedBig(ConsumptionSpec s) => ConsumptionService.DailyNeed(s, 40_000_000) * 5;
+    long births25 = PopulationService.DailyBirths(n25);
+    long pop25 = n25.Population;
+    engine25.AdvanceOneDay();
+    Check(births25 > 0 && n25.Population - pop25 == births25 && n25.LastShortageDeaths == 0, "no shortage: real daily gain = shown births");
+
+    // (b) everything short: real change = births - deaths (shown net), here negative or smaller
+    foreach (var s in ConsumptionCatalog.All) n25.AddProduct(s.Item, -n25.GetProduct(s.Item));
+    n25.ProductionBuildings.Clear();
+    n25.Population = 1_000_000; n25.ShortageDeathCarry = 0;
+    long b25 = PopulationService.DailyBirths(n25);
+    long p25 = n25.Population;
+    engine25.AdvanceOneDay();
+    double shownNet = b25 - n25.LastShortageDeaths;
+    Check(Math.Abs((n25.Population - p25) - shownNet) <= 1, $"shortage day: real change {n25.Population - p25:N0} matches shown net {shownNet:N1}");
+    Check(shownNet < 0, "a fully short nation shows a negative net change");
+}
+
 Console.WriteLine(failures == 0 ? "\nALL CHECKS PASSED" : $"\n{failures} CHECK(S) FAILED");
 return failures;

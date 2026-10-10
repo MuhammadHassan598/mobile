@@ -87,10 +87,7 @@ public sealed class SimulationService
         }
 
         // Population always grows; starvation comes only from item shortages (ConsumptionService).
-        double growthRate = Balance.GrowthPerDayWithSurplus * nation.GrowthMult;
-        // Islam: +0.005 percentage points to growth rate
-        growthRate += ReligionService.PopulationGrowthBonus(nation) / 100.0;
-        nation.Population += (long)(nation.Population * growthRate);
+        nation.Population += PopulationService.DailyBirths(nation);
 
         // ---- Treasury: taxation system ----
         nation.EnsureTaxationInitialized();

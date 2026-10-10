@@ -31,6 +31,17 @@ public static class PersonnelCatalog
 /// <summary>Population/personnel service.</summary>
 public static class PopulationService
 {
+    /// <summary>
+    /// People born per day: population x (base growth x growth multiplier + religion bonus).
+    /// Used by the daily tick and the Statistics screen so they always agree.
+    /// </summary>
+    public static long DailyBirths(Nation nation)
+    {
+        double rate = Services.Balance.GrowthPerDayWithSurplus * nation.GrowthMult
+                    + ReligionService.PopulationGrowthBonus(nation) / 100.0;   // Islam: +0.005 points
+        return (long)(nation.Population * rate);
+    }
+
     /// <summary>Get workforce count by group key.</summary>
     public static long GetGroupCount(Workforce w, string key) => key switch
     {
