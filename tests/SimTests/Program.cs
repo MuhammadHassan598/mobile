@@ -3477,5 +3477,61 @@ using (var eng = NewDipEngine(125))
     Check(old is not null && old.Inbox.Count == 0 && old.InboxConditions.Count == 0, "an old save without an inbox loads with an empty one");
 }
 
+Console.WriteLine("== 60. Production: how many of a mill can be built (checked in the build popup) ==");
+using (var eng = NewDipEngine(126))
+{
+    var s = eng.State; var p = s.PlayerNation;
+    // A mill that costs gold, wood and stone.
+    var spec = ProductionCatalog.All.First(x => x.Category != ProductionCategory.Military && x.GoldCost > 0 && x.WoodCost > 0 && x.StoneCost > 0);
+    void Stock(double gold, double wood, double stone, double iron) { p.Gold = gold; p.Wood = wood; p.Stone = stone; p.Iron = iron; }
+
+    // Plenty of everything: only the build queue limits.
+    Stock(1e12, 1e12, 1e12, 1e12);
+    var rich = eng.MaxBuildProduction(spec.Id);
+    Check(rich.Max == Balance.MaxBuildQueue - p.ConstructionQueue.Count && rich.LimitedBy == "the build queue", $"with everything in plenty the build queue is the limit ({rich.Max:N0})");
+
+    // Each resource in turn is the one that runs out first.
+    foreach (var (name, set) in new (string, Action<int>)[]
+    {
+        ("gold",  n => Stock(spec.GoldCost * n + spec.GoldCost / 2, 1e12, 1e12, 1e12)),
+        ("wood",  n => Stock(1e12, spec.WoodCost * n + spec.WoodCost / 2, 1e12, 1e12)),
+        ("stone", n => Stock(1e12, 1e12, spec.StoneCost * n + spec.StoneCost / 2, 1e12)),
+    })
+    {
+        set(7);
+        var limit = eng.MaxBuildProduction(spec.Id);
+        Check(limit.Max == 7 && limit.LimitedBy == name, $"enough {name} for seven mills (and a half): the limit is 7, limited by {name}");
+    }
+
+    // The engine accepts exactly that many, and refuses one more.
+    Stock(spec.GoldCost * 5.5, 1e12, 1e12, 1e12);
+    int max = eng.MaxBuildProduction(spec.Id).Max;
+    int queued = p.ConstructionQueue.Count;
+    Check(max == 5 && eng.BuildProduction(spec.Id, max) is null && p.ConstructionQueue.Count == queued + 5, "the engine accepts exactly the most the popup says");
+    Stock(spec.GoldCost * 5.5, 1e12, 1e12, 1e12);
+    Check(eng.BuildProduction(spec.Id, max + 1) == "Not enough resources.", "...and refuses one more");
+
+    // Not even one: the answer is zero and says what is missing, so the popup can explain (the button itself is never disabled).
+    Stock(spec.GoldCost / 2, 1e12, 1e12, 1e12);
+    var none = eng.MaxBuildProduction(spec.Id);
+    Check(none.Max == 0 && none.LimitedBy == "gold" && eng.BuildProduction(spec.Id, 1) == "Not enough resources.", "short of gold for even one mill: zero, limited by gold");
+    Stock(1e12, 0, 1e12, 1e12);
+    Check(eng.MaxBuildProduction(spec.Id) is { Max: 0, LimitedBy: "wood" }, "no wood at all: zero, limited by wood");
+}
+
+using (var eng = NewDipEngine(127))
+{
+    // The build queue itself can be the limit.
+    var s = eng.State; var p = s.PlayerNation;
+    var spec = ProductionCatalog.All.First(x => x.Category != ProductionCategory.Military);
+    p.Gold = 1e12; p.Wood = 1e12; p.Stone = 1e12; p.Iron = 1e12;
+    while (p.ConstructionQueue.Count < Balance.MaxBuildQueue - 4)
+        p.ConstructionQueue.Add(new ConstructionProject { Building = BuildingType.Farm, ProductionBuildingId = spec.Id, DaysLeft = 9, TotalDays = 9 });
+    var limit = eng.MaxBuildProduction(spec.Id);
+    Check(limit.Max == 4 && limit.LimitedBy == "the build queue", "with the build queue nearly full, room for four is the limit");
+    Check(eng.BuildProduction(spec.Id, 5)?.Contains("queue is full") == true && eng.BuildProduction(spec.Id, 4) is null, "...the engine agrees: five are refused, four accepted");
+    Check(eng.MaxBuildProduction(spec.Id).Max == 0, "a full queue leaves room for none");
+}
+
 Console.WriteLine(failures == 0 ? "\nALL CHECKS PASSED" : $"\n{failures} CHECK(S) FAILED");
 return failures;

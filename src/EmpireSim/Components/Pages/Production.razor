@@ -73,8 +73,6 @@
             int progCount = inProgress.Count;
             double progPct = progCount > 0 ? inProgress.Average(p => p.Progress) * 100 : 0;
             int daysLeft = progCount > 0 ? inProgress.Min(p => p.DaysLeft) : 0;
-            bool afford = _nation.CanPay(spec.GoldCost) && _nation.Wood >= spec.WoodCost
-                       && _nation.Stone >= spec.StoneCost && _nation.Iron >= spec.IronCost;
 
             <div class="prod-row">
                 <div class="prod-icon-wrap">
@@ -102,7 +100,8 @@
                     <div class="prod-row-output">@spec.Produces: @inventory.ToString("N0") <em>(+@perDay.ToString("N0")/day)</em></div>
                 </div>
                 <button class="prod-info-btn" @onclick="() => ShowInfo(spec)" title="Details">ⓘ</button>
-                <button class="prod-row-btn" disabled="@(!afford)"
+                <!-- Always active: the build popup checks what can be built -->
+                <button class="prod-row-btn"
                         @onclick="() => OnBuildClick(spec)"
                         title="@ProductionCatalog.CostText(spec) · @spec.BuildDays days">📐</button>
             </div>
@@ -144,7 +143,7 @@
         </div>
     }
 
-    <!-- Build confirmation popup (Food & Minerals only) -->
+    <!-- Build popup (Food & Minerals): it checks how many of the chosen mill can be built -->
     @if (_popupSpec is not null)
     {
         int qty = _popupQty < 1 ? 1 : _popupQty;
@@ -153,7 +152,17 @@
         double reqStone = _popupSpec.StoneCost * qty;
         double reqIron = _popupSpec.IronCost * qty;
         int totalDays = _popupSpec.BuildDays * qty;
-        bool canAfford = _nation.CanPay(reqGold) && _nation.Wood >= reqWood && _nation.Stone >= reqStone && _nation.Iron >= reqIron;
+
+        var limit = Engine.MaxBuildProduction(_popupSpec.Id);
+        int queueRoom = Math.Max(0, Balance.MaxBuildQueue - _nation.ConstructionQueue.Count);
+        var problems = new List<string>();
+        if (_popupQty < 1) problems.Add("Enter how many mills to build.");
+        if (qty > queueRoom) problems.Add($"The build queue has room for only {queueRoom:N0} more.");
+        if (reqGold > 0 && !_nation.CanPay(reqGold)) problems.Add($"Not enough gold: {qty} need {reqGold:N0}, you have {_nation.Gold:N0}.");
+        if (reqWood > 0 && _nation.Wood < reqWood) problems.Add($"Not enough wood: {qty} need {reqWood:N0}, you have {_nation.Wood:N0}.");
+        if (reqStone > 0 && _nation.Stone < reqStone) problems.Add($"Not enough stone: {qty} need {reqStone:N0}, you have {_nation.Stone:N0}.");
+        if (reqIron > 0 && _nation.Iron < reqIron) problems.Add($"Not enough iron: {qty} need {reqIron:N0}, you have {_nation.Iron:N0}.");
+        bool canBuild = problems.Count == 0;
 
         <div class="popup-overlay" @onclick="ClosePopup">
             <div class="popup-panel" @onclick:stopPropagation>
@@ -162,11 +171,28 @@
                     <span class="popup-title">Build @_popupSpec.Name</span>
                 </div>
                 <div class="popup-section">
-                    <div class="popup-section-title">Quantity</div>
+                    <div class="popup-section-title">How many?</div>
+                    <div class="can-build @(limit.Max > 0 ? "yes" : "no")">
+                        @if (limit.Max > 0)
+                        {
+                            <span>You can build up to <b>@limit.Max.ToString("N0")</b> now</span>
+                            <small>(limited by @limit.LimitedBy)</small>
+                        }
+                        else
+                        {
+                            <span>You cannot build any yet</span>
+                            <small>(short of @limit.LimitedBy)</small>
+                        }
+                    </div>
                     <div class="popup-qty-row">
-                        <button class="qty-btn" @onclick="() => _popupQty = Math.Max(1, _popupQty - 1)">−</button>
-                        <input type="number" class="qty-input" @bind="_popupQty" min="1" max="100" />
-                        <button class="qty-btn" @onclick="() => _popupQty = Math.Min(100, _popupQty + 1)">+</button>
+                        <input type="number" class="qty-input wide" value="@_popupQty" min="1" @onchange="e => _popupQty = ParseCount(e.Value, _popupQty)" />
+                        <button class="qty-max" disabled="@(limit.Max < 1)" title="The most you can build right now" @onclick="() => _popupQty = limit.Max">MAX @limit.Max.ToString("N0")</button>
+                    </div>
+                    <div class="qty-steps">
+                        <button @onclick="() => _popupQty = Math.Max(1, _popupQty - 10)">−10</button>
+                        <button @onclick="() => _popupQty = Math.Max(1, _popupQty - 1)">−1</button>
+                        <button @onclick="() => _popupQty += 1">+1</button>
+                        <button @onclick="() => _popupQty += 10">+10</button>
                     </div>
                 </div>
                 <div class="popup-section">
@@ -175,6 +201,10 @@
                         <span>🪙 Gold: @_nation.Gold.ToString("N0")</span>
                         <span>🪵 Wood: @_nation.Wood.ToString("N0")</span>
                         <span>🪨 Stone: @_nation.Stone.ToString("N0")</span>
+                        @if (_popupSpec.IronCost > 0)
+                        {
+                            <span>⛓️ Iron: @_nation.Iron.ToString("N0")</span>
+                        }
                     </div>
                 </div>
                 <div class="popup-section">
@@ -193,9 +223,11 @@
                     <div class="popup-section-title">Construction Time</div>
                     <div class="popup-time">⏱️ @_popupSpec.BuildDays days each · @totalDays days total</div>
                 </div>
+                @foreach (var problem in problems) { <div class="pop-warn">⚠ @problem</div> }
+                @if (!string.IsNullOrEmpty(_popupError)) { <div class="pop-warn">⚠ @_popupError</div> }
                 <div class="popup-actions">
                     <button class="popup-btn cancel" @onclick="ClosePopup">Cancel</button>
-                    <button class="popup-btn confirm" @onclick="ConfirmBuild" disabled="@(!canAfford)">Build @qty</button>
+                    <button class="popup-btn confirm" @onclick="ConfirmBuild" disabled="@(!canBuild)">Build @qty</button>
                 </div>
             </div>
         </div>
@@ -208,6 +240,7 @@
     private string? _error;
     private ProductionBuildingSpec? _popupSpec;
     private int _popupQty = 1;
+    private string? _popupError;
     private ProductionBuildingSpec? _infoSpec;
     private MilitaryRecipe? _milInfo;
     private HashSet<string> _highlightGreen = new();
@@ -225,22 +258,24 @@
         {
             _popupSpec = spec;
             _popupQty = 1;
+            _popupError = null;
             _error = null;
         }
     }
 
-    private void ClosePopup() { _popupSpec = null; _popupQty = 1; }
+    private void ClosePopup() { _popupSpec = null; _popupQty = 1; _popupError = null; }
 
     private void ConfirmBuild()
     {
-        if (_popupSpec is not null)
-        {
-            int qty = _popupQty < 1 ? 1 : _popupQty;
-            _error = Engine.BuildProduction(_popupSpec.Id, qty);
-            _popupSpec = null;
-            _popupQty = 1;
-        }
+        if (_popupSpec is null) return;
+        int qty = _popupQty < 1 ? 1 : _popupQty;
+        _popupError = Engine.BuildProduction(_popupSpec.Id, qty);
+        if (_popupError is null) ClosePopup();   // (if the engine refuses, the reason stays in the popup)
     }
+
+    private static int ParseCount(object? value, int fallback) =>
+        double.TryParse(value?.ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var n)
+            ? (int)Math.Clamp(Math.Floor(n), 0, int.MaxValue) : fallback;
 
     private void ShowInfo(ProductionBuildingSpec spec) => _infoSpec = spec;
 
@@ -346,6 +381,16 @@
 .qty-btn { width: 36px; height: 36px; border-radius: 50%; background: linear-gradient(#7a5230, #4a2e14); color: #f5e6c4; border: 2px solid #2e1c0c; font-size: 1.2rem; cursor: pointer; display: flex; align-items: center; justify-content: center; }
 .qty-btn:active { transform: translateY(1px); }
 .qty-input { width: 70px; text-align: center; font-size: 1.1rem; padding: 6px; border: 2px solid #8b6914; border-radius: 6px; background: #fffdf5; color: #3d2b1f; font-family: inherit; }
+.qty-input.wide { flex: 1; width: auto; min-width: 0; }
+.qty-max { background: linear-gradient(#7a5230, #4a2e14); color: #f5e6c4; font-weight: bold; border: 2px solid #2e1c0c; border-radius: 6px; padding: 8px 12px; cursor: pointer; font-family: inherit; white-space: nowrap; }
+.qty-max:disabled { opacity: 0.4; cursor: not-allowed; }
+.qty-steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 8px; }
+.qty-steps button { background: #d4b896; border: 1px solid #8b6914; border-radius: 4px; padding: 6px 0; cursor: pointer; font-family: inherit; color: #3d2b1f; }
+.can-build { display: flex; flex-direction: column; align-items: center; margin-bottom: 8px; padding: 6px; border-radius: 6px; font-size: 0.95rem; }
+.can-build small { color: #5a4a2a; font-size: 0.78rem; }
+.can-build.yes { background: rgba(46,125,50,.15); border: 1px solid #2e7d32; }
+.can-build.no { background: rgba(139,0,0,.12); border: 1px solid #8b0000; }
+.pop-warn { margin-top: 6px; padding: 6px 8px; background: #f8d7da; color: #721c24; border-radius: 6px; font-size: 0.84rem; }
 .info-line { font-size: 0.95rem; margin-bottom: 4px; }
 .info-line b { color: #2a1f14; }
 /* Military grid: 3 per row, 2 rows */

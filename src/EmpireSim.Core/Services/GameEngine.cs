@@ -166,6 +166,39 @@ public sealed partial class GameEngine : IDisposable
         return null;
     }
 
+    /// <summary>How many of a production building can be started right now, and what limits it.</summary>
+    /// <param name="Max">The most that <see cref="BuildProduction"/> would accept.</param>
+    /// <param name="LimitedBy">"gold", "wood", "stone", "iron" or "the build queue": the first thing that would run out.</param>
+    public readonly record struct BuildLimit(int Max, string LimitedBy);
+
+    /// <summary>
+    /// The most of a production building the player can start right now (whole mills), by the same rules as
+    /// <see cref="BuildProduction"/>: the free room in the build queue and the gold, wood, stone and iron it needs.
+    /// </summary>
+    public BuildLimit MaxBuildProduction(string buildingId)
+    {
+        var nation = State.PlayerNation;
+        var spec = ProductionCatalog.Get(buildingId);
+
+        int max = Math.Max(0, Balance.MaxBuildQueue - nation.ConstructionQueue.Count);
+        string by = "the build queue";
+        void Limit(double have, double each, string name)
+        {
+            if (each <= 0) return;
+            int fits = (int)Math.Min(int.MaxValue, Math.Floor(Math.Max(0, have) / each));
+            if (fits < max) { max = fits; by = name; }
+        }
+        Limit(nation.Gold, spec.GoldCost, "gold");
+        Limit(nation.Wood, spec.WoodCost, "wood");
+        Limit(nation.Stone, spec.StoneCost, "stone");
+        Limit(nation.Iron, spec.IronCost, "iron");
+
+        // (guard against floating-point rounding: never report more than BuildProduction would accept)
+        while (max > 0 && (!nation.CanPay(spec.GoldCost * max) || nation.Wood < spec.WoodCost * max
+                           || nation.Stone < spec.StoneCost * max || nation.Iron < spec.IronCost * max)) max--;
+        return new BuildLimit(max, by);
+    }
+
     /// <summary>Queue timed recruitment with equipment. Returns error or null.</summary>
     public string? StartRecruitment(UnitType type, int count)
     {
