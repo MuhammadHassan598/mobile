@@ -372,6 +372,7 @@ public sealed partial class GameEngine : IDisposable
         var buyer = State.PlayerNation;
         var seller = State.AllNations().FirstOrDefault(n => n.Id == sellerId);
         if (seller is null || seller.Id == buyer.Id) return "Invalid seller.";
+        if (TradeBlock(sellerId) is { } noTrade) return noTrade;
         var product = TradeCatalog.Get(productId);
         if (product is null || !product.CanBuy) return "Cannot buy this product.";
         // Assembly: weapon embargo blocks equipment purchases from/to target
@@ -409,6 +410,22 @@ public sealed partial class GameEngine : IDisposable
         return null;
     }
 
+    /// <summary>Whether the player has set up an embassy in a country (the first step before any trade with it).</summary>
+    public bool HasTradeEmbassy(string nationId) => TreatyService.HasEmbassy(State, State.PlayerNation.Id, nationId);
+
+    /// <summary>
+    /// Why the player cannot trade with a country right now, or null if they can. Buying from and selling to a country both
+    /// need an embassy there first (set up in Diplomacy); without one the country is not offered as a trading partner.
+    /// </summary>
+    public string? TradeBlock(string nationId)
+    {
+        var nation = State.AllNations().FirstOrDefault(n => n.Id == nationId);
+        if (nation is null || nation.Id == State.PlayerNation.Id) return "Invalid trading partner.";
+        if (!HasTradeEmbassy(nationId))
+            return $"You need an embassy in {nation.Name} before you can trade with it. Set one up in Diplomacy first.";
+        return null;
+    }
+
     /// <summary>
     /// What the player actually pays per 1,000 units of a product from a seller: the market price with the import-law discount
     /// and the trade-agreement discount applied (the very price <see cref="BuyProduct"/> charges).
@@ -433,7 +450,7 @@ public sealed partial class GameEngine : IDisposable
     {
         var buyer = State.PlayerNation;
         var seller = State.AllNations().FirstOrDefault(n => n.Id == sellerId);
-        if (seller is null || seller.Id == buyer.Id) return 0;
+        if (seller is null || seller.Id == buyer.Id || TradeBlock(sellerId) is not null) return 0;
         double price = BuyPricePer1000(sellerId, productId);
         if (price <= 0) return 0;
 
@@ -450,7 +467,7 @@ public sealed partial class GameEngine : IDisposable
     {
         var seller = State.PlayerNation;
         var buyer = State.AllNations().FirstOrDefault(n => n.Id == buyerId);
-        if (buyer is null || buyer.Id == seller.Id) return 0;
+        if (buyer is null || buyer.Id == seller.Id || TradeBlock(buyerId) is not null) return 0;
 
         double max = Math.Floor(seller.GetProductStock(productId));
         if (pricePer1000 > 0)
@@ -469,6 +486,7 @@ public sealed partial class GameEngine : IDisposable
         var seller = State.PlayerNation;
         var buyer = State.AllNations().FirstOrDefault(n => n.Id == buyerId);
         if (buyer is null || buyer.Id == seller.Id) return "Invalid buyer.";
+        if (TradeBlock(buyerId) is { } noTrade) return noTrade;
         var product = TradeCatalog.Get(productId);
         if (product is null || !product.CanSell) return "Cannot sell this product.";
 

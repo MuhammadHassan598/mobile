@@ -2,6 +2,7 @@
 @using EmpireSim.Core.Models
 @using EmpireSim.Core.Services
 @inject GameEngine Engine
+@inject NavigationManager Nav
 @implements IDisposable
 
 <div class="trade-wrap">
@@ -117,18 +118,10 @@
     <div class="popup-overlay" @onclick="() => _buyStep = 0">
         <div class="popup-panel" @onclick:stopPropagation>
             <div class="popup-header"><span class="popup-title">Select Seller — @prod?.Name</span></div>
-            <div class="price-note">Price is per 1,000 units.</div>
-            @foreach (var n in Engine.State.OtherNations.OrderBy(n => n.Name))
-            {
-                double stock = n.GetProductStock(_buyProductId) * 0.5;
-                double price = MarketPricing.PricePer1000(_buyProductId, n.Id);
-                bool atWar = n.AtWarWithPlayer;
-                <button class="country-btn" disabled="@(atWar || stock < 1)" @onclick="() => SelectBuySeller(n.Id)">
-                    <span>@n.Emblem</span> <span class="cname">@n.Name</span>
-                    <span class="cprice">@price.ToString("N0") 🪙</span>
-                    @if (atWar) { <span class="cwar">WAR</span> }
-                </button>
-            }
+            <div class="price-note">Price is per 1,000 units. You can only trade with countries where you have an embassy.</div>
+            @CountryList(SelectBuySeller,
+                n => Engine.BuyPricePer1000(n.Id, _buyProductId),
+                n => n.GetProductStock(_buyProductId) * 0.5 < 1 ? "No stock" : null)
             <div class="popup-actions">
                 <button class="popup-btn cancel" @onclick="() => _buyStep = 0">CANCEL</button>
             </div>
@@ -196,17 +189,8 @@
     <div class="popup-overlay" @onclick="() => _sellStep = 0">
         <div class="popup-panel" @onclick:stopPropagation>
             <div class="popup-header"><span class="popup-title">Select Buyer — @prod?.Name</span></div>
-            <div class="price-note">Price is per 1,000 units.</div>
-            @foreach (var n in Engine.State.OtherNations.OrderBy(n => n.Name))
-            {
-                double price = MarketPricing.PricePer1000(_sellProductId, n.Id);
-                bool atWar = n.AtWarWithPlayer;
-                <button class="country-btn" disabled="@atWar" @onclick="() => SelectSellBuyer(n.Id)">
-                    <span>@n.Emblem</span> <span class="cname">@n.Name</span>
-                    <span class="cprice">@price.ToString("N0") 🪙</span>
-                    @if (atWar) { <span class="cwar">WAR</span> }
-                </button>
-            }
+            <div class="price-note">Price is per 1,000 units. You can only trade with countries where you have an embassy.</div>
+            @CountryList(SelectSellBuyer, n => MarketPricing.PricePer1000(_sellProductId, n.Id), n => null)
             <div class="popup-actions">
                 <button class="popup-btn cancel" @onclick="() => _sellStep = 0">CANCEL</button>
             </div>
@@ -264,7 +248,7 @@
     <div class="popup-overlay" @onclick="() => _sellAllOpen = false">
         <div class="popup-panel" @onclick:stopPropagation>
             <div class="popup-header"><span class="popup-title">Sell Everything</span></div>
-            <div class="price-note">Sells all tradable stock at market price. Military equipment is protected.</div>
+            <div class="price-note">Sells all tradable stock at market price, only to countries where you have an embassy. Military equipment is protected.</div>
             @{
                 double grandTotal = 0;
             }
@@ -340,6 +324,45 @@
         }
     </text>;
 
+    /// <summary>
+    /// The countries to trade with, in two groups: those where you have an embassy (selectable, unless at war or — when buying —
+    /// out of stock) and those without one, which are shown but cannot be selected until an embassy is set up in Diplomacy.
+    /// </summary>
+    /// <param name="price">The price per 1,000 shown for each country.</param>
+    /// <param name="note">A reason a country with an embassy still cannot be picked (e.g. no stock), or null.</param>
+    private RenderFragment CountryList(Action<string> pick, Func<Nation, double> price, Func<Nation, string?> note) => @<text>
+        @{
+            var all = Engine.State.OtherNations.Where(n => !n.IsEliminated).OrderBy(n => n.Name).ToList();
+            var withEmbassy = all.Where(n => Engine.HasTradeEmbassy(n.Id)).ToList();
+            var without = all.Where(n => !Engine.HasTradeEmbassy(n.Id)).ToList();
+        }
+        <div class="prod-group">🏛 EMBASSY — YOU CAN TRADE (@withEmbassy.Count)</div>
+        @foreach (var n in withEmbassy)
+        {
+            bool atWar = n.AtWarWithPlayer;
+            string? why = note(n);
+            <button class="country-btn" disabled="@(atWar || why is not null)" @onclick="() => pick(n.Id)">
+                <span>@n.Emblem</span> <span class="cname">@n.Name</span>
+                <span class="cprice">@price(n).ToString("N0") 🪙</span>
+                @if (atWar) { <span class="cwar">WAR</span> }
+                else if (why is not null) { <span class="cnote">@why</span> }
+            </button>
+        }
+        @if (withEmbassy.Count == 0)
+        {
+            <div class="no-embassy-hint">You have no embassy yet. Open Diplomacy and set one up in the country you want to trade with.</div>
+        }
+        <div class="prod-group">🚫 NO EMBASSY — SET ONE UP FIRST (@without.Count)</div>
+        @foreach (var n in without)
+        {
+            <button class="country-btn no-embassy" disabled title="Set up an embassy in @n.Name (Diplomacy) to trade with it">
+                <span>@n.Emblem</span> <span class="cname">@n.Name</span>
+                <span class="cnote">No embassy</span>
+            </button>
+        }
+        <button class="popup-btn goto" @onclick='() => Nav.NavigateTo("/diplomacy")'>🤝 Open Diplomacy to set up an embassy</button>
+    </text>;
+
     /// <summary>A quantity field with MAX and big steps, so a large amount does not take hundreds of taps.</summary>
     private RenderFragment QtyEditor(double qty, Action<double> set, double max) => @<div class="qty-box">
         <div class="qty-row">
@@ -409,7 +432,7 @@
             double total = MarketPricing.TotalValue(price, qty);
             // Find buyer
             var buyer = Engine.State.OtherNations
-                .Where(n => !n.AtWarWithPlayer && n.Gold >= total)
+                .Where(n => !n.AtWarWithPlayer && Engine.HasTradeEmbassy(n.Id) && n.Gold >= total)
                 .OrderByDescending(n => n.Gold)
                 .FirstOrDefault();
             if (buyer is null) continue;
@@ -417,7 +440,8 @@
             if (err is null) count++;
         }
         _sellAllOpen = false;
-        _msg = count > 0 ? $"Sold {count} product types." : "No buyers available.";
+        _msg = count > 0 ? $"Sold {count} product types."
+             : Engine.State.OtherNations.Any(n => Engine.HasTradeEmbassy(n.Id)) ? "No buyers available." : "No buyers: set up an embassy in Diplomacy first.";
     }
 }
 
@@ -463,6 +487,10 @@
 .country-btn .cname { flex: 1; font-weight: bold; }
 .country-btn .cprice { color: #5a4a2a; }
 .cwar { background: #8B0000; color: #fff; font-size: 0.7rem; padding: 2px 6px; border-radius: 4px; }
+.cnote { background: rgba(90,74,42,.25); color: #5a4a2a; font-size: 0.7rem; padding: 2px 6px; border-radius: 4px; white-space: nowrap; }
+.country-btn.no-embassy { opacity: 0.5; cursor: not-allowed; background: rgba(120,120,120,.18); }
+.no-embassy-hint { font-size: 0.82rem; color: #8B0000; margin: 4px 2px 6px; }
+.popup-btn.goto { width: 100%; margin-top: 8px; background: linear-gradient(#4a7a8a, #2e5663); color: #fff; }
 .c-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid #c9b98a; font-size: 0.92rem; }
 .c-row.total { font-size: 1.05rem; border-bottom: 2px solid #8b6914; }
 .qty-row { display: flex; align-items: center; gap: 6px; }

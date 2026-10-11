@@ -727,6 +727,7 @@ using (var engine23 = new GameEngine(new SimulationService(), new SaveService(sa
     me.ProductionBuildings.Clear(); other.ProductionBuildings.Clear(); // ...and from mill output
     me.Gold = 1_000_000; other.Gold = 1_000_000;
     other.GoodsInventory["Wheat"] = 10_000;
+    TreatyService.Add(engine23.State, TreatyType.Embassy, me, other);   // trading needs an embassy first
     double wheat0 = me.GetGood("Wheat"), gold0 = me.Gold;
 
     Check(engine23.BuyProduct(other.Id, "wheat", 6_000) is not null, "cannot buy more than 50% of the seller's stock");
@@ -924,6 +925,7 @@ void SetRating(Nation n, int rating) => n.RelationToPlayer = DiplomacyService.Fr
 int Rate(Nation n) => DiplomacyService.ToDisplayRating(n.RelationToPlayer);
 int CountOf(UnitType type, Nation n) => n.Units.Where(u => u.Type == type).Sum(u => u.Count);
 bool HasLog(GameEngine eng, string text) => eng.State.EventLog.Any(x => x.Contains(text));
+void Embassy(GameEngine e, params Nation[] nations) { foreach (var n in nations) if (!e.HasTradeEmbassy(n.Id)) TreatyService.Add(e.State, TreatyType.Embassy, e.State.PlayerNation, n); }   // (trading needs an embassy first)
 
 Console.WriteLine("== 28. Diplomatic actions: catalogue and availability ==");
 using (var eng = NewDipEngine())
@@ -1777,6 +1779,7 @@ using (var eng = NewDipEngine(31))
 
     // Trade shipments: placed under way, delivered later.
     int before = eng.State.Movements.Count;
+    Embassy(eng, france);
     eng.BuyProduct(france.Id, "wheat", 1000);
     Check(Has(MovementKind.Goods, MovementStatus.UnderWay, france.Id, p.Id), "a purchase is recorded: goods from them to us, under way");
     eng.SellProduct(france.Id, "wheat", 100, 500);
@@ -1898,6 +1901,7 @@ using (var eng = NewDipEngine(37))
     TreatyService.Add(s, TreatyType.DefensiveAlliance, p, spain);
     var allyMarch = TreatyService.LaunchMarch(s, spain, persia, 800)!;
     var worldMarch = TreatyService.LaunchMarch(s, Ai(eng, "mughal"), Ai(eng, "japan"), 800)!;   // two other countries: not the player's business
+    Embassy(eng, france);
     eng.BuyProduct(france.Id, "wheat", 1000);
     p.Warships = 5; p.Gold = 100_000; p.GoodsInventory["Wheat"] = 100_000;
     eng.FoundColony(s.FrontierRegions[0].Id);
@@ -1905,8 +1909,8 @@ using (var eng = NewDipEngine(37))
     var all = MovementReport.ActiveMissions(s);
     Check(s.MarchingArmies.Contains(worldMarch) && !all.Any(x => x.FromId == worldMarch.AttackerNationId), "(an army marching between two other countries is under way, but not listed)");
     worldMarch.DaysLeft = 1;   // (it is recalled tomorrow, so it does not outlast the rest of this test)
-    Check(all.Count == 7, "embassy, spy network, missionaries, loan, an ally's march, shipment and expedition are all listed");
-    var embassy = all.Single(x => x.Text.StartsWith("Embassy"));
+    Check(all.Count == 8, "two embassies (Iran, and France for the trade), spy network, missionaries, loan, an ally's march, shipment and expedition are all listed");
+    var embassy = all.Single(x => x.Text.StartsWith("Embassy") && x.LocationId == persia.Id);
     var spy = all.Single(x => x.Text.StartsWith("Spy network"));
     var mission = all.Single(x => x.Text.StartsWith("Missionaries"));
     Check(embassy.LocationId == persia.Id && spy.LocationId == france.Id && mission.LocationId == spain.Id, "stationed missions say where they are");
@@ -1926,7 +1930,7 @@ using (var eng = NewDipEngine(37))
     Check(MovementReport.ActiveMissions(s, persia.Id).Count == 3, "filtering by a state shows what is in it (embassy, loan, ally march)");
     Check(MovementReport.ActiveMissions(s, spain.Id).Count == 2, "...and what it sent (missionaries there, its own army marching)");
     var byState = MovementReport.MissionsByState(s);
-    Check(byState.Single(x => x.StateId == persia.Id).Items.Count == 3 && byState.Sum(x => x.Items.Count) == 7, "missions group by where they are");
+    Check(byState.Single(x => x.StateId == persia.Id).Items.Count == 3 && byState.Sum(x => x.Items.Count) == 8, "missions group by where they are");
 
     // They leave the list once they are over.
     for (int i = 0; i < 8; i++) { p.Gold = 1_000_000; eng.AdvanceOneDay(); }
@@ -1934,7 +1938,7 @@ using (var eng = NewDipEngine(37))
     for (int i = 8; i < Balance.TroopLoanDays; i++) { p.Gold = 1_000_000; eng.AdvanceOneDay(); }
     Check(s.MarchingArmies.Count == 0 && !MovementReport.ActiveMissions(s).Any(x => x.Kind == MovementKind.March), "a finished (here: recalled) march leaves the mission list");
     Check(!MovementReport.ActiveMissions(s).Any(x => x.Kind is MovementKind.Troops or MovementKind.Colony), "the loan and the expedition leave the list when they end");
-    Check(MovementReport.ActiveMissions(s).Count(x => x.Text.StartsWith("Embassy") || x.Text.StartsWith("Spy") || x.Text.StartsWith("Missionaries")) == 3,
+    Check(MovementReport.ActiveMissions(s).Count(x => x.Text.StartsWith("Embassy") || x.Text.StartsWith("Spy") || x.Text.StartsWith("Missionaries")) == 4,
         "stationed missions stay until they end");
 }
 
@@ -3151,6 +3155,7 @@ using (var eng = NewDipEngine(113))
     var s = eng.State; var p = s.PlayerNation; var persia = Ai(eng, "persia");
     void SetStock(Nation n, string id, double amount) => n.AdjustProductStock(id, amount - n.GetProductStock(id));
 
+    Embassy(eng, persia);
     // The price the popup shows is the price that is charged: import law and trade agreement included.
     double plain = eng.BuyPricePer1000(persia.Id, "wheat");
     Check(Math.Abs(plain - MarketPricing.PricePer1000("wheat", persia.Id) * LawService.ImportPriceMult(p)) < 1e-9, "the buy price is the market price with the import law");
@@ -3181,6 +3186,7 @@ using (var eng = NewDipEngine(114))
     void SetStock(Nation n, string id, double amount) => n.AdjustProductStock(id, amount - n.GetProductStock(id));
     double price = MarketPricing.PricePer1000("wheat", p.Id);
 
+    Embassy(eng, mughal);
     // MAX to sell: what the player has (whole units), or what the buyer can pay for.
     mughal.Gold = 1e12; SetStock(p, "wheat", 1234.7);
     Check(eng.MaxSellQuantity(mughal.Id, "wheat", price) == 1234, "MAX to sell is the stock, in whole units");
@@ -3392,6 +3398,7 @@ using (var eng = NewDipEngine(122))
     eng.AdvanceOneDay();
     Check(s.Inbox.Count(x => x.Topic == InboxTopic.Research && x.Title.Contains(tech.Name)) == 1, "a technology researched is one message");
 
+    Embassy(eng, persia);
     p.Gold = 1e9; SetStockOf(persia, "wheat", 100_000);
     void SetStockOf(Nation n, string id, double amount) => n.AdjustProductStock(id, amount - n.GetProductStock(id));
     Check(eng.BuyProduct(persia.Id, "wheat", 500) is null, "(wheat bought)");
@@ -3531,6 +3538,41 @@ using (var eng = NewDipEngine(127))
     Check(limit.Max == 4 && limit.LimitedBy == "the build queue", "with the build queue nearly full, room for four is the limit");
     Check(eng.BuildProduction(spec.Id, 5)?.Contains("queue is full") == true && eng.BuildProduction(spec.Id, 4) is null, "...the engine agrees: five are refused, four accepted");
     Check(eng.MaxBuildProduction(spec.Id).Max == 0, "a full queue leaves room for none");
+}
+
+Console.WriteLine("== 61. Trade needs an embassy first ==");
+using (var eng = NewDipEngine(128))
+{
+    var s = eng.State; var p = s.PlayerNation; var persia = Ai(eng, "persia"); var france = Ai(eng, "france");
+    void SetStock(Nation n, string id, double amount) => n.AdjustProductStock(id, amount - n.GetProductStock(id));
+    p.Gold = 1e9; SetStock(persia, "wheat", 100_000); SetStock(france, "wheat", 100_000); SetStock(p, "wheat", 5000);
+    persia.Gold = 1e9; france.Gold = 1e9;
+    double price = MarketPricing.PricePer1000("wheat", persia.Id);
+
+    // No embassy: no buying, no selling.
+    Check(!eng.HasTradeEmbassy(persia.Id) && eng.TradeBlock(persia.Id) is { } why && why.Contains("Iran") && why.Contains("embassy") && why.Contains("Diplomacy"), "without an embassy trade is blocked, and the reason says why and where to fix it");
+    double gold0 = p.Gold; double stock0 = persia.GetProductStock("wheat");
+    var buy = eng.BuyProduct(persia.Id, "wheat", 100);
+    var sell = eng.SellProduct(persia.Id, "wheat", 100, price);
+    Check(buy is not null && buy.Contains("embassy") && sell is not null && sell.Contains("embassy"), "buying from and selling to a country without an embassy are both refused");
+    Check(p.Gold == gold0 && persia.GetProductStock("wheat") == stock0 && p.GetProductStock("wheat") == 5000 && !s.TradeContracts.Any(), "...and nothing moves: no gold, no goods, no contract");
+    Check(eng.MaxBuyQuantity(persia.Id, "wheat") == 0 && eng.MaxSellQuantity(persia.Id, "wheat", price) == 0, "MAX is zero for a country you cannot trade with");
+    Check(eng.TradeBlock("nobody") is not null && eng.TradeBlock(p.Id) is not null, "an unknown country, or yourself, is not a trading partner");
+
+    // Set up the embassy the real way, in Diplomacy.
+    SetRating(persia, 70);
+    Check(eng.EstablishEmbassy(persia.Id).Ok && eng.HasTradeEmbassy(persia.Id) && eng.TradeBlock(persia.Id) is null, "(an embassy is set up in Diplomacy)");
+    Check(eng.BuyProduct(persia.Id, "wheat", 100) is null && eng.SellProduct(persia.Id, "wheat", 100, price) is null, "with the embassy both buying and selling work");
+    Check(eng.MaxBuyQuantity(persia.Id, "wheat") > 0 && eng.MaxSellQuantity(persia.Id, "wheat", price) > 0, "...and so does MAX");
+
+    // The embassy is in one country: it does not open the others.
+    Check(!eng.HasTradeEmbassy(france.Id) && eng.BuyProduct(france.Id, "wheat", 100)?.Contains("France") == true, "an embassy in Iran does not let you trade with France");
+
+    // Walking away from the embassy closes the door again, but does not cancel goods already on the road.
+    int contracts = s.TradeContracts.Count(c => c.Status == TradeStatus.InTransit);
+    Check(eng.CancelTreaty(TreatyType.Embassy, persia.Id).Ok && eng.BuyProduct(persia.Id, "wheat", 100)?.Contains("embassy") == true, "cancelling the embassy stops trade with that country");
+    for (int i = 0; i < 9; i++) { p.Gold = 1e9; eng.AdvanceOneDay(); }
+    Check(contracts == 2 && s.TradeContracts.Count(c => c.Status == TradeStatus.Delivered) == 2, "the purchase and the sale already under way are still delivered");
 }
 
 Console.WriteLine(failures == 0 ? "\nALL CHECKS PASSED" : $"\n{failures} CHECK(S) FAILED");
