@@ -378,7 +378,7 @@ public static class AiWorldService
         state.Wars.Add(new WarRecord { AggressorId = aggressor.Id, DefenderId = target.Id, StartDate = state.CurrentDate, Aim = aim });
         AddRelation(state, aggressor, target, Balance.AiWarRelationHit);
         state.LogMovement(MovementKind.War, MovementStatus.Completed, aggressor, target,
-            $"⚔ {aggressor.Name} declared war on {target.Name} — {Reason(aim)}!");
+            $"⚔ {aggressor.Name} declared war on {target.Name} — {Reason(aim)}!", inbox: InboxTopic.AllyAtWar);
         if (Allied(state, state.PlayerNation.Id, target.Id))
             state.ActiveWarnings.Add($"⚠ {aggressor.Name} has declared war on your ally {target.Name}!");
 
@@ -403,7 +403,7 @@ public static class AiWorldService
             : new WarRecord { AggressorId = ally.Id, DefenderId = enemy.Id, StartDate = state.CurrentDate, Aim = Motives(state, ally, enemy).Aim });
         AddRelation(state, ally, enemy, Balance.AiWarRelationHit / 2);
         state.LogMovement(MovementKind.War, MovementStatus.Completed, ally, enemy,
-            $"🛡 {ally.Name} joins the war against {enemy.Name} to stand by {friend.Name}.");
+            $"🛡 {ally.Name} joins the war against {enemy.Name} to stand by {friend.Name}.", inbox: InboxTopic.AllyAtWar);
     }
 
     /// <summary>An AI country declares war on the player: the same steps whether it decided by anger or by opportunity.</summary>
@@ -415,7 +415,8 @@ public static class AiWorldService
         aggressor.RelationToPlayer = -100;
         TreatyService.OnWar(state, player, aggressor);
         state.LogMovement(MovementKind.War, MovementStatus.Completed, aggressor, player,
-            reason is null ? $"{aggressor.Name} declared war on {player.Name}!" : $"{aggressor.Name} declared war on {player.Name} — {reason}!");
+            reason is null ? $"{aggressor.Name} declared war on {player.Name}!" : $"{aggressor.Name} declared war on {player.Name} — {reason}!",
+            inbox: InboxTopic.WarDeclared);
         state.ActiveWarnings.Add($"⚠ {aggressor.Name} has DECLARED WAR on you!");
         TreatyService.AllianceDefence(state, aggressor, player);
     }
@@ -454,7 +455,8 @@ public static class AiWorldService
         }
     }
 
-    private static void TryMarch(GameState state, Nation from, Nation to, Random rng)
+    /// <summary>An AI country may send part of its army against an enemy it is at war with (a chance roll; nothing happens if it is already marching or too weak).</summary>
+    public static void TryMarch(GameState state, Nation from, Nation to, Random rng)
     {
         if (TreatyService.HasMarchOn(state, from.Id, to.Id)) return;
         if (rng.NextDouble() >= Balance.AiInvasionChance) return;
@@ -463,8 +465,14 @@ public static class AiWorldService
 
         var march = TreatyService.LaunchMarch(state, from, to, commit);
         if (march is null) return;
-        state.LogMovement(MovementKind.March, MovementStatus.UnderWay, from, to,
-            $"⚔ {from.Name} sends {commit:N0} soldiers against {to.Name} ({march.DaysLeft} days).");
+        string text = $"⚔ {from.Name} sends {commit:N0} soldiers against {to.Name} ({march.DaysLeft} days).";
+        // An army marching on the player or on one of the player's allies is reported as intelligence; so is any army that
+        // sets out from a country where the player has a spy network (the spies watch it leave).
+        var record = state.LogMovement(MovementKind.March, MovementStatus.UnderWay, from, to, text, inbox: InboxTopic.TroopMovement);
+        if (!state.ConcernsPlayer(record) && state.SpyNetworks.Any(s => s.TargetNationId == from.Id))
+            InboxService.Notify(state, InboxTopic.TroopMovement,
+                $"Our spies in {from.Name} report {commit:N0} soldiers marching on {to.Name} ({march.DaysLeft} days).", from.Id,
+                title: $"{InboxCatalog.TopicTitle(InboxTopic.TroopMovement)} — {from.Name}");
     }
 
     /// <summary>Ends a war between two AI countries (after exhaustion, a long stalemate, or a winner's spoils).</summary>

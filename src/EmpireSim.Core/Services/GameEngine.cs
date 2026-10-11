@@ -327,7 +327,7 @@ public sealed partial class GameEngine : IDisposable
         DiplomacyService.AddRating(ally, -Balance.AlliedHelpRatingCost);
         StartCooldown("alliedhelp", ally, Balance.AlliedHelpCooldownDays);
 
-        State.LogMovement(MovementKind.Troops, MovementStatus.Completed, ally, n, $"{ally.Name} sent {sent:N0} allied troops.");
+        State.LogMovement(MovementKind.Troops, MovementStatus.Completed, ally, n, $"{ally.Name} sent {sent:N0} allied troops.", inbox: InboxTopic.AllyAssistance);
         StateChanged?.Invoke();
         return $"{ally.Name} sends {sent:N0} troops!";
     }
@@ -353,12 +353,7 @@ public sealed partial class GameEngine : IDisposable
         double sellerStock = seller.GetProductStock(productId) * 0.5;
         if (sellerStock < quantity) return $"Seller only has {sellerStock:N0} available.";
 
-        double pricePer1000 = MarketPricing.PricePer1000(productId, sellerId);
-        // Law: import price discount
-        pricePer1000 *= LawService.ImportPriceMult(buyer);
-        // Trade agreement: partners sell to us cheaper.
-        if (TreatyService.Has(State, TreatyType.TradeAgreement, buyer.Id, sellerId))
-            pricePer1000 *= Balance.TradeAgreementImportMult;
+        double pricePer1000 = BuyPricePer1000(sellerId, productId);
         double total = MarketPricing.TotalValue(pricePer1000, quantity);
         if (!buyer.CanPay(total)) return "Not enough gold.";
 
@@ -379,6 +374,58 @@ public sealed partial class GameEngine : IDisposable
         State.LogMovement(MovementKind.Goods, MovementStatus.UnderWay, seller, buyer, $"Bought {quantity:N0} {product.Name} from {seller.Name} for {Currency.Cost(total)}. Delivery in {days}d.");
         StateChanged?.Invoke();
         return null;
+    }
+
+    /// <summary>
+    /// What the player actually pays per 1,000 units of a product from a seller: the market price with the import-law discount
+    /// and the trade-agreement discount applied (the very price <see cref="BuyProduct"/> charges).
+    /// </summary>
+    public double BuyPricePer1000(string sellerId, string productId)
+    {
+        var buyer = State.PlayerNation;
+        double pricePer1000 = MarketPricing.PricePer1000(productId, sellerId);
+        // Law: import price discount
+        pricePer1000 *= LawService.ImportPriceMult(buyer);
+        // Trade agreement: partners sell to us cheaper.
+        if (TreatyService.Has(State, TreatyType.TradeAgreement, buyer.Id, sellerId))
+            pricePer1000 *= Balance.TradeAgreementImportMult;
+        return pricePer1000;
+    }
+
+    /// <summary>
+    /// The most the player can buy of a product from a seller right now, in whole units: limited by what the seller will part with
+    /// (half its stock) and by the player's gold. Zero when nothing can be bought.
+    /// </summary>
+    public double MaxBuyQuantity(string sellerId, string productId)
+    {
+        var buyer = State.PlayerNation;
+        var seller = State.AllNations().FirstOrDefault(n => n.Id == sellerId);
+        if (seller is null || seller.Id == buyer.Id) return 0;
+        double price = BuyPricePer1000(sellerId, productId);
+        if (price <= 0) return 0;
+
+        double max = Math.Floor(Math.Min(seller.GetProductStock(productId) * 0.5, buyer.Gold * 1000 / price));
+        while (max > 0 && !buyer.CanPay(MarketPricing.TotalValue(price, max))) max--;   // (the total is rounded to the cent)
+        return Math.Max(0, max);
+    }
+
+    /// <summary>
+    /// The most the player can sell of a product to a buyer at a price per 1,000, in whole units: limited by the player's stock
+    /// and by what the buyer can pay. Zero when the player has none.
+    /// </summary>
+    public double MaxSellQuantity(string buyerId, string productId, double pricePer1000)
+    {
+        var seller = State.PlayerNation;
+        var buyer = State.AllNations().FirstOrDefault(n => n.Id == buyerId);
+        if (buyer is null || buyer.Id == seller.Id) return 0;
+
+        double max = Math.Floor(seller.GetProductStock(productId));
+        if (pricePer1000 > 0)
+        {
+            max = Math.Min(max, Math.Floor(buyer.Gold * 1000 / pricePer1000));
+            while (max > 0 && buyer.Gold < MarketPricing.TotalValue(pricePer1000, max)) max--;
+        }
+        return Math.Max(0, max);
     }
 
     /// <summary>Sell product to another country. Goods deducted now, gold paid on delivery.</summary>
@@ -978,19 +1025,19 @@ public sealed partial class GameEngine : IDisposable
             n.PayGold(tribute);
             player.Gold += tribute;
             n.RelationToPlayer = Math.Max(-100, n.RelationToPlayer - 20);
-            State.LogMovement(MovementKind.Gold, MovementStatus.Completed, n, player, $"{n.Name} paid tribute: {Currency.Cost(tribute)}.");
+            State.LogMovement(MovementKind.Gold, MovementStatus.Completed, n, player, $"{n.Name} paid tribute: {Currency.Cost(tribute)}.", inbox: InboxTopic.Aid);
         }
         else
         {
             n.RelationToPlayer = Math.Max(-100, n.RelationToPlayer - 30);
-            State.LogMovement(MovementKind.Gold, MovementStatus.Failed, n, player, $"{n.Name} refused your tribute demand.");
+            State.LogMovement(MovementKind.Gold, MovementStatus.Failed, n, player, $"{n.Name} refused your tribute demand.", inbox: InboxTopic.Aid);
             if (_sim.RollChance(Balance.TributeRefusalWarChance))
             {
                 n.AtWarWithPlayer = true;
                 n.HasTradePactWithPlayer = false;
                 n.RelationToPlayer = -100;
                 TreatyService.OnWar(State, player, n);
-                State.LogMovement(MovementKind.War, MovementStatus.Completed, n, player, $"{n.Name} declared war over your insult!");
+                State.LogMovement(MovementKind.War, MovementStatus.Completed, n, player, $"{n.Name} declared war over your insult!", inbox: InboxTopic.WarDeclared);
                 State.ActiveWarnings.Add($"⚠ {n.Name} has DECLARED WAR on you!");
                 TreatyService.AllianceDefence(State, n, player);
             }
@@ -1024,7 +1071,14 @@ public sealed partial class GameEngine : IDisposable
         else
             net.Strength = Math.Min(Balance.MaxNetworkStrength,
                 net.Strength + Balance.EstablishNetworkStrength);
-        State.LogMovement(MovementKind.Mission, MovementStatus.Completed, State.PlayerNation, n, $"Spy network operating in {n.Name}.");
+        State.LogMovement(MovementKind.Mission, MovementStatus.Completed, State.PlayerNation, n, $"Spy network operating in {n.Name}.", inbox: InboxTopic.SpyNetwork);
+
+        // The new network's first report: what the spies count in the country (real figures, rounded as spies would).
+        double treasury = Math.Round(n.Gold / 1000) * 1000;
+        InboxService.Notify(State, InboxTopic.ForeignStrength,
+            $"{n.Name} fields about {n.Soldiers:N0} soldiers and {n.Warships:N0} warships; its treasury holds about {Currency.Cost(treasury)}.",
+            n.Id,
+            details: $"Report from our spy network in {n.Name}:\nArmy: about {n.Soldiers:N0} soldiers.\nFleet: {n.Warships:N0} warships.\nTreasury: about {Currency.Cost(treasury)}.\nAt war with you: {(n.AtWarWithPlayer ? "yes" : "no")}.");
         StateChanged?.Invoke();
         return null;
     }
@@ -1048,7 +1102,7 @@ public sealed partial class GameEngine : IDisposable
         net.Strength /= 2;
         target.RelationToPlayer = Math.Max(-100,
             target.RelationToPlayer - Balance.DiscoveryRelationHit);
-        State.LogMovement(MovementKind.Mission, MovementStatus.Failed, State.PlayerNation, target, $"Our spy was caught ({deed}) in {target.Name}!");
+        State.LogMovement(MovementKind.Mission, MovementStatus.Failed, State.PlayerNation, target, $"Our spy was caught ({deed}) in {target.Name}!", inbox: InboxTopic.SpyCaught);
         State.ActiveWarnings.Add($"🕵 Our spy was caught in {target.Name}!");
     }
 
@@ -1064,7 +1118,7 @@ public sealed partial class GameEngine : IDisposable
         double amount = target!.Gold * frac;
         target.PayGold(amount);
         State.PlayerNation.Gold += amount;
-        State.LogMovement(MovementKind.Gold, MovementStatus.Completed, target, State.PlayerNation, $"Spies stole {Currency.Cost(amount)} from {target.Name}.");
+        State.LogMovement(MovementKind.Gold, MovementStatus.Completed, target, State.PlayerNation, $"Spies stole {Currency.Cost(amount)} from {target.Name}.", inbox: InboxTopic.SpyMission);
         if (_sim.RollChance(Balance.StealDiscoveryChance))
             Discover(net!, target, "theft");
         StateChanged?.Invoke();
@@ -1097,7 +1151,7 @@ public sealed partial class GameEngine : IDisposable
             case BuildingType.Sawmill: target.Sawmills--; break;
             case BuildingType.Workshop: target.Workshops--; break;
         }
-        State.LogMovement(MovementKind.Mission, MovementStatus.Completed, State.PlayerNation, target, $"Spies sabotaged a {pick.name} in {target.Name}.");
+        State.LogMovement(MovementKind.Mission, MovementStatus.Completed, State.PlayerNation, target, $"Spies sabotaged a {pick.name} in {target.Name}.", inbox: InboxTopic.SpyMission);
         if (_sim.RollChance(Balance.SabotageDiscoveryChance))
             Discover(net!, target, "sabotage");
         StateChanged?.Invoke();
@@ -1113,7 +1167,7 @@ public sealed partial class GameEngine : IDisposable
 
         int deserters = (int)(target!.Soldiers * Balance.InciteDesertionFraction);
         ArmyHelper.RemoveSoldiers(target, deserters);
-        State.LogMovement(MovementKind.Mission, MovementStatus.Completed, State.PlayerNation, target, $"Spies incited revolt in {target.Name}: {deserters:N0} soldiers deserted.");
+        State.LogMovement(MovementKind.Mission, MovementStatus.Completed, State.PlayerNation, target, $"Spies incited revolt in {target.Name}: {deserters:N0} soldiers deserted.", inbox: InboxTopic.SpyMission);
         if (_sim.RollChance(Balance.InciteDiscoveryChance))
             Discover(net!, target, "sedition");
         StateChanged?.Invoke();

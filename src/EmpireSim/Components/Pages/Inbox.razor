@@ -1,0 +1,195 @@
+@page "/inbox"
+@using EmpireSim.Core.Models
+@using EmpireSim.Core.Services
+@inject GameEngine Engine
+@inject NavigationManager Nav
+@implements IDisposable
+
+@{
+    var state = Engine.State;
+    var messages = InboxService.Messages(state, _category);
+    int total = state.Inbox.Count;
+}
+
+<div class="inb-wrap">
+    <div class="inb-header">
+        <button class="inb-back" @onclick='() => Nav.NavigateTo("/")'>◀ BACK</button>
+        <h2>✉️ INBOX</h2>
+        <button class="inb-trash" disabled="@(total == 0)" title="Delete all messages" @onclick="() => _confirmDelete = true">🗑</button>
+    </div>
+
+    <!-- The three categories -->
+    <div class="inb-tabs">
+        @foreach (var c in Categories)
+        {
+            int unread = InboxService.UnreadCount(state, c);
+            <button class="@(_category == c ? "active" : "")" @onclick="() => _category = c">
+                <span class="inb-tab-icon">@InboxCatalog.CategoryIcon(c)</span>
+                <span class="inb-tab-name">@InboxCatalog.CategoryName(c)</span>
+                @if (unread > 0) { <span class="inb-badge">@unread</span> }
+            </button>
+        }
+    </div>
+
+    @if (!string.IsNullOrEmpty(_notice))
+    {
+        <div class="inb-notice">@_notice</div>
+    }
+
+    @if (messages.Count == 0)
+    {
+        <div class="inb-empty">
+            <div class="inb-empty-title">@EmptyTitle(_category)</div>
+            <div class="inb-empty-ico">@InboxCatalog.CategoryIcon(_category)</div>
+            <div class="inb-empty-hint">@EmptyHint(_category)</div>
+        </div>
+    }
+    else
+    {
+        @foreach (var m in messages)
+        {
+            var nation = m.CountryId is null ? null : state.AllNations().FirstOrDefault(n => n.Id == m.CountryId);
+            <button class="inb-card @(m.Read ? "read" : "unread")" @onclick="() => Open(m.Id)">
+                <span class="inb-ico">@(nation?.Emblem ?? InboxCatalog.TopicIcon(m.Topic))</span>
+                <span class="inb-body">
+                    <span class="inb-line">
+                        <span class="inb-title">@m.Title</span>
+                        <span class="inb-date">@m.Date.ToString("dd-MM-yyyy")</span>
+                    </span>
+                    <span class="inb-summary">@m.Summary</span>
+                </span>
+                @if (!m.Read) { <span class="inb-dot" title="Unread"></span> }
+            </button>
+        }
+    }
+</div>
+
+<!-- An opened message -->
+@if (_open is not null)
+{
+    var nation = _open.CountryId is null ? null : state.AllNations().FirstOrDefault(n => n.Id == _open.CountryId);
+    <div class="inb-overlay" @onclick="() => _open = null">
+        <div class="inb-panel" @onclick:stopPropagation>
+            <div class="inb-modal-icon">@InboxCatalog.TopicIcon(_open.Topic)</div>
+            <div class="inb-modal-title">@_open.Title</div>
+            <div class="inb-modal-meta">@_open.Date.ToString("dd-MM-yyyy") · @InboxCatalog.CategoryIcon(_open.Category) @InboxCatalog.CategoryName(_open.Category)</div>
+            @if (nation is not null)
+            {
+                <div class="inb-modal-country"><span>@nation.Emblem</span> @nation.Name</div>
+            }
+            <div class="inb-modal-details">
+                @foreach (var line in _open.Details.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+                {
+                    <p>@line</p>
+                }
+            </div>
+            <button class="inb-btn close" @onclick="() => _open = null">CLOSE</button>
+        </div>
+    </div>
+}
+
+<!-- Delete all: asks first -->
+@if (_confirmDelete)
+{
+    <div class="inb-overlay" @onclick="() => _confirmDelete = false">
+        <div class="inb-panel" @onclick:stopPropagation>
+            <div class="inb-modal-icon">🗑</div>
+            <div class="inb-modal-title">Delete all messages?</div>
+            <div class="inb-modal-details">
+                <p>All @total message@(total == 1 ? "" : "s") in every tab will be deleted.</p>
+                <p>This only clears the inbox. Nothing that happened is undone: battles, treaties and your economy stay as they are.</p>
+            </div>
+            <div class="inb-actions">
+                <button class="inb-btn cancel" @onclick="() => _confirmDelete = false">CANCEL</button>
+                <button class="inb-btn danger" @onclick="DeleteAll">DELETE ALL</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private static readonly InboxCategory[] Categories = { InboxCategory.Intelligence, InboxCategory.Military, InboxCategory.Other };
+
+    private InboxCategory _category = InboxCategory.Intelligence;
+    private InboxMessage? _open;
+    private bool _confirmDelete;
+    private string? _notice;
+
+    protected override void OnInitialized() => Engine.StateChanged += OnStateChanged;
+    private void OnStateChanged() => InvokeAsync(StateHasChanged);
+    public void Dispose() => Engine.StateChanged -= OnStateChanged;
+
+    /// <summary>Opening a message marks it as read and shows its details.</summary>
+    private void Open(string id)
+    {
+        _notice = null;
+        _open = Engine.OpenMessage(id);
+    }
+
+    private void DeleteAll()
+    {
+        int count = Engine.DeleteAllMessages();
+        _confirmDelete = false;
+        _open = null;
+        _notice = $"{count} message{(count == 1 ? "" : "s")} deleted.";
+    }
+
+    private static string EmptyTitle(InboxCategory c) => c switch
+    {
+        InboxCategory.Intelligence => "No intelligence reports",
+        InboxCategory.Military => "No military reports",
+        _ => "No other messages",
+    };
+
+    private static string EmptyHint(InboxCategory c) => c switch
+    {
+        InboxCategory.Intelligence => "Spy missions, enemy army movements and reports on foreign strength will arrive here.",
+        InboxCategory.Military => "War declarations, battles, peace, calls to arms and allied help will arrive here.",
+        _ => "Diplomacy, trade, shortages, production, ruler rating and religious news will arrive here.",
+    };
+}
+
+<style>
+.inb-wrap { background: linear-gradient(#f0e0b0, #e8d090); min-height: 100vh; padding: 10px 8px 90px; font-family: Georgia, serif; color: #3d2b1f; }
+.inb-header { display: flex; align-items: center; margin-bottom: 10px; }
+.inb-header h2 { flex: 1; text-align: center; margin: 0; letter-spacing: 3px; font-size: 1.1rem; color: #3d2b1f; }
+.inb-back, .inb-trash { background: linear-gradient(#7a5230, #4a2e14); color: #f5e6c4; border: 2px solid #2e1c0c; border-radius: 6px; padding: 8px 14px; cursor: pointer; font-family: inherit; min-width: 80px; }
+.inb-trash { min-width: 56px; font-size: 1.1rem; padding: 6px 12px; }
+.inb-trash:disabled { opacity: 0.4; cursor: default; }
+.inb-tabs { display: flex; margin-bottom: 10px; border-radius: 8px; overflow: hidden; border: 2px solid #8b6914; }
+.inb-tabs button { flex: 1; position: relative; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 2px; background: rgba(139,105,20,.25); color: #3d2b1f; border: none; cursor: pointer; font-family: inherit; font-weight: bold; }
+.inb-tabs button.active { background: linear-gradient(#7a5230, #4a2e14); color: #f5e6c4; }
+.inb-tab-icon { font-size: 1.4rem; line-height: 1.1; }
+.inb-tab-name { font-size: 0.78rem; }
+.inb-badge { position: absolute; top: 3px; right: 8px; min-width: 18px; padding: 0 5px; border-radius: 9px; background: #b71c1c; color: #fff; font-size: 0.7rem; line-height: 18px; text-align: center; border: 1px solid #f5e6c4; }
+.inb-notice { background: #d4edda; color: #155724; border-radius: 6px; padding: 8px; margin-bottom: 8px; font-size: 0.9rem; text-align: center; }
+.inb-card { display: flex; align-items: flex-start; gap: 10px; width: 100%; text-align: left; font-family: inherit; color: #3d2b1f; cursor: pointer; border: 1px solid #c9b98a; border-left: 4px solid #c9b98a; border-radius: 8px; padding: 9px; margin-bottom: 6px; background: rgba(255,255,255,.3); }
+.inb-card.read { opacity: 0.78; }
+.inb-card.unread { background: rgba(255,250,225,.85); border-color: #c9a227; border-left-color: #c9a227; box-shadow: 0 1px 4px rgba(139,105,20,.35); }
+.inb-ico { flex-shrink: 0; width: 38px; height: 38px; display: flex; align-items: center; justify-content: center; font-size: 1.4rem; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #f7ead0, #c9a96a 70%); border: 2px solid #2e1c0c; }
+.inb-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.inb-line { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.inb-title { font-size: 0.92rem; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.inb-card.unread .inb-title { font-weight: bold; }
+.inb-date { flex-shrink: 0; font-size: 0.72rem; color: #5a4a2a; }
+.inb-summary { font-size: 0.82rem; color: #4a3a22; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.inb-dot { flex-shrink: 0; align-self: center; width: 11px; height: 11px; border-radius: 50%; background: #b71c1c; border: 1px solid #f5e6c4; }
+.inb-empty { text-align: center; padding: 28px 12px; }
+.inb-empty-title { font-weight: bold; font-size: 1.05rem; margin-bottom: 14px; }
+.inb-empty-ico { width: 110px; height: 110px; margin: 0 auto 14px; border-radius: 50%; border: 4px solid #6b5a3a; display: flex; align-items: center; justify-content: center; font-size: 3.2rem; opacity: 0.6; }
+.inb-empty-hint { font-size: 0.85rem; color: #5a4a2a; max-width: 300px; margin: 0 auto; }
+.inb-overlay { position: fixed; inset: 0; z-index: 100; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; padding: 12px; }
+.inb-panel { background: linear-gradient(#f5e6c4, #e2cb92); border: 3px double #8b6914; border-radius: 10px; padding: 16px; max-width: 360px; width: 100%; max-height: 86vh; overflow-y: auto; font-family: Georgia, serif; color: #3d2b1f; text-align: center; }
+.inb-modal-icon { font-size: 2.6rem; margin-bottom: 2px; }
+.inb-modal-title { font-size: 1.1rem; font-weight: bold; letter-spacing: 1px; margin-bottom: 4px; }
+.inb-modal-meta { font-size: 0.8rem; color: #5a4a2a; margin-bottom: 6px; }
+.inb-modal-country { display: inline-block; margin-bottom: 6px; padding: 3px 10px; border: 1px solid #8b6914; border-radius: 12px; background: rgba(255,255,255,.4); font-weight: bold; font-size: 0.9rem; }
+.inb-modal-details { text-align: left; font-size: 0.9rem; border-top: 1px solid #c9b98a; margin-top: 6px; padding-top: 6px; }
+.inb-modal-details p { margin: 5px 0; }
+.inb-actions { display: flex; gap: 10px; margin-top: 12px; }
+.inb-btn { flex: 1; width: 100%; padding: 10px; border-radius: 6px; cursor: pointer; font-family: inherit; border: 2px solid #2e1c0c; font-weight: bold; margin-top: 10px; }
+.inb-actions .inb-btn { margin-top: 0; }
+.inb-btn.close { background: linear-gradient(#7a5230, #4a2e14); color: #f5e6c4; }
+.inb-btn.cancel { background: linear-gradient(#8a8a8a, #5a5a5a); color: #fff; }
+.inb-btn.danger { background: linear-gradient(#b23a3a, #7a1c1c); color: #fff; }
+</style>

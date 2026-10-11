@@ -55,6 +55,10 @@
             <button class="menu-tile" @onclick='() => Nav.NavigateTo("/population")'><span class="tile-orb">👥</span><span>Population</span></button>
             <button class="menu-tile" @onclick='() => Nav.NavigateTo("/events")'><span class="tile-orb">🎆</span><span>Events</span></button>
             <button class="menu-tile" @onclick='() => Nav.NavigateTo("/movements")'><span class="tile-orb">🧭</span><span>Movements</span></button>
+            <button class="menu-tile" @onclick='() => Nav.NavigateTo("/worldnews")'><span class="tile-orb">📰</span><span>World news</span></button>
+            <button class="menu-tile" @onclick='() => Nav.NavigateTo("/inbox")'>
+                <span class="tile-orb">✉️@if (UnreadMessages > 0) {<span class="tile-badge">@UnreadMessages</span>}</span><span>Inbox</span>
+            </button>
             <button class="menu-tile" @onclick='() => Nav.NavigateTo("/research")'><span class="tile-orb">🔬</span><span>Research</span></button>
         </div>
     </div>
@@ -68,6 +72,9 @@
 
 @code {
     private Nation _nation => Engine.State.PlayerNation;
+
+    /// <summary>Messages in the inbox that have not been opened yet (shown as a badge on the Inbox tile).</summary>
+    private int UnreadMessages => InboxService.UnreadCount(Engine.State);
 
     protected override void OnInitialized()
     {

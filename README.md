@@ -162,12 +162,13 @@ grace-warning → desertion path. All must print PASS.
   Rules live in `GameEngine.Diplomacy.cs`, `TreatyService.cs` and `ResearchService.cs`; numbers in
   `Balance.cs`; 20 new SimTests sections (28–47), including victory spoils (45).
 - [x] **Movement Report (done)** — the main menu's 🧭 Movements tile opens `/movements`: an **Events** tab
-  (every transfer between states — gold, goods, troops, marches, colonies, envoys, missionaries, spies,
+  (every movement that concerns **your country** — gold, goods, troops, marches, colonies, envoys, missionaries, spies,
   treaties, war and peace — with date, from ➜ to and a Done / Under way / Refused status; saved with the
-  game, newest 500 kept) and a **Mission location** tab (what is on the road or posted abroad right now:
+  game, newest 1,500 kept, world news dropped first) and a **Mission location** tab (what is on the road or posted abroad right now:
   marching armies, troop loans, shipments, the colony expedition, spy networks, missionaries, embassies,
-  with progress and days left). Filter by state; group *By state* or *By date*. Every movement site calls
+  with progress and days left). The report lists only what involves your chosen country: your own movements, wars and marches that touch your allies, and the fall of a friend or an enemy. Filter by the other country; group *By state* or *By date*. Every movement site calls
   `GameState.LogMovement`, which also writes the usual event-log line. Read side: `MovementReport.cs`.
+- [x] **World news (done)** — its own section, apart from the Movement Report: the main menu's 📰 World news tile opens `/worldnews`, which lists what other countries do among themselves (everything that does not involve you or your allies), in two halves — **⚔ Military** (wars and declarations, marches and battles, soldiers lent, and plunder taken in war) and **🌐 Other** (alliances and treaties, gold, goods, colonies, missions, diplomacy). Filter by country; group *By state* or *By date*. It reads the same saved movement records as the Movement Report, so a record is in exactly one of the two. Read side: `WorldNewsReport.cs`.
 - [x] **A living AI world (done)** — AI countries are independent of the player and of each other.
   *Economy:* only the country you pick starts short of food (the 30/15/10% shortage challenge); every other
   country's mills cover its needs and are topped up as it grows (`ConsumptionService.EnsureSupply`), so AI
@@ -195,10 +196,12 @@ grace-warning → desertion path. All must print PASS.
   cooldown, no world-wide spacing, no forced plunder when a conquest is not possible**: if the Assembly or a
   sovereignty guarantee forbids annexing (a real game rule) the battle is won and the war goes on. The world
   wakes up on 01-01-1601 (a calm first year), runs on its own random stream (so the rest of the simulation is
-  unchanged), and every event appears in the Movement Report ("All states" = world news, or "Only my
-  nation"). A country's panel lists its allies and who it is at war with. Typical result over 5 years:
+  unchanged), and what concerns your country appears in your Movement Report (the rest of the world's news is in its
+  separate World news section). A country's panel lists its allies and who it is at war with. Typical result over 5 years:
   2–7 of 40 countries eliminated, 25–30 wars (mostly ending in tribute or a white peace), ~39 alliances, no
   shortages; over 15 years the map settles into several rival powers. A completely passive player keeps their
   country for 5 years in about two worlds out of three. All numbers are in `Balance.cs` (`Ai*`); the only
   remaining limit on an AI country's own wars is `AiMaxWars` (one war it started itself at a time).
+- [x] **Trade screen (done)** — products are sorted into three groups everywhere (Buy, Sell and Stock): **⚔ Military** (equipment), **🍞 Food** (food and everyday goods: clothing, wool, fur, horses, perfume...) and **⛏ Minerals** (wood, stone and the metals; `TradeCatalog.Groups`). The Sell list shows **every** product with the stock you hold (none dimmed), and the checks happen in the Sell popup: no stock, more than your stock, no price, or a buyer who cannot afford it each show a message and keep SELL disabled. Both popups have a **MAX** button (the most the seller will part with / your gold allows when buying; your stock / the buyer's gold allows when selling) and ±100 / ±1K / ±10K steps. The Buy popup now shows the price actually charged, with the import-law and trade-agreement discounts (`GameEngine.BuyPricePer1000`, `MaxBuyQuantity`, `MaxSellQuantity`).
+- [x] **Inbox (done)** — the main menu's ✉️ Inbox tile (with an unread badge) opens `/inbox`, a new screen (there was no inbox before; the old notifications were transient dashboard warnings and an event log no page showed) with three tabs, each with its own unread count: **🕵️ Intelligence** (spy networks and missions, caught spies, army movements of enemies and of countries your spies watch, reports on foreign strength), **⚔️ Military** (wars declared on you or your allies, battles, invasions, peace, victories, calls to arms, allied help, army movements, reinforcements, the fall of an ally or enemy) and **📜 Other** (treaties and answers to proposals, aid and tribute, trade deliveries, Assembly, colonies, shortages, army upkeep, production, ruler rating, religion, research). Each message has a title, date, one-line summary and its country's emblem or event icon; unread ones are highlighted, opening one marks it read and shows its details, and 🗑 deletes every message after a confirmation (only the inbox is cleared; nothing that happened is undone). Messages are filed by the **type of event** that produced them (`InboxTopic` → `InboxCategory`, never by text) and are posted where the events really happen — mostly through `GameState.LogMovement(..., inbox: topic)`, so a message exists only for what concerns your country and only once; a shortage that goes on is one message kept up to date while unread. Saved with the game (`GameState.Inbox`, newest 500 kept). Nothing is invented to fill it. Rules in `InboxService.cs` / `InboxMessage.cs`; screen `Inbox.razor`.
 - [ ] Tune everything in `Balance.cs`.

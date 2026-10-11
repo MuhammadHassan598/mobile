@@ -44,7 +44,24 @@ public static class TradeCatalog
     };
 
     public static TradeProduct? Get(string id) => All.FirstOrDefault(p => p.Id == id);
+
+    /// <summary>The three groups the Trade screen sorts products into, in display order.</summary>
+    public static readonly IReadOnlyList<TradeGroup> Groups = new List<TradeGroup>
+    {
+        new("military", "Military", "⚔️", "Equipment"),
+        new("food", "Food", "🍞", "FoodGoods"),
+        new("minerals", "Minerals", "⛏️", "Resource"),
+    };
+
+    /// <summary>The products of a group, in catalogue order.</summary>
+    public static IEnumerable<TradeProduct> InGroup(TradeGroup group) => All.Where(p => p.Category == group.Category);
 }
+
+/// <summary>
+/// A group of products on the Trade screen: military equipment, food (and the everyday goods that go with it:
+/// clothing, wool, fur, horses...) and minerals (the raw materials: wood, stone and the metals).
+/// </summary>
+public sealed record TradeGroup(string Key, string Title, string Icon, string Category);
 
 /// <summary>Trade contract status.</summary>
 public enum TradeStatus

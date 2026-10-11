@@ -502,6 +502,11 @@ main.map-full .province-card {
     display: flex; align-items: center; justify-content: center; font-size: 1.7rem;
 }
 .menu-tile:active .tile-orb { border-color: #ffd700; }
+.tile-orb { position: relative; }
+.tile-badge {
+    position: absolute; top: -4px; right: -4px; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 10px;
+    background: #b71c1c; color: #fff; border: 2px solid #f5e6c4; font-size: 0.72rem; font-weight: bold; line-height: 16px; text-align: center;
+}
 
 /* ================= Select screen v2 (reference clone) ================= */
 .select2 { min-height: 100vh; display: flex; flex-direction: column; background: #241c12; }

@@ -65,5 +65,6 @@ public static class ResearchService
         player.Technologies.Add(id);
         player.CurrentResearchId = null;
         state.Log($"🔬 Research complete: {tech.Name} ({tech.Effect}).");
+        InboxService.Notify(state, InboxTopic.Research, $"{tech.Name} researched: {tech.Effect}.", title: $"Research complete — {tech.Name}");
     }
 }

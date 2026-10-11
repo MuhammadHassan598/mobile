@@ -155,7 +155,7 @@ public sealed partial class GameEngine
             DiplomacyService.AddRating(t, -Balance.ProposalRejectedRatingPenalty);
             StartCooldown(action, t, Balance.ProposalCooldownDays);
             State.LogMovement(type == TreatyType.Embassy ? MovementKind.Mission : MovementKind.Treaty, MovementStatus.Failed, State.PlayerNation, t,
-                $"{t.Name} declined our proposal of {TreatyService.WithArticle(type)}.");
+                $"{t.Name} declined our proposal of {TreatyService.WithArticle(type)}.", inbox: InboxTopic.Diplomacy);
             StateChanged?.Invoke();
             return DipResult.Rejected(
                 $"{t.Name} declines: they do not trust you enough yet ({score} of {acceptScore} needed). " +
@@ -165,7 +165,7 @@ public sealed partial class GameEngine
         State.PlayerNation.PayGold(cost);
         TreatyService.Add(State, type, State.PlayerNation, t, days);
         State.LogMovement(type == TreatyType.Embassy ? MovementKind.Mission : MovementKind.Treaty, MovementStatus.Completed, State.PlayerNation, t,
-            $"Signed {TreatyService.WithArticle(type)} with {t.Name}.");
+            $"Signed {TreatyService.WithArticle(type)} with {t.Name}.", inbox: InboxTopic.Diplomacy);
         StateChanged?.Invoke();
         return DipResult.Done(doneText);
     }
@@ -283,7 +283,7 @@ public sealed partial class GameEngine
         int score = TreatyService.Score(State, t!);
         if (score < Balance.SendTroopsAcceptScore)
         {
-            State.LogMovement(MovementKind.Troops, MovementStatus.Failed, State.PlayerNation, t!, $"{t!.Name} declined our offer of troops.");
+            State.LogMovement(MovementKind.Troops, MovementStatus.Failed, State.PlayerNation, t!, $"{t!.Name} declined our offer of troops.", inbox: InboxTopic.Reinforcements);
             StateChanged?.Invoke();
             return DipResult.Rejected($"{t.Name} does not want foreign troops yet ({score} of {Balance.SendTroopsAcceptScore} needed).");
         }
@@ -362,7 +362,7 @@ public sealed partial class GameEngine
             StartCooldown(action, ally, Balance.ProposalCooldownDays);
             State.LogMovement(MovementKind.March, MovementStatus.Failed, ally, enemy,
                 isCall ? $"{ally.Name} refused the call to arms against {enemy.Name}."
-                       : $"{ally.Name} refused our request to attack {enemy.Name}.");
+                       : $"{ally.Name} refused our request to attack {enemy.Name}.", inbox: InboxTopic.CallToArms);
             StateChanged?.Invoke();
             return DipResult.Rejected(strongEnough
                 ? $"{ally.Name} refuses to join: they do not trust you enough ({score} of {acceptScore} needed)."
@@ -373,7 +373,7 @@ public sealed partial class GameEngine
         StartCooldown(action, ally, cooldownDays);
         State.LogMovement(MovementKind.March, MovementStatus.UnderWay, ally, enemy,
             isCall ? $"📯 {ally.Name} answers the call: {commit:N0} soldiers march on {enemy.Name} ({march.DaysLeft} days)."
-                   : $"📯 {ally.Name} agrees to attack {enemy.Name}: {commit:N0} soldiers march ({march.DaysLeft} days).");
+                   : $"📯 {ally.Name} agrees to attack {enemy.Name}: {commit:N0} soldiers march ({march.DaysLeft} days).", inbox: InboxTopic.CallToArms);
         StateChanged?.Invoke();
         return DipResult.Done($"{ally.Name} joins the war: {commit:N0} soldiers march on {enemy.Name}, arriving in {march.DaysLeft} days.");
     }
@@ -471,7 +471,7 @@ public sealed partial class GameEngine
             DiplomacyService.AddRating(t!, -Balance.ProposalRejectedRatingPenalty);
             StartCooldown("aid", t!, Balance.ProposalCooldownDays);
             State.LogMovement(res == "Gold" ? MovementKind.Gold : MovementKind.Goods, MovementStatus.Failed, t!, State.PlayerNation,
-                $"{t!.Name} refused our request for {res}.");
+                $"{t!.Name} refused our request for {res}.", inbox: InboxTopic.Aid);
             StateChanged?.Invoke();
             return DipResult.Rejected(
                 $"{t!.Name} refuses: they do not trust you enough to help ({score} of {Balance.AidAcceptScore} needed). (-{Balance.ProposalRejectedRatingPenalty} relations)");
@@ -482,7 +482,7 @@ public sealed partial class GameEngine
         {
             StartCooldown("aid", t, Balance.ProposalCooldownDays);
             State.LogMovement(res == "Gold" ? MovementKind.Gold : MovementKind.Goods, MovementStatus.Failed, t, State.PlayerNation,
-                $"{t.Name} had no {res} to spare.");
+                $"{t.Name} had no {res} to spare.", inbox: InboxTopic.Aid);
             StateChanged?.Invoke();
             return DipResult.Rejected($"{t.Name} has no {res} to spare.");
         }
@@ -491,7 +491,7 @@ public sealed partial class GameEngine
         State.PlayerNation.AddProduct(res, amount);
         DiplomacyService.AddRating(t, -Balance.AidRequestRatingCost);
         StartCooldown("aid", t, Balance.AidCooldownDays);
-        State.LogMovement(res == "Gold" ? MovementKind.Gold : MovementKind.Goods, MovementStatus.Completed, t, State.PlayerNation, $"{t.Name} sent {amount:N0} {res} in aid.");
+        State.LogMovement(res == "Gold" ? MovementKind.Gold : MovementKind.Goods, MovementStatus.Completed, t, State.PlayerNation, $"{t.Name} sent {amount:N0} {res} in aid.", inbox: InboxTopic.Aid);
         StateChanged?.Invoke();
         return DipResult.Done($"{t.Name} sends {amount:N0} {res}. (-{Balance.AidRequestRatingCost} relations)");
     }
@@ -579,7 +579,7 @@ public sealed partial class GameEngine
             t.Religion = player.Religion;
             State.MissionaryInfluence.Remove(t.Id);
             DiplomacyService.AddRating(t, Balance.MissionaryConversionRatingGain);
-            State.LogMovement(MovementKind.Mission, MovementStatus.Completed, player, t, $"{t.Name} converted from {old} to {player.Religion} through your missionaries!");
+            State.LogMovement(MovementKind.Mission, MovementStatus.Completed, player, t, $"{t.Name} converted from {old} to {player.Religion} through your missionaries!", inbox: InboxTopic.Religion);
             StateChanged?.Invoke();
             return DipResult.Done($"{t.Name} adopts {player.Religion}! Its people now enjoy that faith's bonuses.");
         }

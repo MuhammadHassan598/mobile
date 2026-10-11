@@ -22,6 +22,8 @@ public sealed record StateGroup<T>(string StateId, string StateName, IReadOnlyLi
 /// <summary>
 /// Read side of the Movement Report: saved movement records (Events) and what is under way
 /// or stationed abroad right now (Mission location), filtered by state and grouped as the page needs.
+/// Events and Mission location are the player's report: only movements that concern the player's chosen country are listed.
+/// What other countries do among themselves is not here: it is the separate World news section (<see cref="WorldNewsReport"/>).
 /// </summary>
 public static class MovementReport
 {
@@ -65,9 +67,14 @@ public static class MovementReport
 
     // ---------------- Events (saved records) ----------------
 
-    /// <summary>Saved movements, newest first; with a state id only those that involve that state.</summary>
+    /// <summary>
+    /// The player's movements, newest first: those that involve the player's country, or that concern it through an ally or an
+    /// enemy (<see cref="GameState.ConcernsPlayer"/>). What happens between other countries is world news and is not listed.
+    /// With a state id, only those that involve that state as well.
+    /// </summary>
     public static List<MovementRecord> Events(GameState state, string? stateId = null) =>
         state.Movements
+            .Where(state.ConcernsPlayer)
             .Where(m => stateId is null || m.Involves(stateId))
             .Reverse()   // records are appended in time order, so reversing keeps same-day events newest-first
             .OrderByDescending(m => m.Date)
@@ -142,7 +149,13 @@ public static class MovementReport
             missions.Add(new Mission(MovementKind.Mission, player.Id, player.Name, e.NationBId, NameOf(state, e.NationBId),
                 $"Embassy in {NameOf(state, e.NationBId)} since {e.SignedDate:dd-MM-yyyy}", null, null, null));
 
+        // Only what concerns the player: their own missions and shipments, and armies of their allies marching in their wars.
+        bool Concerns(Mission m) =>
+            m.FromId == player.Id || m.LocationId == player.Id
+            || (m.Kind == MovementKind.March && (state.IsPlayerAlly(m.FromId) || state.IsPlayerAlly(m.LocationId)));
+
         return missions
+            .Where(Concerns)
             .Where(m => stateId is null || m.FromId == stateId || m.LocationId == stateId)
             .OrderBy(m => m.Due ?? DateOnly.MaxValue)
             .ThenBy(m => m.LocationName)

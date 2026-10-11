@@ -96,6 +96,9 @@ public static class Warfare
     /// </summary>
     public static void AnnexNation(GameState state, Nation winner, Nation loser, bool byBattle = true)
     {
+        // The player cares when a friend or an enemy falls (its treaties and war end with it, so ask first).
+        bool concernsPlayer = loser.AtWarWithPlayer || state.IsPlayerAlly(loser.Id);
+
         // Treaties end and hosted loan soldiers go home before the loser's army is wiped.
         TreatyService.OnEliminated(state, loser);
 
@@ -153,6 +156,7 @@ public static class Warfare
         state.SpyNetworks.RemoveAll(s => s.TargetNationId == loser.Id);
         state.MarchingArmies.RemoveAll(m =>
             m.AttackerNationId == loser.Id || m.TargetNationId == loser.Id);
-        state.LogMovement(MovementKind.War, MovementStatus.Completed, winner, loser, $"{loser.Name} has been annexed by {winner.Name}!");
+        state.LogMovement(MovementKind.War, MovementStatus.Completed, winner, loser, $"{loser.Name} has been annexed by {winner.Name}!", concernsPlayer,
+            inbox: loser.IsPlayer ? null : InboxTopic.Annexation);   // (the fall of the player has its own message)
     }
 }

@@ -55,5 +55,18 @@ public sealed class MovementRecord
     public string ToName { get; set; } = "";
     public string Text { get; set; } = "";
 
+    /// <summary>
+    /// The movement concerns the player's country: the player is on one side of it, or it is a war or march that touches one of
+    /// the player's allies, or it is the fall of a country the player was allied or at war with. Fixed when it was recorded.
+    /// Records between other countries that have none of this are world news and stay out of the player's report.
+    /// </summary>
+    public bool PlayerLinked { get; set; }
+
+    /// <summary>
+    /// A transfer that is a result of war — gold and goods taken as spoils or tribute — and so counts as military news
+    /// although its kind is Gold or Goods. (Wars, marches and soldiers lent are military by their kind.)
+    /// </summary>
+    public bool Military { get; set; }
+
     public bool Involves(string nationId) => FromId == nationId || ToId == nationId;
 }

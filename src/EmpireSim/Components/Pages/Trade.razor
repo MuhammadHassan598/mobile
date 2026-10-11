@@ -82,29 +82,16 @@
     else
     {
         <!-- STOCK -->
-        <h3>EQUIPMENT</h3>
-        @foreach (var p in TradeCatalog.All.Where(x => x.Category == "Equipment"))
+        @foreach (var g in TradeCatalog.Groups)
         {
-            <div class="stock-row">
-                <span>@p.Icon</span><span class="sname">@p.Name</span>
-                <span>@_nation.GetProductStock(p.Id).ToString("N0")</span>
-            </div>
-        }
-        <h3>RESOURCES</h3>
-        @foreach (var p in TradeCatalog.All.Where(x => x.Category == "Resource"))
-        {
-            <div class="stock-row">
-                <span>@p.Icon</span><span class="sname">@p.Name</span>
-                <span>@_nation.GetProductStock(p.Id).ToString("N0")</span>
-            </div>
-        }
-        <h3>FOOD & GOODS</h3>
-        @foreach (var p in TradeCatalog.All.Where(x => x.Category == "FoodGoods"))
-        {
-            <div class="stock-row">
-                <span>@p.Icon</span><span class="sname">@p.Name</span>
-                <span>@_nation.GetProductStock(p.Id).ToString("N0")</span>
-            </div>
+            <h3>@g.Icon @g.Title.ToUpperInvariant()</h3>
+            @foreach (var p in TradeCatalog.InGroup(g))
+            {
+                <div class="stock-row">
+                    <span>@p.Icon</span><span class="sname">@p.Name</span>
+                    <span>@_nation.GetProductStock(p.Id).ToString("N0")</span>
+                </div>
+            }
         }
     }
 </div>
@@ -115,12 +102,7 @@
     <div class="popup-overlay" @onclick="() => _buyStep = 0">
         <div class="popup-panel" @onclick:stopPropagation>
             <div class="popup-header"><span class="popup-title">Select Product to Buy</span></div>
-            @foreach (var p in TradeCatalog.All.Where(x => x.CanBuy))
-            {
-                <button class="prod-btn" @onclick="() => SelectBuyProduct(p.Id)">
-                    <span>@p.Icon</span> @p.Name
-                </button>
-            }
+            @ProductPicker(x => x.CanBuy, SelectBuyProduct, false)
             <div class="popup-actions">
                 <button class="popup-btn cancel" @onclick="() => _buyStep = 0">CANCEL</button>
             </div>
@@ -160,10 +142,15 @@
     var prod = TradeCatalog.Get(_buyProductId);
     var seller = Engine.State.AllNations().FirstOrDefault(n => n.Id == _buySellerId);
     double sellerStock = (seller?.GetProductStock(_buyProductId) ?? 0) * 0.5;
-    double pricePer1000 = MarketPricing.PricePer1000(_buyProductId, _buySellerId);
+    double pricePer1000 = Engine.BuyPricePer1000(_buySellerId, _buyProductId);   // what is really charged (import law and trade agreement included)
     double total = MarketPricing.TotalValue(pricePer1000, _buyQty);
     int days = MarketPricing.DeliveryDays(_nation.Id, _buySellerId);
-    bool valid = _buyQty > 0 && _buyQty <= sellerStock && _nation.Gold >= total;
+    var problems = new List<string>();
+    if (_buyQty <= 0) problems.Add("Enter a quantity to buy.");
+    if (_buyQty > sellerStock) problems.Add($"{seller?.Name} will only sell {sellerStock:N0} of this.");
+    if (_nation.Gold < total) problems.Add($"Not enough gold: this costs {total:N0} and you have {_nation.Gold:N0}.");
+    bool valid = problems.Count == 0;
+    double maxBuy = Engine.MaxBuyQuantity(_buySellerId, _buyProductId);
 
     <div class="popup-overlay" @onclick="() => _buyStep = 0">
         <div class="popup-panel" @onclick:stopPropagation>
@@ -171,16 +158,14 @@
             <div class="c-row"><span>Product:</span><b>@prod?.Icon @prod?.Name</b></div>
             <div class="c-row"><span>Seller:</span><b>@seller?.Emblem @seller?.Name</b></div>
             <div class="c-row"><span>Available:</span><b>@sellerStock.ToString("N0")</b></div>
-            <div class="c-row"><span>Quantity:</span>
-                <div class="qty-row">
-                    <button @onclick="() => _buyQty = Math.Max(10, _buyQty - 100)">−100</button>
-                    <input type="number" @bind="_buyQty" min="1" class="qty-input" />
-                    <button @onclick="() => _buyQty += 100">+100</button>
-                </div>
+            <div class="c-qty"><span>Quantity:</span>
+                @QtyEditor(_buyQty, q => _buyQty = q, maxBuy)
             </div>
             <div class="c-row"><span>Price per 1,000:</span><b>@pricePer1000.ToString("N0") 🪙</b></div>
             <div class="c-row total"><span>Total:</span><b>@total.ToString("N0") 🪙</b></div>
             <div class="c-row"><span>Delivery:</span><b>@Engine.State.CurrentDate.AddDays(days).ToString("dd-MM-yyyy") (@days days)</b></div>
+            @foreach (var problem in problems) { <div class="c-warn">⚠ @problem</div> }
+            @if (!string.IsNullOrEmpty(_error)) { <div class="c-warn">⚠ @_error</div> }
             <div class="popup-actions">
                 <button class="popup-btn cancel" @onclick="() => _buyStep = 0">CANCEL</button>
                 <button class="popup-btn confirm" disabled="@(!valid)" @onclick="DoBuy">BUY</button>
@@ -195,12 +180,8 @@
     <div class="popup-overlay" @onclick="() => _sellStep = 0">
         <div class="popup-panel" @onclick:stopPropagation>
             <div class="popup-header"><span class="popup-title">Select Product to Sell</span></div>
-            @foreach (var p in TradeCatalog.All.Where(x => x.CanSell && _nation.GetProductStock(x.Id) > 0))
-            {
-                <button class="prod-btn" @onclick="() => SelectSellProduct(p.Id)">
-                    <span>@p.Icon</span> @p.Name (@_nation.GetProductStock(p.Id).ToString("N0"))
-                </button>
-            }
+            <div class="price-note">Every product is listed with the stock you have. What you can sell is checked on the next screens.</div>
+            @ProductPicker(x => x.CanSell, SelectSellProduct, true)
             <div class="popup-actions">
                 <button class="popup-btn cancel" @onclick="() => _sellStep = 0">CANCEL</button>
             </div>
@@ -241,26 +222,34 @@
     double available = _nation.GetProductStock(_sellProductId);
     double total = MarketPricing.TotalValue(_sellPrice, _sellQty);
     int days = MarketPricing.DeliveryDays(_nation.Id, _sellBuyerId);
-    bool valid = _sellQty > 0 && _sellQty <= available && _sellPrice > 0 && (buyer?.Gold ?? 0) >= total;
+
+    // Everything is checked here, in the popup: the product list shows every product, whatever the stock.
+    var problems = new List<string>();
+    if (available <= 0) problems.Add($"You have no {prod?.Name} in stock to sell.");
+    else if (_sellQty > available) problems.Add($"You only have {available:N0} {prod?.Name} in stock.");
+    if (_sellQty <= 0) problems.Add("Enter a quantity to sell.");
+    if (_sellPrice <= 0) problems.Add("Enter a price per 1,000.");
+    if (_sellQty > 0 && _sellPrice > 0 && (buyer?.Gold ?? 0) < total)
+        problems.Add($"{buyer?.Name} cannot afford {total:N0} (it has {(buyer?.Gold ?? 0):N0}).");
+    bool valid = problems.Count == 0;
+    double maxSell = Engine.MaxSellQuantity(_sellBuyerId, _sellProductId, _sellPrice);
 
     <div class="popup-overlay" @onclick="() => _sellStep = 0">
         <div class="popup-panel" @onclick:stopPropagation>
             <div class="popup-header"><span class="popup-title">Sell @prod?.Name</span></div>
             <div class="c-row"><span>Product:</span><b>@prod?.Icon @prod?.Name</b></div>
             <div class="c-row"><span>Buyer:</span><b>@buyer?.Emblem @buyer?.Name</b></div>
-            <div class="c-row"><span>Available:</span><b>@available.ToString("N0")</b></div>
-            <div class="c-row"><span>Quantity:</span>
-                <div class="qty-row">
-                    <button @onclick="() => _sellQty = Math.Max(10, _sellQty - 100)">−100</button>
-                    <input type="number" @bind="_sellQty" min="1" class="qty-input" />
-                    <button @onclick="() => _sellQty += 100">+100</button>
-                </div>
+            <div class="c-row"><span>In stock:</span><b>@available.ToString("N0")</b></div>
+            <div class="c-qty"><span>Quantity:</span>
+                @QtyEditor(_sellQty, q => _sellQty = q, maxSell)
             </div>
             <div class="c-row"><span>Price per 1,000:</span>
-                <input type="number" @bind="_sellPrice" min="1" class="qty-input" /> 🪙
+                <input type="number" value="@_sellPrice" @onchange="e => _sellPrice = ParseNumber(e.Value, _sellPrice)" min="1" class="qty-input" /> 🪙
             </div>
             <div class="c-row total"><span>Total:</span><b>@total.ToString("N0") 🪙</b></div>
             <div class="c-row"><span>Delivery:</span><b>@Engine.State.CurrentDate.AddDays(days).ToString("dd-MM-yyyy")</b></div>
+            @foreach (var problem in problems) { <div class="c-warn">⚠ @problem</div> }
+            @if (!string.IsNullOrEmpty(_error)) { <div class="c-warn">⚠ @_error</div> }
             <div class="popup-actions">
                 <button class="popup-btn cancel" @onclick="() => _sellStep = 0">CANCEL</button>
                 <button class="popup-btn confirm" disabled="@(!valid)" @onclick="DoSell">SELL</button>
@@ -333,9 +322,51 @@
             .Where(c => c.CreatedDate <= Engine.State.CurrentDate && Engine.State.CurrentDate.DayNumber - c.CreatedDate.DayNumber <= 180)
             .OrderByDescending(c => c.CreatedDate);
 
+    /// <summary>The products that pass <paramref name="include"/>, sorted into the three groups (Military, Food, Minerals).</summary>
+    private RenderFragment ProductPicker(Func<TradeProduct, bool> include, Action<string> pick, bool showStock) => @<text>
+        @foreach (var g in TradeCatalog.Groups)
+        {
+            var items = TradeCatalog.InGroup(g).Where(include).ToList();
+            if (items.Count == 0) continue;
+            <div class="prod-group">@g.Icon @g.Title.ToUpperInvariant()</div>
+            @foreach (var p in items)
+            {
+                double stock = _nation.GetProductStock(p.Id);
+                <button class="prod-btn @(showStock && stock <= 0 ? "none" : "")" @onclick="() => pick(p.Id)">
+                    <span>@p.Icon</span> <span class="pname">@p.Name</span>
+                    @if (showStock) { <span class="pstock">@stock.ToString("N0")</span> }
+                </button>
+            }
+        }
+    </text>;
+
+    /// <summary>A quantity field with MAX and big steps, so a large amount does not take hundreds of taps.</summary>
+    private RenderFragment QtyEditor(double qty, Action<double> set, double max) => @<div class="qty-box">
+        <div class="qty-row">
+            <input type="number" value="@qty" @onchange="e => set(Math.Max(0, ParseNumber(e.Value, qty)))" min="1" class="qty-input wide" />
+            <button class="qty-max" disabled="@(max <= 0)" title="The most that is allowed right now" @onclick="() => set(max)">MAX @max.ToString("N0")</button>
+        </div>
+        <div class="qty-steps">
+            @foreach (var step in QtySteps)
+            {
+                <button @onclick="() => set(Math.Max(1, qty - step))">−@StepLabel(step)</button>
+            }
+            @foreach (var step in QtySteps.Reverse())
+            {
+                <button @onclick="() => set(qty + step)">+@StepLabel(step)</button>
+            }
+        </div>
+    </div>;
+
+    private static readonly double[] QtySteps = { 10_000, 1_000, 100 };
+    private static string StepLabel(double step) => step >= 1000 ? $"{step / 1000:0}K" : $"{step:0}";
+
+    private static double ParseNumber(object? value, double fallback) =>
+        double.TryParse(value?.ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var n) ? n : fallback;
+
     private void OpenBuySelect() { _buyStep = 1; _error = null; _msg = null; }
     private void SelectBuyProduct(string id) { _buyProductId = id; _buyStep = 2; }
-    private void SelectBuySeller(string id) { _buySellerId = id; _buyQty = 100; _buyStep = 3; }
+    private void SelectBuySeller(string id) { _buySellerId = id; _buyQty = 100; _error = null; _buyStep = 3; }
 
     private void DoBuy()
     {
@@ -354,7 +385,7 @@
         _sellPrice = MarketPricing.PricePer1000(id, _nation.Id);
         _sellStep = 2;
     }
-    private void SelectSellBuyer(string id) { _sellBuyerId = id; _sellQty = 100; _sellStep = 3; }
+    private void SelectSellBuyer(string id) { _sellBuyerId = id; _sellQty = 100; _error = null; _sellStep = 3; }
 
     private void DoSell()
     {
@@ -414,6 +445,20 @@
 .price-note { font-size: 0.82rem; color: #5a4a2a; margin-bottom: 8px; text-align: center; }
 .prod-btn, .country-btn { display: flex; align-items: center; gap: 8px; width: 100%; padding: 10px; margin-bottom: 4px; background: rgba(255,255,255,.4); border: 1px solid #c9b98a; border-radius: 6px; cursor: pointer; font-family: inherit; font-size: 0.92rem; color: #3d2b1f; text-align: left; }
 .prod-btn:hover, .country-btn:hover { background: rgba(255,255,255,.6); }
+.prod-group { margin: 10px 0 5px; padding-bottom: 3px; border-bottom: 2px solid #8b6914; font-size: 0.82rem; font-weight: bold; letter-spacing: 1px; color: #5a3a1a; }
+.prod-btn .pname { flex: 1; }
+.prod-btn .pstock { font-weight: bold; color: #3d2b1f; }
+.prod-btn.none { opacity: 0.6; }
+.prod-btn.none .pstock { color: #8B0000; }
+.c-qty { padding: 6px 0; border-bottom: 1px solid #c9b98a; font-size: 0.92rem; }
+.c-qty > span { display: block; margin-bottom: 4px; }
+.qty-box { display: flex; flex-direction: column; gap: 6px; }
+.qty-input.wide { flex: 1; width: auto; min-width: 0; font-size: 1rem; }
+.qty-max { background: linear-gradient(#7a5230, #4a2e14) !important; color: #f5e6c4; font-weight: bold; border: 2px solid #2e1c0c !important; white-space: nowrap; }
+.qty-max:disabled { opacity: 0.4; }
+.qty-steps { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; }
+.qty-steps button { background: #d4b896; border: 1px solid #8b6914; border-radius: 4px; padding: 6px 0; cursor: pointer; font-family: inherit; font-size: 0.78rem; color: #3d2b1f; }
+.c-warn { margin-top: 6px; padding: 6px 8px; background: #f8d7da; color: #721c24; border-radius: 6px; font-size: 0.84rem; }
 .country-btn:disabled { opacity: 0.5; }
 .country-btn .cname { flex: 1; font-weight: bold; }
 .country-btn .cprice { color: #5a4a2a; }

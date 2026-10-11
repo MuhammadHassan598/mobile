@@ -1,3 +1,5 @@
+using EmpireSim.Core.Services;
+
 namespace EmpireSim.Core.Models;
 
 /// <summary>
@@ -79,6 +81,12 @@ public sealed class GameState
     /// <summary>Countries the player has beaten and not yet dealt with: annex, take resources, or let go.</summary>
     public List<VictoryDecision> PendingVictories { get; set; } = new();
 
+    /// <summary>The player's inbox: what happened, filed by the type of event (see <see cref="InboxService"/>). Saved with the game.</summary>
+    public List<InboxMessage> Inbox { get; set; } = new();
+
+    /// <summary>Standing conditions already reported to the inbox (condition id → what was reported), so a shortage that goes on is not reported every day.</summary>
+    public Dictionary<string, string> InboxConditions { get; set; } = new();
+
     // ---- The AI world: AI countries live their own lives (see AiWorldService) ----
 
     /// <summary>Wars between AI countries. (A war with the player is <see cref="Nation.AtWarWithPlayer"/>.)</summary>
@@ -98,7 +106,8 @@ public sealed class GameState
     /// so a movement is never in one and missing from the other.
     /// </summary>
     public MovementRecord LogMovement(MovementKind kind, MovementStatus status,
-        string fromId, string fromName, string toId, string toName, string text)
+        string fromId, string fromName, string toId, string toName, string text, bool playerLinked = false, bool military = false,
+        InboxTopic? inbox = null)
     {
         var record = new MovementRecord
         {
@@ -110,16 +119,58 @@ public sealed class GameState
             ToId = toId,
             ToName = toName,
             Text = text,
+            PlayerLinked = playerLinked || LinkedToPlayer(kind, fromId, toId),
+            Military = military,
         };
         Movements.Add(record);
-        if (Movements.Count > MaxMovements)
-            Movements.RemoveRange(0, Movements.Count - MaxMovements);
+
+        // Over the cap, world news goes first: records that never concerned the player are dropped before any that did.
+        int excess = Movements.Count - MaxMovements;
+        for (int i = 0; i < Movements.Count && excess > 0; )
+        {
+            if (ConcernsPlayer(Movements[i])) { i++; continue; }
+            Movements.RemoveAt(i);
+            excess--;
+        }
+        if (excess > 0) Movements.RemoveRange(0, excess);
+
         Log(text);
+
+        // An event of this type that concerns the player is also reported to the inbox (once: this is the one place it is recorded).
+        if (inbox is { } topic && ConcernsPlayer(record))
+        {
+            bool fromPlayer = fromId == PlayerNation.Id;
+            string otherId = fromPlayer ? toId : fromId;
+            string otherName = fromPlayer ? toName : fromName;
+            InboxService.Notify(this, topic, text, otherId,
+                title: $"{InboxCatalog.TopicTitle(topic)} — {otherName}",
+                details: $"{text}\n{MovementReport.StatusName(status)}: {fromName} ➜ {toName}");
+        }
         return record;
     }
 
-    public MovementRecord LogMovement(MovementKind kind, MovementStatus status, Nation from, Nation to, string text) =>
-        LogMovement(kind, status, from.Id, from.Name, to.Id, to.Name, text);
+    public MovementRecord LogMovement(MovementKind kind, MovementStatus status, Nation from, Nation to, string text, bool playerLinked = false, bool military = false,
+        InboxTopic? inbox = null) =>
+        LogMovement(kind, status, from.Id, from.Name, to.Id, to.Name, text, playerLinked, military, inbox);
+
+    /// <summary>Whether a country is in an active defensive alliance with the player.</summary>
+    public bool IsPlayerAlly(string nationId) =>
+        Treaties.Any(t => t.Type == TreatyType.DefensiveAlliance && t.IsActiveOn(CurrentDate)
+                          && t.Involves(PlayerNation.Id) && t.Involves(nationId));
+
+    /// <summary>
+    /// Whether a movement concerns the player's country: the player is on one side of it, or it is a war or march that touches
+    /// one of the player's allies. Anything else between other countries is world news.
+    /// </summary>
+    public bool LinkedToPlayer(MovementKind kind, string fromId, string toId)
+    {
+        string player = PlayerNation.Id;
+        if (fromId == player || toId == player) return true;
+        return (kind is MovementKind.War or MovementKind.March) && (IsPlayerAlly(fromId) || IsPlayerAlly(toId));
+    }
+
+    /// <summary>Whether a saved record belongs in the player's Movement Report.</summary>
+    public bool ConcernsPlayer(MovementRecord m) => m.PlayerLinked || m.Involves(PlayerNation.Id);
 
     public void Log(string message)
     {

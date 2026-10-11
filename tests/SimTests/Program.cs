@@ -1862,12 +1862,18 @@ using (var eng = NewDipEngine(36))
     s.LogMovement(MovementKind.Gold, MovementStatus.Completed, p, persia, "a");
     s.CurrentDate = d0.AddDays(1);
     s.LogMovement(MovementKind.Gold, MovementStatus.Completed, persia, p, "b");
-    s.LogMovement(MovementKind.March, MovementStatus.Completed, spain, france, "c");   // neither side is the player
+    s.LogMovement(MovementKind.March, MovementStatus.Completed, spain, france, "c");   // neither side is the player, nor the player's ally
+    Check(string.Join("", MovementReport.Events(s).Select(x => x.Text)) == "ba" && s.Movements.Any(x => x.Text == "c"),
+        "a movement between two other states is world news: recorded, but not in the player's report");
 
-    Check(string.Join("", MovementReport.Events(s).Select(x => x.Text)) == "cba", "events are newest first, even within one day");
+    TreatyService.Add(s, TreatyType.DefensiveAlliance, p, spain);
+    s.LogMovement(MovementKind.March, MovementStatus.Completed, spain, france, "d");   // the player's ally fights
+    s.LogMovement(MovementKind.Gold, MovementStatus.Completed, spain, france, "e");    // an ally's gift to a third state is not the player's business
+
+    Check(string.Join("", MovementReport.Events(s).Select(x => x.Text)) == "dba", "events are newest first, even within one day; an ally's war is included");
     Check(string.Join("", MovementReport.Events(s, persia.Id).Select(x => x.Text)) == "ba", "filtering by a state keeps only movements that involve it");
-    Check(string.Join("", MovementReport.Events(s, spain.Id).Select(x => x.Text)) == "c" && MovementReport.Events(s, france.Id).Count == 1,
-        "both sides of a movement between two other states see it");
+    Check(string.Join("", MovementReport.Events(s, spain.Id).Select(x => x.Text)) == "d" && MovementReport.Events(s, france.Id).Count == 1,
+        "both sides of an ally's war see it");
     Check(MovementReport.Events(s, Ai(eng, "mughal").Id).Count == 0, "a state with no movements has an empty list");
 
     var groups = MovementReport.EventsByState(s);
@@ -1889,13 +1895,17 @@ using (var eng = NewDipEngine(37))
     eng.EstablishNetwork(france.Id);
     eng.SendMissionary(spain.Id);
     eng.SendTroops(persia.Id, 1500);
+    TreatyService.Add(s, TreatyType.DefensiveAlliance, p, spain);
     var allyMarch = TreatyService.LaunchMarch(s, spain, persia, 800)!;
+    var worldMarch = TreatyService.LaunchMarch(s, Ai(eng, "mughal"), Ai(eng, "japan"), 800)!;   // two other countries: not the player's business
     eng.BuyProduct(france.Id, "wheat", 1000);
     p.Warships = 5; p.Gold = 100_000; p.GoodsInventory["Wheat"] = 100_000;
     eng.FoundColony(s.FrontierRegions[0].Id);
 
     var all = MovementReport.ActiveMissions(s);
-    Check(all.Count == 7, "embassy, spy network, missionaries, loan, march, shipment and expedition are all listed");
+    Check(s.MarchingArmies.Contains(worldMarch) && !all.Any(x => x.FromId == worldMarch.AttackerNationId), "(an army marching between two other countries is under way, but not listed)");
+    worldMarch.DaysLeft = 1;   // (it is recalled tomorrow, so it does not outlast the rest of this test)
+    Check(all.Count == 7, "embassy, spy network, missionaries, loan, an ally's march, shipment and expedition are all listed");
     var embassy = all.Single(x => x.Text.StartsWith("Embassy"));
     var spy = all.Single(x => x.Text.StartsWith("Spy network"));
     var mission = all.Single(x => x.Text.StartsWith("Missionaries"));
@@ -1937,16 +1947,27 @@ using (var eng = NewDipEngine(38))
     Check(s.Movements.Count == GameState.MaxMovements && s.Movements[0].Text == "m100" && s.Movements[^1].Text == $"m{total - 1}",
         $"only the newest {GameState.MaxMovements:N0} movements are kept");
 
+    // At the cap, world news is dropped before anything that concerned the player.
     s.Movements.Clear();
     var p = s.PlayerNation; var persia = Ai(eng, "persia");
+    s.LogMovement(MovementKind.Gold, MovementStatus.Completed, p, persia, "mine");
+    for (int i = 0; i < GameState.MaxMovements + 50; i++) s.LogMovement(MovementKind.Gold, MovementStatus.Completed, "a", "A", "b", "B", $"world{i}");
+    Check(s.Movements.Count == GameState.MaxMovements && s.Movements.Any(x => x.Text == "mine") && MovementReport.Events(s).Single().Text == "mine",
+        "past the cap, world news goes first: the player's oldest record is still there");
+
+    s.Movements.Clear();
     eng.GiveGift(persia.Id, 500);
     eng.EstablishEmbassy(persia.Id);
-    var saved = s.Movements.Select(x => (x.Kind, x.Status, x.Date, x.FromId, x.ToId, x.Text)).ToList();
+    s.LogMovement(MovementKind.War, MovementStatus.Completed, Ai(eng, "spain"), Ai(eng, "france"), "linked", playerLinked: true);
+    s.LogMovement(MovementKind.Gold, MovementStatus.Completed, Ai(eng, "spain"), Ai(eng, "france"), "world");
+    s.LogMovement(MovementKind.Gold, MovementStatus.Completed, Ai(eng, "spain"), Ai(eng, "france"), "spoils", military: true);
+    var saved = s.Movements.Select(x => (x.Kind, x.Status, x.Date, x.FromId, x.ToId, x.Text, x.PlayerLinked, x.Military)).ToList();
     await eng.SaveAsync();
     eng.State.Movements.Clear();
     await eng.LoadAsync();
-    var loaded = eng.State.Movements.Where(x => !x.Text.Contains("Game saved") && !x.Text.Contains("Save loaded")).Select(x => (x.Kind, x.Status, x.Date, x.FromId, x.ToId, x.Text)).ToList();
-    Check(saved.Count == 2 && loaded.SequenceEqual(saved), "movement records survive save / load unchanged");
+    var loaded = eng.State.Movements.Where(x => !x.Text.Contains("Game saved") && !x.Text.Contains("Save loaded")).Select(x => (x.Kind, x.Status, x.Date, x.FromId, x.ToId, x.Text, x.PlayerLinked, x.Military)).ToList();
+    Check(saved.Count == 5 && loaded.SequenceEqual(saved) && loaded.Single(x => x.Text == "linked").PlayerLinked && !loaded.Single(x => x.Text == "world").PlayerLinked && loaded.Single(x => x.Text == "spoils").Military,
+        "movement records survive save / load unchanged, including whether they concern the player and whether they are a result of war");
 
     var node = JsonNode.Parse(JsonSerializer.Serialize(eng.State))!.AsObject();
     node.Remove("Movements");
@@ -2939,8 +2960,9 @@ using (var eng = NewDipEngine(98))
     TreatyService.Add(s, TreatyType.DefensiveAlliance, persia, mughal);
     AiWorldService.DeclareWar(s, france, persia, new Random(1));
     s.Wars.Add(new WarRecord { AggressorId = persia.Id, DefenderId = spain.Id, StartDate = s.CurrentDate });
-    var seen = MovementReport.Events(s, persia.Id);
-    Check(seen.Any(m => m.Text.Contains("declared war")) && MovementReport.EventsByState(s).Any(g => g.StateId == france.Id), "AI-to-AI events show in the Movement Report, under the country that acted");
+    Check(s.Movements.Any(m => m.Text.Contains("declared war")) && MovementReport.Events(s).Count == 0 && MovementReport.Events(s, persia.Id).Count == 0
+          && MovementReport.EventsByState(s).Count == 0,
+        "AI-to-AI events are recorded as world history but are not in the player's Movement Report");
     Warfare.AnnexNation(s, spain, persia);
     Check(!s.Wars.Any(w => w.Involves(persia.Id)) && !s.Treaties.Any(t => t.Involves(persia.Id)), "annexing a country ends its wars and alliances");
 }
@@ -2980,6 +3002,479 @@ using (var eng = NewDipEngine(99))
     older["LastAiAnnexation"] = "1601-03-01";
     foreach (var n in older["OtherNations"]!.AsArray()) n!.AsObject()["LastAnnexed"] = "1601-02-01";
     Check(JsonSerializer.Deserialize<GameState>(older.ToJsonString()) is not null, "a save that still carries the old annexation-cooldown fields loads (they are ignored)");
+}
+
+Console.WriteLine("== 54. The Movement Report is about the player's country ==");
+using (var eng = NewDipEngine(108))
+{
+    var s = eng.State; s.AiWorldStartDate = s.CurrentDate; var p = s.PlayerNation;
+    var france = Ai(eng, "france"); var persia = Ai(eng, "persia"); var spain = Ai(eng, "spain");
+    var mughal = Ai(eng, "mughal"); var japan = Ai(eng, "japan"); var easter = Ai(eng, "easter");
+
+    // Wars, alliances and conquests between countries that have nothing to do with the player are world news.
+    AiWorldService.DeclareWar(s, france, mughal, new Random(1));
+    s.Wars.Add(new WarRecord { AggressorId = japan.Id, DefenderId = easter.Id, StartDate = s.CurrentDate, Aim = WarAim.Conquest });
+    VictoryService.ResolveForAi(s, japan, easter);
+    TreatyService.Add(s, TreatyType.DefensiveAlliance, france, mughal);
+    s.LogMovement(MovementKind.Treaty, MovementStatus.Completed, france, mughal, "🛡 France and Mughal Empire formed a defensive alliance.");
+    Check(s.Movements.Count >= 3 && easter.IsEliminated, "(the world did record a war, a conquest and an alliance)");
+    Check(MovementReport.Events(s).Count == 0 && MovementReport.ActiveMissions(s).Count == 0, "none of it is in the player's report: no events, no missions");
+    Check(s.ActiveWarnings.Count == 0, "and none of it interrupts the player");
+
+    // What touches the player is listed: their own movements...
+    eng.GiveGift(spain.Id, 100);
+    Check(MovementReport.Events(s).Count == 1 && MovementReport.Events(s)[0].FromId == p.Id, "a gift the player sent is listed");
+    AiWorldService.DeclareWarOnPlayer(s, persia);
+    Check(MovementReport.Events(s).Any(m => m.FromId == persia.Id && m.ToId == p.Id && m.Text.Contains("declared war")), "a war declared on the player is listed");
+
+    // ...and what happens to the player's allies.
+    TreatyService.Add(s, TreatyType.DefensiveAlliance, p, spain);
+    int before = MovementReport.Events(s).Count;
+    AiWorldService.DeclareWar(s, mughal, spain, new Random(1));
+    Check(MovementReport.Events(s).Count > before && MovementReport.Events(s).Any(m => m.ToId == spain.Id && m.Text.Contains("declared war")), "a war on the player's ally is listed");
+    Check(MovementReport.Events(s, spain.Id).Any(m => m.FromId == mughal.Id), "...under the ally");
+
+    // The fall of an ally is listed and warned about, even though the alliance ends with it.
+    s.Wars.Add(new WarRecord { AggressorId = japan.Id, DefenderId = spain.Id, StartDate = s.CurrentDate, Aim = WarAim.Conquest });
+    s.ActiveWarnings.Clear();
+    VictoryService.ResolveForAi(s, japan, spain);
+    Check(spain.IsEliminated && MovementReport.Events(s).Any(m => m.Text.Contains("Iberian Union has been annexed")), "the fall of the player's ally is listed");
+    Check(s.ActiveWarnings.Any(w => w.Contains("Iberian Union has been annexed")), "and the player is warned (the alliance is checked before it is wiped)");
+}
+
+using (var eng = NewDipEngine(109))
+{
+    // An enemy of the player falling to someone else is listed; an unrelated country falling is not.
+    var s = eng.State; var p = s.PlayerNation;
+    var france = Ai(eng, "france"); var persia = Ai(eng, "persia"); var easter = Ai(eng, "easter"); var nepal = Ai(eng, "nepal");
+    AiWorldService.DeclareWarOnPlayer(s, persia);
+    int before = MovementReport.Events(s).Count;
+    Warfare.AnnexNation(s, france, nepal);
+    Check(MovementReport.Events(s).Count == before, "a country the player has no dealings with is annexed: not listed");
+    Warfare.AnnexNation(s, france, persia);
+    Check(MovementReport.Events(s).Any(m => m.Text.Contains("Iran has been annexed")), "the player's enemy is annexed by someone else: listed");
+
+    // The filter: the picker only offers countries that appear in the player's report, and filters within it.
+    s.LogMovement(MovementKind.Gold, MovementStatus.Completed, p, easter, "to Easter");
+    Check(MovementReport.Events(s, easter.Id).Single().Text == "to Easter" && MovementReport.Events(s, nepal.Id).Count == 0,
+        "filtering by a country shows only what the player has with it");
+}
+
+Console.WriteLine("== 55. World news (its own section, apart from the Movement Report): military and other news ==");
+Check(new[] { MovementKind.War, MovementKind.March, MovementKind.Troops }.All(WorldNewsReport.IsMilitary)
+      && Enum.GetValues<MovementKind>().Where(k => k is not (MovementKind.War or MovementKind.March or MovementKind.Troops)).All(k => !WorldNewsReport.IsMilitary(k)),
+    "wars, armies and soldiers lent are military news; every other kind (treaties, gold, goods, colonies, missions, Assembly, diplomacy) is other news");
+using (var eng = NewDipEngine(110))
+{
+    var s = eng.State; var p = s.PlayerNation;
+    var france = Ai(eng, "france"); var persia = Ai(eng, "persia"); var spain = Ai(eng, "spain");
+    var mughal = Ai(eng, "mughal"); var japan = Ai(eng, "japan"); var easter = Ai(eng, "easter");
+    var d0 = s.CurrentDate;
+
+    s.LogMovement(MovementKind.War, MovementStatus.Completed, france, persia, "w1");        // military
+    s.CurrentDate = d0.AddDays(1);
+    s.LogMovement(MovementKind.March, MovementStatus.UnderWay, mughal, japan, "w2");        // military
+    s.LogMovement(MovementKind.Troops, MovementStatus.Completed, spain, easter, "w3");      // military
+    s.LogMovement(MovementKind.Treaty, MovementStatus.Completed, france, spain, "o1");      // other
+    s.LogMovement(MovementKind.Gold, MovementStatus.Completed, persia, mughal, "o2");       // other
+    s.LogMovement(MovementKind.Mission, MovementStatus.Completed, japan, france, "o3");     // other
+
+    // None of this is the player's business: the player's own report stays empty.
+    Check(MovementReport.Events(s).Count == 0, "(the player's report has none of it)");
+
+    Check(string.Join(",", WorldNewsReport.Items(s, true).Select(x => x.Text)) == "w3,w2,w1", "military world news: wars, marches and troops, newest first");
+    Check(string.Join(",", WorldNewsReport.Items(s, false).Select(x => x.Text)) == "o3,o2,o1", "other world news: treaties, gold and missions, newest first");
+    Check(WorldNewsReport.Items(s).Count == 6, "both together are every world record");
+
+    // What concerns the player is not world news: it is in the player's report instead, never in both.
+    eng.GiveGift(persia.Id, 100);
+    TreatyService.Add(s, TreatyType.DefensiveAlliance, p, spain);
+    s.LogMovement(MovementKind.War, MovementStatus.Completed, france, spain, "ally attacked");   // touches the player's ally
+    Check(WorldNewsReport.Items(s).Count == 6 && WorldNewsReport.Items(s).All(x => x.Text.StartsWith("w") || x.Text.StartsWith("o")),
+        "the player's own movements and wars on the player's allies are not world news");
+    Check(MovementReport.Events(s).Any(x => x.Text == "ally attacked") && MovementReport.Events(s).Count == 2, "...they are in the player's report");
+
+    // Filter and grouping.
+    Check(string.Join(",", WorldNewsReport.Items(s, null, persia.Id).Select(x => x.Text)) == "o2,w1", "filtering by a country shows its news, military and other");
+    Check(WorldNewsReport.Items(s, true, persia.Id).Single().Text == "w1" && WorldNewsReport.Items(s, false, easter.Id).Count == 0, "...and respects the military / other split");
+    var groups = WorldNewsReport.ByState(s, true);
+    Check(groups.Select(g => g.StateId).SequenceEqual(new[] { spain.Id, mughal.Id, france.Id }) && groups.All(g => g.Items.Count == 1),
+        "grouped by the country that acted, the one with the latest news first");
+    Check(WorldNewsReport.Items(s, null, p.Id).Count == 0, "nothing in the world news involves the player");
+    Check(!MovementReport.Events(s).Any(e => WorldNewsReport.Items(s).Contains(e)) && MovementReport.Events(s).Count + WorldNewsReport.Items(s).Count == s.Movements.Count,
+        "the two sections are separate: every record is in exactly one of the Movement Report and the World news");
+}
+
+using (var eng = NewDipEngine(112))
+{
+    // Plunder is gold and goods, but it is a result of war: military news, not "other".
+    var s = eng.State; var spain = Ai(eng, "spain"); var france = Ai(eng, "france");
+    s.Wars.Add(new WarRecord { AggressorId = spain.Id, DefenderId = france.Id, StartDate = s.CurrentDate, Aim = WarAim.Humiliation });
+    VictoryService.ResolveForAi(s, spain, france);
+    var military = WorldNewsReport.Items(s, true);
+    Check(military.Any(x => x.Kind == MovementKind.Gold && x.Text.Contains("took")) && military.Any(x => x.Kind == MovementKind.Goods && x.Text.Contains("took")),
+        "gold and goods taken as spoils are in the military news");
+    Check(WorldNewsReport.Items(s, false).All(x => !x.Text.Contains("took")), "...and not in the other news");
+    s.LogMovement(MovementKind.Gold, MovementStatus.Completed, spain, france, "a plain gift");
+    Check(WorldNewsReport.Items(s, false).Single().Text == "a plain gift", "while a plain gift between the same two countries is other news");
+}
+
+using (var eng = NewDipEngine(111))
+{
+    // The AI world's own news lands in the right half: a war declared is military, an alliance formed is other.
+    var s = eng.State; s.AiWorldStartDate = s.CurrentDate;
+    var france = Ai(eng, "france"); var persia = Ai(eng, "persia"); var mughal = Ai(eng, "mughal"); var japan = Ai(eng, "japan");
+    foreach (var n in s.OtherNations.Except(new[] { mughal, japan })) n.MapX += 100_000;
+    s.PlayerNation.MapX += 500_000;   // (far from everyone, so nobody has a quarrel with the player)
+    mughal.MapX = japan.MapX; mughal.MapY = japan.MapY;
+    AiWorldService.AddRelation(s, mughal, japan, 200);
+    for (int i = 0; i < 600; i++) { s.PlayerNation.Gold = 1e12; eng.AdvanceOneDay(); }
+    Check(WorldNewsReport.Items(s, false).Any(x => x.Text.Contains("formed a defensive alliance")), "an alliance between two other countries is in the world's other news");
+    AiWorldService.DeclareWar(s, france, persia, new Random(1));
+    Check(WorldNewsReport.Items(s, true).Any(x => x.Text.Contains("declared war on Iran")) && !WorldNewsReport.Items(s, false).Any(x => x.Text.Contains("declared war")),
+        "a war declared between two other countries is in the world's military news, and only there");
+    Check(MovementReport.Events(s).Count == 0 && !s.ActiveWarnings.Any(w => w.Contains("war", StringComparison.OrdinalIgnoreCase)), "and the player's own report and war warnings stay quiet");
+}
+
+Console.WriteLine("== 56. Trade: three product groups, MAX quantities, the price really charged ==");
+{
+    List<string> InGroup(string key) => TradeCatalog.InGroup(TradeCatalog.Groups.Single(g => g.Key == key)).Select(p => p.Id).ToList();
+    Check(TradeCatalog.Groups.Select(g => g.Title).SequenceEqual(new[] { "Military", "Food", "Minerals" }), "products are sorted into three groups: Military, Food, Minerals");
+    Check(TradeCatalog.All.All(p => TradeCatalog.Groups.Count(g => TradeCatalog.InGroup(g).Any(x => x.Id == p.Id)) == 1), "every product is in exactly one group");
+    Check(InGroup("military").SequenceEqual(new[] { "helmet", "dagger", "pike", "shotgun", "arquebus", "shipparts" }), "Military: the equipment");
+    Check(InGroup("minerals").SequenceEqual(new[] { "wood", "stone", "iron", "copper", "lead" }), "Minerals: the raw materials");
+    Check(InGroup("food").Count == 12 && InGroup("food").Contains("wheat") && InGroup("food").Contains("bread") && InGroup("food").Contains("perfume"), "Food: the food and everyday goods");
+}
+
+using (var eng = NewDipEngine(113))
+{
+    var s = eng.State; var p = s.PlayerNation; var persia = Ai(eng, "persia");
+    void SetStock(Nation n, string id, double amount) => n.AdjustProductStock(id, amount - n.GetProductStock(id));
+
+    // The price the popup shows is the price that is charged: import law and trade agreement included.
+    double plain = eng.BuyPricePer1000(persia.Id, "wheat");
+    Check(Math.Abs(plain - MarketPricing.PricePer1000("wheat", persia.Id) * LawService.ImportPriceMult(p)) < 1e-9, "the buy price is the market price with the import law");
+    TreatyService.Add(s, TreatyType.TradeAgreement, p, persia);
+    Check(Math.Abs(eng.BuyPricePer1000(persia.Id, "wheat") - plain * Balance.TradeAgreementImportMult) < 1e-9, "...and a trade agreement makes it cheaper");
+    SetStock(persia, "wheat", 100_000); p.Gold = 1_000_000;
+    double before = p.Gold;
+    Check(eng.BuyProduct(persia.Id, "wheat", 2000) is null
+          && Math.Abs((before - p.Gold) - MarketPricing.TotalValue(eng.BuyPricePer1000(persia.Id, "wheat"), 2000)) < 0.01, "a purchase costs exactly what the quoted price says");
+
+    // MAX to buy: whatever the seller will part with (half its stock), or what the gold pays for.
+    SetStock(persia, "wheat", 1001); p.Gold = 1e9;
+    Check(eng.MaxBuyQuantity(persia.Id, "wheat") == 500, "MAX to buy is limited by the seller: half of 1,001, in whole units");
+    Check(eng.BuyProduct(persia.Id, "wheat", 500) is null, "...and exactly that much can be bought");
+    SetStock(persia, "wheat", 2_000_000); p.Gold = 50;
+    double maxBuy = eng.MaxBuyQuantity(persia.Id, "wheat");
+    Check(maxBuy > 0 && maxBuy < 1_000_000 && MarketPricing.TotalValue(eng.BuyPricePer1000(persia.Id, "wheat"), maxBuy) <= 50, "MAX to buy is limited by the gold when the player is poor");
+    Check(eng.BuyProduct(persia.Id, "wheat", maxBuy) is null, "...and that much can be bought");
+    SetStock(persia, "wheat", 2_000_000); p.Gold = 50;
+    Check(eng.BuyProduct(persia.Id, "wheat", maxBuy + 10)?.Contains("gold") == true, "a little more than MAX is refused for lack of gold");
+    p.Gold = 0;
+    Check(eng.MaxBuyQuantity(persia.Id, "wheat") == 0 && eng.MaxBuyQuantity("nobody", "wheat") == 0 && eng.MaxBuyQuantity(p.Id, "wheat") == 0, "MAX to buy is zero with no gold, an unknown seller, or yourself");
+}
+
+using (var eng = NewDipEngine(114))
+{
+    var s = eng.State; var p = s.PlayerNation; var mughal = Ai(eng, "mughal");
+    void SetStock(Nation n, string id, double amount) => n.AdjustProductStock(id, amount - n.GetProductStock(id));
+    double price = MarketPricing.PricePer1000("wheat", p.Id);
+
+    // MAX to sell: what the player has (whole units), or what the buyer can pay for.
+    mughal.Gold = 1e12; SetStock(p, "wheat", 1234.7);
+    Check(eng.MaxSellQuantity(mughal.Id, "wheat", price) == 1234, "MAX to sell is the stock, in whole units");
+    Check(eng.SellProduct(mughal.Id, "wheat", 1234, price) is null, "...and exactly that much can be sold");
+    SetStock(p, "wheat", 5_000_000); mughal.Gold = 100;
+    double maxSell = eng.MaxSellQuantity(mughal.Id, "wheat", price);
+    Check(maxSell > 0 && maxSell < 5_000_000 && MarketPricing.TotalValue(price, maxSell) <= 100, "MAX to sell is limited by what the buyer can pay");
+    Check(eng.SellProduct(mughal.Id, "wheat", maxSell, price) is null, "...and that much can be sold");
+    SetStock(p, "wheat", 5_000_000);
+    Check(eng.SellProduct(mughal.Id, "wheat", maxSell + 10, price)?.Contains("cannot afford") == true, "a little more than MAX is refused: the buyer cannot afford it");
+
+    // A product with nothing in stock can still be picked; the checks are at the end.
+    SetStock(p, "wheat", 0);
+    Check(eng.MaxSellQuantity(mughal.Id, "wheat", price) == 0, "MAX to sell is zero with none in stock");
+    Check(eng.SellProduct(mughal.Id, "wheat", 100, price) == "Only 0 available.", "selling a product you have none of is refused with a clear message");
+    Check(TradeCatalog.All.Count(x => x.CanSell && p.GetProductStock(x.Id) <= 0) > 5, "(most products are out of stock at the start, yet they are all sellable on the list)");
+}
+
+Console.WriteLine("== 57. Inbox: three categories, filed by the type of event ==");
+{
+    var all = Enum.GetValues<InboxTopic>();
+    var intel = all.Where(t => InboxCatalog.CategoryOf(t) == InboxCategory.Intelligence).ToList();
+    var military = all.Where(t => InboxCatalog.CategoryOf(t) == InboxCategory.Military).ToList();
+    var other = all.Where(t => InboxCatalog.CategoryOf(t) == InboxCategory.Other).ToList();
+    Check(intel.Count + military.Count + other.Count == all.Length && intel.Count > 0 && military.Count > 0 && other.Count > 0, "every event topic is filed in exactly one of the three categories");
+    Check(intel.SequenceEqual(new[] { InboxTopic.SpyNetwork, InboxTopic.SpyMission, InboxTopic.SpyCaught, InboxTopic.TroopMovement, InboxTopic.ForeignStrength }),
+        "Intelligence: spy networks and missions, caught spies, enemy troop movements, foreign strength");
+    Check(new[] { InboxTopic.WarDeclared, InboxTopic.Battle, InboxTopic.Peace, InboxTopic.Invasion, InboxTopic.CallToArms, InboxTopic.AllyAssistance, InboxTopic.ArmyMovement, InboxTopic.Reinforcements }.All(military.Contains),
+        "Military: war and peace, battles, invasions, calls to arms, allied help, army movements, reinforcements");
+    Check(new[] { InboxTopic.Diplomacy, InboxTopic.Aid, InboxTopic.Trade, InboxTopic.Shortage, InboxTopic.Production, InboxTopic.RulerRating, InboxTopic.Religion, InboxTopic.Research }.All(other.Contains),
+        "Other: diplomacy, aid, trade, shortages, production, ruler rating, religion, research");
+    Check(all.All(t => InboxCatalog.TopicTitle(t).Length > 0 && InboxCatalog.TopicIcon(t) != "✉️"), "every topic has a title and its own icon");
+    Check(Enum.GetValues<InboxCategory>().All(c => InboxCatalog.CategoryName(c).Length > 0 && InboxCatalog.CategoryIcon(c).Length > 0), "every category has a name and an icon");
+}
+
+using (var eng = NewDipEngine(115))
+{
+    var s = eng.State; var persia = Ai(eng, "persia");
+    Check(s.Inbox.Count == 0 && InboxService.UnreadCount(s) == 0, "a new game's inbox is empty: nothing is made up to fill it");
+    for (int i = 0; i < 30; i++) { s.PlayerNation.Gold = 1e12; eng.AdvanceOneDay(); }
+    Check(s.Inbox.All(m => m.Category != InboxCategory.Military || m.Topic != InboxTopic.WarDeclared), "(and a quiet month does not invent events)");
+
+    // Filing follows the event's type, not its wording.
+    s.Inbox.Clear();
+    InboxService.Notify(s, InboxTopic.Diplomacy, "spy war battle army intelligence", persia.Id);
+    InboxService.Notify(s, InboxTopic.SpyCaught, "A treaty and a gift", persia.Id);
+    Check(InboxService.Messages(s, InboxCategory.Other).Single().Summary.Contains("battle") && InboxService.Messages(s, InboxCategory.Intelligence).Single().Summary.Contains("treaty"),
+        "a message is filed by its event type, whatever its text says");
+
+    var m = InboxService.Messages(s, InboxCategory.Other).Single();
+    Check(!m.Read && m.Date == s.CurrentDate && m.CountryId == persia.Id && m.Title == "Diplomacy — Iran" && m.Details == m.Summary, "a new message is unread, dated, about its country, with a title and details");
+    InboxService.Notify(s, InboxTopic.Aid, "second", title: "Custom title");
+    Check(InboxService.Messages(s, InboxCategory.Other).Select(x => x.Summary).SequenceEqual(new[] { "second", "spy war battle army intelligence" }), "a category lists its messages newest first");
+    Check(InboxService.Messages(s, InboxCategory.Military).Count == 0, "other categories do not show them (keeping each in its own tab)");
+
+    // Reading.
+    Check(InboxService.UnreadCount(s) == 3 && InboxService.UnreadCount(s, InboxCategory.Other) == 2 && InboxService.UnreadCount(s, InboxCategory.Intelligence) == 1 && InboxService.UnreadCount(s, InboxCategory.Military) == 0,
+        "unread counts per tab and in total");
+    int changes = 0; eng.StateChanged += () => changes++;
+    var opened = eng.OpenMessage(m.Id);
+    Check(opened is not null && opened.Read && InboxService.UnreadCount(s, InboxCategory.Other) == 1 && changes == 1, "opening a message marks it as read (and refreshes the screens)");
+    eng.OpenMessage(m.Id);
+    Check(changes == 1 && InboxService.UnreadCount(s) == 2, "opening it again changes nothing");
+    Check(eng.OpenMessage("no-such-message") is null, "an unknown message cannot be opened");
+}
+
+using (var eng = NewDipEngine(116))
+{
+    // Past the cap, the oldest read messages go first; unread ones are kept.
+    var s = eng.State;
+    for (int i = 0; i < 10; i++) InboxService.Notify(s, InboxTopic.Aid, $"unread {i}");
+    for (int i = 0; i < InboxService.MaxMessages + 100; i++) InboxService.MarkRead(s, InboxService.Notify(s, InboxTopic.Trade, $"read {i}").Id);
+    Check(s.Inbox.Count == InboxService.MaxMessages && s.Inbox.Count(x => !x.Read) == 10, $"the inbox keeps {InboxService.MaxMessages} messages and drops old read ones before unread ones");
+}
+
+Console.WriteLine("== 58. Inbox: messages come from real events, once each ==");
+using (var eng = NewDipEngine(117))
+{
+    // War: declared on the player (military), on the player's ally (military), between strangers (nothing).
+    var s = eng.State; s.AiWorldStartDate = s.CurrentDate; var p = s.PlayerNation;
+    var france = Ai(eng, "france"); var persia = Ai(eng, "persia"); var spain = Ai(eng, "spain");
+    var mughal = Ai(eng, "mughal"); var japan = Ai(eng, "japan");
+
+    AiWorldService.DeclareWar(s, mughal, japan, new Random(1));
+    Check(s.Inbox.Count == 0, "a war between two countries that have nothing to do with the player is not reported to the inbox");
+
+    AiWorldService.DeclareWarOnPlayer(s, france, "it covets its lands");
+    var war = InboxService.Messages(s, InboxCategory.Military).Single();
+    Check(war.Topic == InboxTopic.WarDeclared && war.CountryId == france.Id && war.Summary.Contains("declared war") && !war.Read && s.Inbox.Count == 1,
+        "a war declared on the player is one military message about the aggressor");
+    for (int i = 0; i < 20; i++) { p.Gold = 1e12; eng.AdvanceOneDay(); }
+    Check(s.Inbox.Count(x => x.Topic == InboxTopic.WarDeclared) == 1, "the simulation updating does not repeat it");
+
+    TreatyService.Add(s, TreatyType.DefensiveAlliance, p, spain);
+    int before = s.Inbox.Count;
+    AiWorldService.DeclareWar(s, persia, spain, new Random(1));
+    var ally = s.Inbox.Skip(before).ToList();
+    Check(ally.Count >= 1 && ally.All(x => x.Topic == InboxTopic.AllyAtWar && x.Category == InboxCategory.Military), "a war on the player's ally is a military message");
+}
+
+using (var eng = NewDipEngine(118))
+{
+    // Spies: a network reports on the country's strength; a mission reports its result. Both are intelligence.
+    var s = eng.State; var p = s.PlayerNation; var persia = Ai(eng, "persia");
+    p.Gold = 1e9; persia.Units = UnitCatalog.SeedArmy(4321); int army = persia.Soldiers;
+    Check(eng.EstablishNetwork(persia.Id) is null, "(a spy network is set up)");
+    var intel = InboxService.Messages(s, InboxCategory.Intelligence);
+    Check(intel.Count == 2 && intel.Any(x => x.Topic == InboxTopic.SpyNetwork) && intel.Any(x => x.Topic == InboxTopic.ForeignStrength), "a new spy network gives two intelligence messages: the network, and its report");
+    var report = intel.Single(x => x.Topic == InboxTopic.ForeignStrength);
+    Check(report.Summary.Contains(army.ToString("N0")) && report.Details.Contains("Treasury") && report.CountryId == persia.Id, "the strength report carries the country's real army figure");
+    p.Gold = 1e9;
+    for (int i = 0; i < 5; i++) { persia.Gold = 1e6; net(eng, persia); }
+    void net(GameEngine e, Nation n) { e.EstablishNetwork(n.Id); }
+    Check(eng.SpySteal(persia.Id) is null, "(spies steal)");
+    Check(InboxService.Messages(s, InboxCategory.Intelligence).Any(x => x.Topic == InboxTopic.SpyMission && x.Summary.Contains("stole")), "a spy mission's result is an intelligence message");
+    Check(s.Inbox.Where(x => x.Category == InboxCategory.Intelligence).All(x => x.Topic is InboxTopic.SpyNetwork or InboxTopic.SpyMission or InboxTopic.SpyCaught or InboxTopic.ForeignStrength), "...and nothing else is filed there");
+}
+
+using (var eng = NewDipEngine(119))
+{
+    // Enemy army movements: an army marching on (or for) the player's ally, or setting out from a country the player's spies watch.
+    var s = eng.State; var p = s.PlayerNation;
+    var france = Ai(eng, "france"); var persia = Ai(eng, "persia"); var spain = Ai(eng, "spain"); var mughal = Ai(eng, "mughal");
+    foreach (var n in new[] { france, persia, spain, mughal }) n.Units = UnitCatalog.SeedArmy(9000);
+    s.SpyNetworks.Add(new SpyNetwork { TargetNationId = france.Id, TargetNationName = france.Name, Strength = 50 });   // the player's spies watch France
+    TreatyService.Add(s, TreatyType.DefensiveAlliance, p, spain);                                                          // Spain is the player's ally
+
+    // (the march decision is a chance roll: keep trying until the army sets out)
+    void March(Nation from, Nation to) { for (int seed = 1; seed < 200 && !TreatyService.HasMarchOn(s, from.Id, to.Id); seed++) AiWorldService.TryMarch(s, from, to, new Random(seed)); }
+    List<InboxMessage> Reports() => InboxService.Messages(s, InboxCategory.Intelligence).Where(x => x.Topic == InboxTopic.TroopMovement).ToList();
+
+    March(persia, mughal);
+    Check(TreatyService.HasMarchOn(s, persia.Id, mughal.Id) && Reports().Count == 0, "an army of two countries nobody watches, marching on a stranger, is not reported");
+
+    March(france, persia);
+    var fromWatched = Reports();
+    Check(fromWatched.Count == 1 && fromWatched[0].CountryId == france.Id && fromWatched[0].Summary.Contains("Our spies in France") && fromWatched[0].Summary.Contains("soldiers marching on Iran"),
+        "an army that sets out from a country the player's spies watch is reported, once, as the spies' news");
+
+    March(mughal, spain);
+    March(spain, mughal);
+    var forAlly = Reports().Where(x => x.CountryId == mughal.Id || x.CountryId == spain.Id).ToList();
+    Check(forAlly.Count == 2, "armies marching on the player's ally, and the ally's own, are reported");
+    Check(Reports().Count == 3 && Reports().All(x => x.Category == InboxCategory.Intelligence), "enemy army movements are intelligence (not military reports), and nothing was reported twice");
+    int count = s.Inbox.Count;
+    for (int i = 0; i < 5; i++) { p.Gold = 1e12; eng.AdvanceOneDay(); }
+    Check(Reports().Count == 3, "days passing do not repeat them");
+}
+
+using (var eng = NewDipEngine(120))
+{
+    // The player's own war: the battle, the victory decision and the answer to a call to arms are military; a treaty answer is other.
+    var s = eng.State; var p = s.PlayerNation; var nepal = Ai(eng, "nepal"); var spain = Ai(eng, "spain"); var persia = Ai(eng, "persia");
+    p.Units = UnitCatalog.SeedArmy(6000);
+    nepal.Units = UnitCatalog.SeedArmy(3500);
+    eng.DeclareWar(nepal.Id);
+    Check(eng.LaunchInvasion(nepal.Id, 3000).ok, "(invasion launched)");
+    int days = s.MarchingArmies[0].TotalDays;
+    for (int i = 0; i < days; i++) { p.Gold = 1_000_000_000; eng.AdvanceOneDay(); }
+    var mil = InboxService.Messages(s, InboxCategory.Military);
+    Check(mil.Any(x => x.Topic == InboxTopic.Battle && x.CountryId == nepal.Id && x.Summary.Contains("Victory")), "a battle the player fought is a military message with its result");
+    Check(mil.Count(x => x.Topic == InboxTopic.Victory) == 1, "...and so is the victory that asks for a decision, once");
+
+    SetRating(spain, 30);
+    TreatyService.Add(s, TreatyType.DefensiveAlliance, p, spain);
+    SetRating(spain, 30);
+    var refused = eng.CallToArms(spain.Id, nepal.Id);
+    Check(refused.Outcome == DipOutcome.Rejected && InboxService.Messages(s, InboxCategory.Military).Any(x => x.Topic == InboxTopic.CallToArms && x.CountryId == spain.Id), "a refused call to arms is a military message");
+
+    SetRating(persia, 10);
+    var declined = eng.ProposeAlliance(persia.Id);
+    Check(declined.Outcome == DipOutcome.Rejected || declined.Outcome == DipOutcome.Invalid, "(a treaty is refused or not available)");
+    SetRating(persia, 60); eng.EstablishEmbassy(persia.Id);
+    Check(InboxService.Messages(s, InboxCategory.Other).Any(x => x.Topic == InboxTopic.Diplomacy && x.CountryId == persia.Id), "an embassy's answer is a diplomacy message (other)");
+}
+
+using (var eng = NewDipEngine(121))
+{
+    // Annexation: of the player's ally (reported, and warned about) or of a stranger (not).
+    var s = eng.State; var p = s.PlayerNation;
+    var spain = Ai(eng, "spain"); var japan = Ai(eng, "japan"); var easter = Ai(eng, "easter"); var nepal = Ai(eng, "nepal");
+    TreatyService.Add(s, TreatyType.DefensiveAlliance, p, spain);
+    Warfare.AnnexNation(s, nepal, easter);
+    Check(s.Inbox.Count == 0, "the fall of a country that has nothing to do with the player is not in the inbox");
+    Warfare.AnnexNation(s, japan, spain);
+    Check(InboxService.Messages(s, InboxCategory.Military).Single().Topic == InboxTopic.Annexation && s.Inbox.Count == 1, "the fall of the player's ally is one military message, even though the alliance ends with it");
+
+    // The fall of the player: one message, not three.
+    s.Inbox.Clear();
+    Warfare.AnnexNation(s, japan, p);
+    eng.AdvanceOneDay();
+    Check(s.Inbox.Count == 1 && s.Inbox[0].Topic == InboxTopic.EmpireFallen, "the empire falling is one message");
+}
+
+using (var eng = NewDipEngine(122))
+{
+    // Production, research, trade, shortages: the player's own, once each.
+    var s = eng.State; var p = s.PlayerNation; var persia = Ai(eng, "persia");
+    p.ConstructionQueue.Add(new ConstructionProject { Building = BuildingType.Farm, DaysLeft = 1, TotalDays = 5 });
+    persia.ConstructionQueue.Add(new ConstructionProject { Building = BuildingType.Farm, DaysLeft = 1, TotalDays = 5 });
+    int farms = p.Farms;
+    eng.AdvanceOneDay();
+    var production = s.Inbox.Where(x => x.Topic == InboxTopic.Production).ToList();
+    Check(p.Farms == farms + 1 && production.Count == 1 && production[0].Category == InboxCategory.Other, "a building the player finished is one production message (other)");
+    Check(!s.Inbox.Any(x => x.Summary.Contains("Iran")), "a country's own production is not the player's news");
+
+    var tech = TechnologyCatalog.All[0];
+    p.CurrentResearchId = tech.Id; p.ResearchPoints = tech.Cost;
+    eng.AdvanceOneDay();
+    Check(s.Inbox.Count(x => x.Topic == InboxTopic.Research && x.Title.Contains(tech.Name)) == 1, "a technology researched is one message");
+
+    p.Gold = 1e9; SetStockOf(persia, "wheat", 100_000);
+    void SetStockOf(Nation n, string id, double amount) => n.AdjustProductStock(id, amount - n.GetProductStock(id));
+    Check(eng.BuyProduct(persia.Id, "wheat", 500) is null, "(wheat bought)");
+    for (int i = 0; i < 9; i++) { p.Gold = 1e9; eng.AdvanceOneDay(); }
+    Check(s.Inbox.Count(x => x.Topic == InboxTopic.Trade && x.Summary.Contains("delivered")) == 1, "a delivered purchase is one trade message");
+}
+
+using (var eng = NewDipEngine(123))
+{
+    // A shortage that goes on for weeks is reported when it begins, not every day; deleting the message does not bring it back.
+    eng.StartCampaign("france");
+    var s = eng.State; var p = s.PlayerNation;
+    for (int i = 0; i < 45; i++) { p.Gold = 1e12; eng.AdvanceOneDay(); }
+    Check(s.ActiveWarnings.Any(w => w.Contains("Shortage")), "(the player is short of food)");
+    var shortages = s.Inbox.Where(x => x.Topic == InboxTopic.Shortage).ToList();
+    Check(shortages.Count == 1 && shortages[0].Category == InboxCategory.Other && !shortages[0].Read,
+        "a long shortage is one message that is kept up to date while it is unread, not a message a day");
+    Check(shortages[0].Details.Contains("lives a day") && shortages[0].Date > s.CurrentDate.AddDays(-45), "the report says what the shortage costs, and is dated with its latest update");
+
+    // Once the message has been opened, a change in the shortage is news again: a new message.
+    InboxService.MarkRead(s, shortages[0].Id);
+    s.InboxConditions["shortage"] = "something else";
+    for (int i = 0; i < 3; i++) { p.Gold = 1e12; eng.AdvanceOneDay(); }
+    Check(s.Inbox.Count(x => x.Topic == InboxTopic.Shortage) == 2 && s.Inbox.Count(x => x.Topic == InboxTopic.Shortage && !x.Read) == 1,
+        "after the player has read it, a change in the shortage is a new message");
+
+    // Ending and restarting a condition reports it afresh.
+    InboxService.ClearCondition(s, "shortage");
+    var unread = s.Inbox.Single(x => x.Topic == InboxTopic.Shortage && !x.Read);
+    InboxService.MarkRead(s, unread.Id);
+    eng.AdvanceOneDay();
+    Check(s.Inbox.Count(x => x.Topic == InboxTopic.Shortage) == 3, "a shortage that ended and came back is reported again");
+
+    int deleted = eng.DeleteAllMessages();
+    for (int i = 0; i < 10; i++) { p.Gold = 1e12; eng.AdvanceOneDay(); }
+    Check(deleted == 3 && !s.Inbox.Any(x => x.Topic == InboxTopic.Shortage), "after deleting, the same shortage is not announced again");
+}
+
+Console.WriteLine("== 59. Inbox: delete all, and save / load ==");
+using (var eng = NewDipEngine(124))
+{
+    var s = eng.State; var p = s.PlayerNation; var persia = Ai(eng, "persia"); var france = Ai(eng, "france");
+    // Real events whose effects must survive the deletion of their messages.
+    p.Gold = 1e9;
+    eng.EstablishEmbassy(persia.Id);
+    AiWorldService.DeclareWarOnPlayer(s, france);
+    p.Units = UnitCatalog.SeedArmy(3000);
+    int movements = s.Movements.Count, treaties = s.Treaties.Count; double gold = p.Gold; int soldiers = p.Soldiers;
+    bool atWar = france.AtWarWithPlayer;
+    Check(s.Inbox.Count >= 2 && InboxService.UnreadCount(s) == s.Inbox.Count, "(there are messages, all unread)");
+    s.InboxConditions["shortage"] = "Salt";
+
+    int count = s.Inbox.Count;
+    Check(eng.DeleteAllMessages() == count && s.Inbox.Count == 0 && InboxService.UnreadCount(s) == 0, "delete all removes every message, in every tab");
+    Check(s.Movements.Count == movements && s.Treaties.Count == treaties && p.Gold == gold && p.Soldiers == soldiers && france.AtWarWithPlayer == atWar && atWar,
+        "...and undoes nothing: the Movement Report, the treaty, the war, the gold and the army are as they were");
+    Check(s.InboxConditions.ContainsKey("shortage"), "(what was already reported is not reported again)");
+    Check(eng.DeleteAllMessages() == 0, "deleting an empty inbox is harmless");
+}
+
+using (var eng = NewDipEngine(125))
+{
+    var s = eng.State; var france = Ai(eng, "france"); var persia = Ai(eng, "persia");
+    var a = InboxService.Notify(s, InboxTopic.WarDeclared, "war!", france.Id);
+    var b = InboxService.Notify(s, InboxTopic.SpyMission, "stole gold", persia.Id, details: "line one\nline two");
+    var c = InboxService.Notify(s, InboxTopic.Trade, "delivered");
+    eng.OpenMessage(b.Id);
+    s.InboxConditions["shortage"] = "Salt, Bread";
+    var before = s.Inbox.Select(x => (x.Id, x.Date, x.Topic, x.Title, x.Summary, x.Details, x.CountryId, x.Read)).ToList();
+    await eng.SaveAsync();
+    s.Inbox.Clear(); s.InboxConditions.Clear();
+    await eng.LoadAsync();
+    var l = eng.State;
+    Check(l.Inbox.Select(x => (x.Id, x.Date, x.Topic, x.Title, x.Summary, x.Details, x.CountryId, x.Read)).SequenceEqual(before), "messages survive save / load unchanged, with their dates, countries and details");
+    Check(l.Inbox.Single(x => x.Id == b.Id).Read && !l.Inbox.Single(x => x.Id == a.Id).Read && InboxService.UnreadCount(l) == 2, "read and unread state survive save / load");
+    Check(l.Inbox.Single(x => x.Id == a.Id).Category == InboxCategory.Military && l.Inbox.Single(x => x.Id == b.Id).Category == InboxCategory.Intelligence && l.Inbox.Single(x => x.Id == c.Id).Category == InboxCategory.Other,
+        "each message is still in its own category after loading");
+    Check(l.InboxConditions["shortage"] == "Salt, Bread", "what was already reported survives too, so a loaded game does not repeat it");
+
+    var node = JsonNode.Parse(JsonSerializer.Serialize(eng.State))!.AsObject();
+    foreach (var key in new[] { "Inbox", "InboxConditions" }) node.Remove(key);
+    var old = JsonSerializer.Deserialize<GameState>(node.ToJsonString());
+    Check(old is not null && old.Inbox.Count == 0 && old.InboxConditions.Count == 0, "an old save without an inbox loads with an empty one");
 }
 
 Console.WriteLine(failures == 0 ? "\nALL CHECKS PASSED" : $"\n{failures} CHECK(S) FAILED");

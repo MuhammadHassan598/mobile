@@ -31,7 +31,7 @@ public static class VictoryService
             ExpiresDate = state.CurrentDate.AddDays(Balance.VictoryDecisionDays),
         });
         state.LogMovement(MovementKind.War, MovementStatus.UnderWay, winner, loser,
-            $"🏆 Victory over {loser.Name}! Choose: annex it, take its resources, or let it go (within {Balance.VictoryDecisionDays} days).");
+            $"🏆 Victory over {loser.Name}! Choose: annex it, take its resources, or let it go (within {Balance.VictoryDecisionDays} days).", inbox: InboxTopic.Victory);
     }
 
     /// <summary>Carries out the player's choice for a pending victory. Nothing happens if the choice is refused.</summary>
@@ -109,24 +109,25 @@ public static class VictoryService
                 if (TreatyService.AnnexationBlock(state, loser.Id) is { } block)
                 {
                     state.LogMovement(MovementKind.War, MovementStatus.Failed, winner, loser,
-                        $"{winner.Name} won the battle for {loser.Name} but cannot annex it ({block}) — the war goes on.");
+                        $"{winner.Name} won the battle for {loser.Name} but cannot annex it ({block}) — the war goes on.", inbox: InboxTopic.AllyAtWar);
                     return;
                 }
+                // It only interrupts the player when it touches their side (asked before the annexation ends the war and the treaties).
+                bool touchesPlayer = loser.AtWarWithPlayer || state.IsPlayerAlly(loser.Id);
                 Warfare.AnnexNation(state, winner, loser);
-                // The player hears about it as news; it only interrupts when it touches the player's side.
-                if (loser.AtWarWithPlayer || TreatyService.Has(state, TreatyType.DefensiveAlliance, state.PlayerNation.Id, loser.Id))
+                if (touchesPlayer)
                     state.ActiveWarnings.Add($"🏳 {loser.Name} has been annexed by {winner.Name}!");
                 return;
 
             case WarAim.Humiliation:
                 TakeSpoils(state, winner, loser);
                 state.LogMovement(MovementKind.War, MovementStatus.Completed, winner, loser,
-                    $"{winner.Name} beat {loser.Name} and took its resources: the rival is humbled.");
+                    $"{winner.Name} beat {loser.Name} and took its resources: the rival is humbled.", inbox: InboxTopic.AllyAtWar);
                 break;
 
             default:
                 state.LogMovement(MovementKind.War, MovementStatus.Completed, winner, loser,
-                    $"{winner.Name} beat back {loser.Name}: the threat is broken and it asks for nothing more.");
+                    $"{winner.Name} beat back {loser.Name}: the threat is broken and it asks for nothing more.", inbox: InboxTopic.AllyAtWar);
                 break;
         }
         AiWorldService.EndWarBetween(state, winner, loser);
@@ -165,10 +166,11 @@ public static class VictoryService
             goods += amount;
         }
 
+        // Spoils are a result of war: military news, although what moves is gold and goods.
         if (gold > 0)
-            state.LogMovement(MovementKind.Gold, MovementStatus.Completed, loser, winner, $"{winner.Name} took {Currency.Cost(gold)} from {loser.Name}.");
+            state.LogMovement(MovementKind.Gold, MovementStatus.Completed, loser, winner, $"{winner.Name} took {Currency.Cost(gold)} from {loser.Name}.", military: true);
         if (goods > 0)
-            state.LogMovement(MovementKind.Goods, MovementStatus.Completed, loser, winner, $"{winner.Name} took {goods:N0} units of goods from {loser.Name}.");
+            state.LogMovement(MovementKind.Goods, MovementStatus.Completed, loser, winner, $"{winner.Name} took {goods:N0} units of goods from {loser.Name}.", military: true);
         return (gold, goods);
     }
 

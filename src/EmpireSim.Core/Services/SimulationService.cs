@@ -81,6 +81,7 @@ public sealed class SimulationService
                     nation.ProductionBuildings[spec.Id] = 0;
                 nation.ProductionBuildings[spec.Id]++;
                 state.Log($"{nation.Name}: {spec.Name} completed.");
+                Report(state, nation, InboxTopic.Production, $"{spec.Name} completed.", $"{spec.Name} completed");
             }
             else
             {
@@ -92,6 +93,7 @@ public sealed class SimulationService
                     case BuildingType.Workshop: nation.Workshops++; break;
                 }
                 state.Log($"{nation.Name}: {BuildingCatalog.Get(project.Building).Name} completed.");
+                Report(state, nation, InboxTopic.Production, $"{BuildingCatalog.Get(project.Building).Name} completed.", $"{BuildingCatalog.Get(project.Building).Name} completed");
             }
             nation.ConstructionQueue.Remove(project);
         }
@@ -141,6 +143,21 @@ public sealed class SimulationService
             Warn(state, nation, $"Shortage in {nation.Name}: {string.Join(", ", shortage.ShortItems)} — " +
                 $"{nation.LastShortageDeaths:N1} deaths/day, ruler rating -{nation.LastRatingDrop:0.######}/day.");
 
+        // The inbox hears of a shortage when it begins or when the list of short items changes — not every day it goes on.
+        if (nation.IsPlayer)
+        {
+            if (shortage.ShortItems.Any())
+            {
+                string items = string.Join(", ", shortage.ShortItems);
+                InboxService.NotifyCondition(state, InboxTopic.Shortage, "shortage", items,
+                    $"Shortage of {items}.",
+                    title: shortage.ShortItems.Count() == 1 ? $"Shortage of {shortage.ShortItems.First()}" : "Product shortages",
+                    details: $"Your people lack: {items}.\nAt the time of this report the shortage costs {nation.LastShortageDeaths:N1} lives a day and lowers the ruler rating by {nation.LastRatingDrop:0.######} a day.");
+            }
+            else
+                InboxService.ClearCondition(state, "shortage");
+        }
+
         // ---- Military crafting: progress projects, add 10 units on completion ----
         foreach (var proj in nation.MilitaryCraftQueue.ToList())
         {
@@ -150,6 +167,7 @@ public sealed class SimulationService
             double craftAmount = 10 * LawService.MilitaryGoodsMult(nation);
             nation.AddMilitaryItem(proj.RecipeId, craftAmount);
             state.Log($"{nation.Name}: Crafted 10x {recipe.Name}.");
+            Report(state, nation, InboxTopic.Production, $"Crafted {craftAmount:N0}x {recipe.Name}.", $"{recipe.Name} crafted");
             nation.MilitaryCraftQueue.Remove(proj);
         }
 
@@ -189,14 +207,14 @@ public sealed class SimulationService
                     if (seller is not null) seller.AdjustProductStock(tc.ProductId, tc.Quantity);
                     tc.Status = TradeStatus.Cancelled;
                     state.LogMovement(MovementKind.Goods, MovementStatus.Failed, tc.SellerId, seller?.Name ?? "unknown", buyer.Id, buyer.Name,
-                        $"Trade failed: buyer could not pay for {product.Name}.");
+                        $"Trade failed: buyer could not pay for {product.Name}.", inbox: InboxTopic.Trade);
                     continue;
                 }
             }
             tc.Status = TradeStatus.Delivered;
             tc.ActualDeliveryDate = state.CurrentDate;
             state.LogMovement(MovementKind.Goods, MovementStatus.Completed, tc.SellerId, seller?.Name ?? "unknown", buyer.Id, buyer.Name,
-                $"Trade delivered: {tc.Quantity:N0} {product.Name} ({Currency.Cost(tc.TotalValue)}).");
+                $"Trade delivered: {tc.Quantity:N0} {product.Name} ({Currency.Cost(tc.TotalValue)}).", inbox: InboxTopic.Trade);
         }
 
         // ---- National events: complete on date, apply ruler rating ----
@@ -209,6 +227,7 @@ public sealed class SimulationService
                 nation.RulerRating = Math.Clamp(nation.RulerRating + def.RulerRatingEffect, 0, 100);
                 evt.CompletionApplied = true;
                 state.Log($"{def.Name} completed. Ruler rating +{def.RulerRatingEffect}.");
+                Report(state, nation, InboxTopic.RulerRating, $"{def.Name} completed. Ruler rating +{def.RulerRatingEffect}.", $"{def.Name} completed");
             }
             evt.Status = NationalEventStatus.Completed;
             evt.ActualCompletion = state.CurrentDate;
@@ -250,13 +269,13 @@ public sealed class SimulationService
                 prop.Status = ProposalStatus.Active;
                 prop.ActiveUntil = state.CurrentDate.AddDays(prop.EffectDurationDays);
                 state.LogMovement(MovementKind.Assembly, MovementStatus.Completed, prop.ProposerId, proposerName, prop.TargetId, targetName,
-                    $"Assembly APPROVED: {ptype?.Name} against {targetName} ({forV} vs {againstV}).");
+                    $"Assembly APPROVED: {ptype?.Name} against {targetName} ({forV} vs {againstV}).", inbox: InboxTopic.Assembly);
             }
             else
             {
                 prop.Status = ProposalStatus.Rejected;
                 state.LogMovement(MovementKind.Assembly, MovementStatus.Failed, prop.ProposerId, proposerName, prop.TargetId, targetName,
-                    $"Assembly REJECTED: {ptype?.Name} against {targetName} ({forV} vs {againstV}).");
+                    $"Assembly REJECTED: {ptype?.Name} against {targetName} ({forV} vs {againstV}).", inbox: InboxTopic.Assembly);
             }
         }
         // Expire policies
@@ -271,7 +290,7 @@ public sealed class SimulationService
                 string expiredType = AssemblyProposalTypes.Get(pol.TypeId)?.Name ?? pol.TypeId;
                 state.LogMovement(MovementKind.Assembly, MovementStatus.Completed, expiredBy, TreatyService.NameOf(state, expiredBy),
                     pol.TargetId, TreatyService.NameOf(state, pol.TargetId),
-                    $"Assembly policy expired: {expiredType} against {TreatyService.NameOf(state, pol.TargetId)}.");
+                    $"Assembly policy expired: {expiredType} against {TreatyService.NameOf(state, pol.TargetId)}.", inbox: InboxTopic.Assembly);
             }
         }
 
@@ -286,6 +305,7 @@ public sealed class SimulationService
                 {
                     nation.Religion = newRel.Name;
                     state.Log($"{nation.Name} converted to {newRel.Name}!");
+                    Report(state, nation, InboxTopic.Religion, $"{nation.Name} converted to {newRel.Name}!", "Conversion complete");
                 }
                 nation.ReligionConversion = null;
             }
@@ -301,6 +321,7 @@ public sealed class SimulationService
             if (stack is null) nation.Units.Add(new UnitStack { Type = rec.Type, Count = rec.Count });
             else stack.Count += rec.Count;
             state.Log($"{nation.Name}: Recruited {rec.Count:N0} {spec.Name}.");
+            Report(state, nation, InboxTopic.Production, $"Recruited {rec.Count:N0} {spec.Name}.", "Recruitment complete");
             nation.RecruitmentQueue.Remove(rec);
         }
 
@@ -332,6 +353,9 @@ public sealed class SimulationService
                 Warn(state, nation,
                     $"ARMY MAINTENANCE DUE in {nation.Name}! Need {Currency.Format(nation.UpkeepAccrued)}, treasury holds {Currency.Format(nation.Gold)}. " +
                     $"Pay within {Balance.GracePeriodDays} days or soldiers will desert.");
+                Report(state, nation, InboxTopic.Upkeep,
+                    $"Army maintenance is due: {Currency.Format(nation.UpkeepAccrued)} owed, the treasury holds {Currency.Format(nation.Gold)}. Pay within {Balance.GracePeriodDays} days or soldiers will desert.",
+                    "Army maintenance due");
             }
         }
         else if (nation.IsInGracePeriod)
@@ -353,6 +377,7 @@ public sealed class SimulationService
                 nation.UpkeepAccrued = 0;
                 nation.NextPayday = state.CurrentDate.AddDays(Balance.PaydayIntervalDays);
                 Warn(state, nation, $"{deserters:N0} soldiers deserted {nation.Name} — the army was not paid!");
+                Report(state, nation, InboxTopic.Upkeep, $"{deserters:N0} soldiers deserted because the army was not paid.", "Soldiers deserted");
                 state.Log($"{nation.Name}: {deserters:N0} soldiers deserted over unpaid maintenance.");
             }
         }
@@ -365,6 +390,13 @@ public sealed class SimulationService
     {
         if (nation.IsPlayer)
             state.ActiveWarnings.Add(message);
+    }
+
+    /// <summary>Reports an event to the player's inbox. Only the player's own country has an inbox; other countries' events are not reported.</summary>
+    private static void Report(GameState state, Nation nation, InboxTopic topic, string summary, string? title = null)
+    {
+        if (nation.IsPlayer)
+            InboxService.Notify(state, topic, summary, title: title);
     }
 
     /// <summary>
@@ -399,7 +431,7 @@ public sealed class SimulationService
                     var outcome = Warfare.Invade(other, player,
                         other.Soldiers / 2, 1.0, _rng);
                     ArmyHelper.MergeStacks(other, outcome.AttackerSurvivors);
-                    state.LogMovement(MovementKind.March, MovementStatus.Completed, other, player, $"{other.Name} invaded: {outcome.Summary}");
+                    state.LogMovement(MovementKind.March, MovementStatus.Completed, other, player, $"{other.Name} invaded: {outcome.Summary}", inbox: InboxTopic.Invasion);
                     state.ActiveWarnings.Add($"⚠ {other.Name} is invading!");
                     if (outcome.AttackerWon)
                     {
@@ -415,7 +447,7 @@ public sealed class SimulationService
                 {
                     other.AtWarWithPlayer = false;
                     other.RelationToPlayer = -30;
-                    state.LogMovement(MovementKind.War, MovementStatus.Completed, other, player, $"{other.Name} sued for peace.");
+                    state.LogMovement(MovementKind.War, MovementStatus.Completed, other, player, $"{other.Name} sued for peace.", inbox: InboxTopic.Peace);
                     state.ActiveWarnings.Add($"{other.Name} sued for peace — the war is over.");
                 }
                 continue;
@@ -491,7 +523,7 @@ public sealed class SimulationService
                 Mines = 2,
             });
             state.LogMovement(MovementKind.Colony, MovementStatus.Completed, home.Id, home.Name, region.Id, region.Name,
-                $"A colony was founded in {region.Name}! Settlers and riches flow to the homeland.");
+                $"A colony was founded in {region.Name}! Settlers and riches flow to the homeland.", inbox: InboxTopic.Colony);
         }
         state.ActiveExpedition = null;
     }
@@ -524,7 +556,7 @@ public sealed class SimulationService
                         ? $"🏳 The march on {march.TargetNationName} was called off — the army returns home."
                         : $"🏳 {attacker.Name}'s march on {march.TargetNationName} was called off — the army returns home.";
                     state.LogMovement(MovementKind.March, MovementStatus.Failed,
-                        march.AttackerNationId, march.AttackerNationName, march.TargetNationId, march.TargetNationName, calledOff);
+                        march.AttackerNationId, march.AttackerNationName, march.TargetNationId, march.TargetNationName, calledOff, inbox: InboxTopic.ArmyMovement);
                 }
                 continue;
             }
@@ -548,14 +580,14 @@ public sealed class SimulationService
 
             if (attacker.IsPlayer)
             {
-                state.LogMovement(MovementKind.March, MovementStatus.Completed, attacker, def, $"{def.Name}: {outcome.Summary}");
+                state.LogMovement(MovementKind.March, MovementStatus.Completed, attacker, def, $"{def.Name}: {outcome.Summary}", inbox: InboxTopic.Battle);
                 state.ActiveWarnings.Add(
                     $"⚔ Battle for {def.Name}: {(outcome.AttackerWon ? "victory — choose its fate (annex, take resources, or nothing)" : "defeat")}!");
             }
             else
             {
                 // An ally fighting the player's enemy.
-                state.LogMovement(MovementKind.March, MovementStatus.Completed, attacker, def, $"{attacker.Name} vs {def.Name}: {outcome.Summary}");
+                state.LogMovement(MovementKind.March, MovementStatus.Completed, attacker, def, $"{attacker.Name} vs {def.Name}: {outcome.Summary}", inbox: InboxTopic.AllyAssistance);
             }
         }
     }
@@ -571,6 +603,7 @@ public sealed class SimulationService
             state.Defeated = true;
             state.Log("Your empire has fallen. The dynasty is no more.");
             state.ActiveWarnings.Add("💀 Your empire has fallen.");
+            InboxService.Notify(state, InboxTopic.EmpireFallen, "Your empire has fallen. The dynasty is no more.");
         }
     }
 }

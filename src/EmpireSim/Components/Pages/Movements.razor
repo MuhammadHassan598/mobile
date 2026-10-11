@@ -21,7 +21,7 @@
     <!-- State filter and grouping -->
     <div class="mov-controls">
         <button class="mov-state" @onclick="() => _picker = true" title="Filter by state">
-            <span class="mov-state-emblem">@(_stateId is null ? "🌍" : Emblem(_stateId))</span>
+            <span class="mov-state-emblem">@(_stateId is null ? Engine.State.PlayerNation.Emblem : Emblem(_stateId))</span>
             <span class="mov-state-name">@(_stateId is null ? "All" : NameOf(_stateId))</span>
         </button>
         <div class="mov-seg">
@@ -42,7 +42,7 @@
             <div class="mov-empty">
                 <div class="mov-empty-title">No events</div>
                 <div class="mov-empty-ico">🪖</div>
-                <div class="mov-empty-hint">Troops, gold, goods, colonies, missions and treaties between states will be listed here.</div>
+                <div class="mov-empty-hint">Troops, gold, goods, colonies, missions, treaties and wars between your country and other states will be listed here.</div>
             </div>
         }
         else if (_byState)
@@ -88,12 +88,9 @@
 {
     <div class="mov-overlay" @onclick="() => _picker = false">
         <div class="mov-panel" @onclick:stopPropagation>
-            <div class="mov-panel-title">Show movements of</div>
+            <div class="mov-panel-title">Show my movements with</div>
             <button class="mov-pick @(_stateId is null ? "active" : "")" @onclick="() => Pick(null)">
-                <span class="mov-pick-emblem">🌍</span><span class="mov-pick-name">All states (world news)</span>
-            </button>
-            <button class="mov-pick @(_stateId == Engine.State.PlayerNation.Id ? "active" : "")" @onclick="() => Pick(Engine.State.PlayerNation.Id)">
-                <span class="mov-pick-emblem">@Engine.State.PlayerNation.Emblem</span><span class="mov-pick-name">Only my nation</span>
+                <span class="mov-pick-emblem">@Engine.State.PlayerNation.Emblem</span><span class="mov-pick-name">All (everything about @Engine.State.PlayerNation.Name)</span>
             </button>
             @foreach (var n in InvolvedStates())
             {
@@ -105,7 +102,7 @@
             }
             @if (!InvolvedStates().Any())
             {
-                <div class="mov-empty-hint">No state has moved anything yet.</div>
+                <div class="mov-empty-hint">Nothing has moved between your country and another yet.</div>
             }
             <button class="mov-close" @onclick="() => _picker = false">CLOSE</button>
         </div>
@@ -116,7 +113,7 @@
     private int _tab;                 // 0 events, 1 mission location
     private bool _byState;            // false = by date (default)
     private bool _picker;
-    private string? _stateId;         // null = all states
+    private string? _stateId;         // null = everything in my report; otherwise only what involves that state
 
     protected override void OnInitialized() => Engine.StateChanged += OnStateChanged;
     private void OnStateChanged() => InvokeAsync(StateHasChanged);
@@ -134,18 +131,18 @@
     private string NameOf(string id) =>
         Engine.State.AllNations().FirstOrDefault(n => n.Id == id)?.Name ?? id;
 
-    /// <summary>Countries that appear in any saved movement or live mission (the player's own is not a useful filter).</summary>
+    /// <summary>Countries that appear in the player's report (saved movements or live missions); the player's own is not a useful filter.</summary>
     private IEnumerable<Nation> InvolvedStates()
     {
         var state = Engine.State;
         var ids = new HashSet<string>();
-        foreach (var m in state.Movements) { ids.Add(m.FromId); ids.Add(m.ToId); }
+        foreach (var m in MovementReport.Events(state)) { ids.Add(m.FromId); ids.Add(m.ToId); }
         foreach (var m in MovementReport.ActiveMissions(state)) { ids.Add(m.FromId); ids.Add(m.LocationId); }
         return state.OtherNations.Where(n => ids.Contains(n.Id)).OrderBy(n => n.Name);
     }
 
     private int CountFor(string id) =>
-        Engine.State.Movements.Count(m => m.Involves(id)) + MovementReport.ActiveMissions(Engine.State, id).Count;
+        MovementReport.Events(Engine.State, id).Count + MovementReport.ActiveMissions(Engine.State, id).Count;
 
     private static string StatusClass(MovementStatus s) => s switch
     {
@@ -200,7 +197,7 @@
 .mov-seg button { flex: 1; padding: 10px 4px; background: #f7ead0; color: #3d2b1f; border: none; cursor: pointer; font-family: inherit; font-weight: bold; font-size: 0.85rem; }
 .mov-seg button.active { background: linear-gradient(#4a4a4a, #262626); color: #f5e6c4; }
 .mov-tabs { display: flex; margin-bottom: 8px; border-radius: 6px; overflow: hidden; border: 2px solid #8b6914; }
-.mov-tabs button { flex: 1; padding: 10px 4px; background: rgba(139,105,20,.25); color: #3d2b1f; border: none; cursor: pointer; font-family: inherit; font-weight: bold; font-size: 0.9rem; }
+.mov-tabs button { flex: 1; padding: 8px 2px; background: rgba(139,105,20,.25); color: #3d2b1f; border: none; cursor: pointer; font-family: inherit; font-weight: bold; font-size: 0.85rem; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; }
 .mov-tabs button.active { background: linear-gradient(#7a5230, #4a2e14); color: #f5e6c4; }
 .mov-count { display: inline-block; min-width: 18px; padding: 0 5px; border-radius: 9px; background: rgba(0,0,0,.18); font-size: 0.72rem; text-align: center; font-weight: bold; }
 .mov-empty { text-align: center; padding: 28px 12px; }
