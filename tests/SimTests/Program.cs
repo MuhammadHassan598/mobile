@@ -336,6 +336,9 @@ using (var engine8 = new GameEngine(new SimulationService(seed: 11), new SaveSer
     engine8.AdvanceOneDay();
     Check(engine8.State.MarchingArmies.Count == 0, "march resolves on arrival");
     Check(engine8.State.EventLog.Any(e => e.Contains("Victory")), "overwhelming invasion wins");
+    // Winning no longer annexes at once: the player chooses (annex / take resources / nothing).
+    Check(!kazakh.IsEliminated && engine8.PendingVictory(kazakh.Id) is not null, "the victory waits for the player's decision");
+    Check(engine8.ResolveVictory(kazakh.Id, VictoryChoice.Annex).Ok, "the player chooses to annex");
     Check(kazakh.IsEliminated, "defeated nation is annexed whole");
     Check(!kazakh.AtWarWithPlayer, "annexation ends the war");
     Check(engine8.State.NationsAnnexedByPlayer == 1, "annexation is counted");
@@ -638,9 +641,10 @@ using (var engine20 = new GameEngine(new SimulationService(), new SaveService(sa
     Check(ott.GetProductionBuilding("farm") == 49, "Ottoman farms = 49");
     Check(ott.GetProductionBuilding("goldmine") == 0, "gold mine is not seeded");
 
-    // Every nation, every item: output is the closest mill count to need x (1 - tier shortage).
+    // The chosen country (the player) starts in shortage: every item's output is the closest mill count to need x (1 - tier shortage).
+    // (Every OTHER country feeds itself: see section 48.)
     bool closest = true; string firstBad = "";
-    foreach (var nat in all20)
+    foreach (var nat in all20.Where(x => x.IsPlayer))
     foreach (var spec in ConsumptionCatalog.All)
     {
         var mill = ProductionCatalog.All.First(b => b.Produces == spec.Item);
@@ -1445,6 +1449,10 @@ using (var eng = NewDipEngine(17))
     var persia = Ai(eng, "persia");
     p.Units = UnitCatalog.SeedArmy(2000);
     persia.Units = UnitCatalog.SeedArmy(1200);
+    // The ally covets the enemy's lands (a populous country next door, on good terms, with little army): it wins and keeps them.
+    persia.MapX = spain.MapX + 40; persia.MapY = spain.MapY; persia.Population = spain.Population;
+    AiWorldService.SetRelation(eng.State, spain, persia, 30);
+    Check(AiWorldService.Motives(eng.State, spain, persia).Aim == WarAim.Conquest, "(the ally's motive toward the enemy is land)");
     TreatyService.Add(eng.State, TreatyType.DefensiveAlliance, p, spain);
     eng.DeclareWar(persia.Id);
     Check(eng.CallToArms(spain.Id, persia.Id).Ok, "ally called");           // the ally's march is listed FIRST
@@ -1924,8 +1932,10 @@ using (var eng = NewDipEngine(38))
 {
     // The record is capped, and survives save / load (old saves without it load empty).
     var s = eng.State;
-    for (int i = 0; i < 600; i++) s.LogMovement(MovementKind.Gold, MovementStatus.Completed, "a", "A", "b", "B", $"m{i}");
-    Check(s.Movements.Count == GameState.MaxMovements && s.Movements[0].Text == "m100" && s.Movements[^1].Text == "m599", "only the newest 500 movements are kept");
+    int total = GameState.MaxMovements + 100;
+    for (int i = 0; i < total; i++) s.LogMovement(MovementKind.Gold, MovementStatus.Completed, "a", "A", "b", "B", $"m{i}");
+    Check(s.Movements.Count == GameState.MaxMovements && s.Movements[0].Text == "m100" && s.Movements[^1].Text == $"m{total - 1}",
+        $"only the newest {GameState.MaxMovements:N0} movements are kept");
 
     s.Movements.Clear();
     var p = s.PlayerNation; var persia = Ai(eng, "persia");
@@ -2037,25 +2047,31 @@ using (var eng = NewDipEngine(52))
     eng.DeclareWar(persia.Id);
     var (okLaunch, launchMsg) = eng.LaunchInvasion(persia.Id, 3000);
     Check(!okLaunch && launchMsg.Contains("forbidden annexing") && s.MarchingArmies.Count == 0 && p.Soldiers == 6000, "an invasion of a protected country is refused and no soldiers leave");
-    Check(eng.AnnexCountry(persia.Id).Message.Contains("forbidden annexing"), "the Annex action is refused too");
+    Check(eng.CheckDiplomaticAction("annex", persia.Id).Reason.Contains("Win a battle"), "without a victory the Annex button explains that winning earns the choice");
 
-    // A march already on the road when the ban begins: the battle is fought but the country survives.
+    // A march already on the road when the ban begins: the battle is won, but the country cannot be annexed.
     s.ActiveAssemblyPolicies.Clear();
     Check(eng.LaunchInvasion(persia.Id, 3000).ok, "invasion launched while the country is unprotected");
     s.ActiveAssemblyPolicies.Add(new ActiveAssemblyPolicy { TypeId = "annexation_ban", TargetId = persia.Id, ActivationDate = s.CurrentDate, ExpirationDate = s.CurrentDate.AddDays(120) });
     int days = s.MarchingArmies[0].TotalDays;
     for (int i = 0; i < days; i++) { p.Gold = 1_000_000_000; eng.AdvanceOneDay(); }
-    Check(!persia.IsEliminated && persia.AtWarWithPlayer, "the winner of the battle cannot annex a protected country: it survives");
-    Check(s.Movements.Any(m => m.Kind == MovementKind.War && m.Status == MovementStatus.Failed && m.Text.Contains("could not annex")), "the refused annexation is recorded");
+    Check(!persia.IsEliminated && persia.AtWarWithPlayer && eng.PendingVictory(persia.Id) is not null, "the battle is won and the decision waits");
+    var refused = eng.ResolveVictory(persia.Id, VictoryChoice.Annex);
+    Check(refused.Outcome == DipOutcome.Invalid && refused.Message.Contains("forbidden annexing") && !persia.IsEliminated && eng.PendingVictory(persia.Id) is not null,
+        "annexing a protected country is refused and the decision stays open");
     Check(persia.Soldiers < 3500, "the battle itself still happened (casualties stand)");
+    double goldBefore = p.Gold;
+    Check(eng.ResolveVictory(persia.Id, VictoryChoice.Resources).Ok && p.Gold > goldBefore && !persia.IsEliminated && !persia.AtWarWithPlayer,
+        "the other choices still work: resources are taken, the country survives, the war ends");
 
-    // Once the protection ends the same country can be annexed.
+    // Once the protection ends the same country can be annexed after a new victory.
     s.ActiveAssemblyPolicies.Clear();
     Check(TreatyService.AnnexationBlock(s, persia.Id) is null, "with the ban gone nothing protects it");
+    eng.DeclareWar(persia.Id);
     Check(eng.LaunchInvasion(persia.Id, 3000).ok, "invasion launched again");
     int days2 = s.MarchingArmies[0].TotalDays;
     for (int i = 0; i < days2; i++) { p.Gold = 1_000_000_000; eng.AdvanceOneDay(); }
-    Check(persia.IsEliminated, "unprotected, the defeated country is annexed");
+    Check(eng.ResolveVictory(persia.Id, VictoryChoice.Annex).Ok && persia.IsEliminated, "unprotected, the defeated country can be annexed");
 }
 
 using (var eng = NewDipEngine(53))
@@ -2065,7 +2081,9 @@ using (var eng = NewDipEngine(53))
     TreatyService.Add(s, TreatyType.SovereigntyGuarantee, p, persia, Balance.SovereigntyDays);
     var block = TreatyService.AnnexationBlock(s, persia.Id);
     Check(block is not null && block.Contains("guaranteed"), "a guaranteed country cannot be annexed");
-    Check(eng.AnnexCountry(persia.Id).Message.Contains("guaranteed"), "so the Annex action refuses it");
+    s.PendingVictories.Add(new VictoryDecision { LoserId = persia.Id, LoserName = persia.Name, WonDate = s.CurrentDate, ExpiresDate = s.CurrentDate.AddDays(30) });
+    Check(eng.ResolveVictory(persia.Id, VictoryChoice.Annex).Message.Contains("guaranteed") && !persia.IsEliminated, "so a victory cannot be turned into an annexation of it");
+    s.PendingVictories.Clear();
     var war = eng.DeclareWar(persia.Id);
     Check(war is not null && war.Contains("guaranteed") && !persia.AtWarWithPlayer, "the guarantor cannot declare war on the country it guaranteed");
 
@@ -2073,11 +2091,16 @@ using (var eng = NewDipEngine(53))
     persia.AtWarWithPlayer = true;
     persia.Units = UnitCatalog.SeedArmy(1200);
     p.Units = UnitCatalog.SeedArmy(2000);   // keeps the beaten AI from suing for peace, which would recall the march
+    persia.MapX = spain.MapX + 40; persia.MapY = spain.MapY; persia.Population = spain.Population;
+    AiWorldService.SetRelation(s, spain, persia, 30);   // (the ally covets its lands, so it would annex if it could)
+    Check(AiWorldService.Motives(s, spain, persia).Aim == WarAim.Conquest, "(the ally's motive toward the guaranteed country is land)");
     var march = TreatyService.LaunchMarch(s, spain, persia, 2700)!;
     for (int i = 0; i < march.TotalDays; i++) { p.Gold = 1_000_000_000; eng.AdvanceOneDay(); }
     Check(persia.Soldiers < 1200, "the ally's army did fight the battle");
     Check(!persia.IsEliminated, "a third party cannot annex a guaranteed country either");
-    Check(HasLog(eng, "could not annex Iran"), "and the refusal is logged");
+    Check(HasLog(eng, "cannot annex it"), "and the refusal is logged");
+    Check(!s.Movements.Any(m => m.Kind == MovementKind.Gold && m.FromId == persia.Id && m.ToId == spain.Id),
+        "nothing is plundered instead: a forbidden annexation does not turn into spoils");
 }
 
 Console.WriteLine("== 44. Ask Attack: a friendly country (no alliance) joins your war ==");
@@ -2112,54 +2135,122 @@ using (var eng = NewDipEngine(54))
     Check(!eng.CheckDiplomaticAction("askattack", spain.Id).Available, "no requests to a country you are at war with");
 }
 
-Console.WriteLine("== 45. Annex: a country far weaker than you submits ==");
+Console.WriteLine("== 45. Victory: annex, take resources, or let go — each choice has its own flow ==");
 using (var eng = NewDipEngine(55))
 {
-    var s = eng.State; var p = s.PlayerNation; var easter = Ai(eng, "easter"); var micronesia = Ai(eng, "micronesia"); var france = Ai(eng, "france");
-    p.Units = UnitCatalog.SeedArmy(20000);
-    Check(!eng.CheckDiplomaticAction("annex", france.Id).Available && eng.CheckDiplomaticAction("annex", france.Id).Reason.Contains("3x"),
-        "a country not much weaker than you cannot be annexed (reason names the 3x rule)");
-    Check(eng.AnnexCountry(france.Id).Outcome == DipOutcome.Invalid && !france.IsEliminated, "refused, and nothing happens");
+    // Integration: winning a battle opens a decision instead of annexing at once.
+    var s = eng.State; var p = s.PlayerNation; var nepal = Ai(eng, "nepal");
+    p.Units = UnitCatalog.SeedArmy(6000);
+    nepal.Units = UnitCatalog.SeedArmy(3500);   // strong enough that the beaten AI does not sue for peace before the battle
+    eng.DeclareWar(nepal.Id);
+    Check(eng.CheckDiplomaticAction("annex", nepal.Id).Reason.Contains("Win a battle"), "before any victory the Annex button asks for one");
+    Check(eng.LaunchInvasion(nepal.Id, 3000).ok, "invasion launched");
+    int battlesBefore = p.BattlesWon;
+    int days = s.MarchingArmies[0].TotalDays;
+    for (int i = 0; i < days; i++) { p.Gold = 1_000_000_000; eng.AdvanceOneDay(); }
+    var pending = eng.PendingVictory(nepal.Id);
+    Check(pending is not null && !nepal.IsEliminated && nepal.AtWarWithPlayer && p.BattlesWon == battlesBefore + 1,
+        "a won battle leaves a decision, not an annexation, and counts as a battle won");
+    Check(pending!.ExpiresDate == pending.WonDate.AddDays(Balance.VictoryDecisionDays) && pending.DaysLeft(s.CurrentDate) == Balance.VictoryDecisionDays, "the player has 30 days to decide");
+    Check(eng.CheckDiplomaticAction("annex", nepal.Id).Available, "the Annex button opens once a victory is won");
+    Check(s.Movements.Any(m => m.Kind == MovementKind.War && m.Status == MovementStatus.UnderWay && m.Text.Contains("Victory over")), "the victory is in the Movement Report, under way");
+    int nepalSoldiers = nepal.Soldiers, playerSoldiers = p.Soldiers;
+    for (int i = 0; i < 10; i++) { p.Gold = 1_000_000_000; eng.AdvanceOneDay(); }
+    Check(nepal.Soldiers == nepalSoldiers && p.Soldiers == playerSoldiers && nepal.AtWarWithPlayer && eng.PendingVictory(nepal.Id) is not null,
+        "while the decision waits the beaten country neither fights, invades nor pleads for peace");
+}
 
-    // Protections.
-    TreatyService.Add(s, TreatyType.NonAggression, p, easter, 365);
-    Check(eng.AnnexCountry(easter.Id).Message.Contains("non-aggression"), "a pact bars annexing the partner");
-    s.Treaties.Clear();
-    TreatyService.Add(s, TreatyType.DefensiveAlliance, p, easter);
-    Check(eng.AnnexCountry(easter.Id).Message.Contains("allied"), "an alliance bars annexing the ally");
-    s.Treaties.Clear();
-    p.Gold = Balance.AnnexCost - 1;
-    Check(eng.AnnexCountry(easter.Id).Message.Contains("Needs"), "cannot afford the settlement");
-    p.Gold = 50_000;
+using (var eng = NewDipEngine(56))
+{
+    // Flow 1 — ANNEX: the whole country becomes the player's.
+    var s = eng.State; var p = s.PlayerNation; var easter = Ai(eng, "easter");
+    easter.AtWarWithPlayer = true; easter.RelationToPlayer = -100;
+    VictoryService.Begin(s, p, easter);
+    VictoryService.Begin(s, p, easter);
+    Check(s.PendingVictories.Count == 1, "a second victory over the same country does not open a second decision");
+    long popBefore = p.Population; double gold = p.Gold, easterGold = easter.Gold; int battles = p.BattlesWon;
+    var r = eng.ResolveVictory(easter.Id, VictoryChoice.Annex);
+    Check(r.Ok && easter.IsEliminated && !easter.AtWarWithPlayer && eng.PendingVictory(easter.Id) is null, "annex: the country is absorbed and the decision is closed");
+    Check(Math.Abs(p.Gold - (gold + easterGold)) < 0.01 && p.Population > popBefore, "annex: its treasury and people become ours");
+    Check(s.NationsAnnexedByPlayer == 1 && p.BattlesWon == battles, "annex: counted as one annexation, with no extra battle won");
+    Check(s.Movements.Any(m => m.Kind == MovementKind.War && m.FromId == p.Id && m.ToId == easter.Id && m.Text.Contains("annexed")), "annex: recorded in the Movement Report");
+    Check(eng.ResolveVictory(easter.Id, VictoryChoice.Annex).Outcome == DipOutcome.Invalid, "nothing is left to decide afterwards");
+}
 
-    // Embassy and a lent army make the country part of our diplomacy; annexing ends all of it.
-    eng.EstablishEmbassy(easter.Id);
-    long popBefore = p.Population, easterPop = easter.Population;
-    double gold = p.Gold, easterGold = easter.Gold;
-    int battlesWon = p.BattlesWon;
-    var r = eng.AnnexCountry(easter.Id);
-    Check(r.Ok && easter.IsEliminated, "the weak country submits and is annexed");
-    Check(Math.Abs(p.Gold - (gold - Balance.AnnexCost + easterGold)) < 0.01, "the settlement is paid and the country's treasury is absorbed");
-    Check(p.Population > popBefore && p.Population - popBefore <= easterPop, "its people join ours");
-    Check(s.NationsAnnexedByPlayer == 1 && p.BattlesWon == battlesWon, "it counts as an annexation but not as a battle won");
-    Check(!s.Treaties.Any(x => x.Involves(easter.Id)), "its treaties end with it");
-    Check(s.Movements.Any(m => m.Kind == MovementKind.War && m.FromId == p.Id && m.ToId == easter.Id && m.Text.Contains("annexed")), "recorded in the Movement Report");
+using (var eng = NewDipEngine(57))
+{
+    // Flow 2 — TAKE RESOURCES: a share of its wealth moves, the country survives, resentful.
+    var s = eng.State; var p = s.PlayerNation; var persia = Ai(eng, "persia");
+    persia.AtWarWithPlayer = true; persia.RelationToPlayer = -100;
+    VictoryService.Begin(s, p, persia);
+    double share = Balance.VictorySpoilsFraction;
+    double pGold = p.Gold, tGold = persia.Gold;
+    double tWood = persia.Wood, pWood = p.Wood, tWheat = persia.GetGood("Wheat"), pWheat = p.GetGood("Wheat");
+    long tPop = persia.Population; int tSoldiers = persia.Soldiers;
+    var r = eng.ResolveVictory(persia.Id, VictoryChoice.Resources);
+    double takenGold = Math.Floor(tGold * share);
+    Check(r.Ok && !persia.IsEliminated && !persia.AtWarWithPlayer && eng.PendingVictory(persia.Id) is null, "resources: the country survives, the war ends, the decision closes");
+    Check(p.Gold == pGold + takenGold && persia.Gold == tGold - takenGold, "resources: exactly 30% of its gold moves to us");
+    Check(Math.Abs(p.Gold + persia.Gold - (pGold + tGold)) < 0.001, "resources: nothing is created or lost");
+    Check(persia.Wood == tWood - Math.Floor(tWood * share) && p.Wood == pWood + Math.Floor(tWood * share), "resources: minerals move the same way");
+    Check(Math.Abs(persia.GetGood("Wheat") - (tWheat - Math.Floor(tWheat * share))) < 0.001 && Math.Abs(p.GetGood("Wheat") - (pWheat + Math.Floor(tWheat * share))) < 0.001,
+        "resources: food and goods stocks move the same way");
+    Check(persia.Population == tPop && persia.Soldiers == tSoldiers && s.NationsAnnexedByPlayer == 0, "resources: its people and army are left alone, and nothing is annexed");
+    Check(Rate(persia) == Balance.VictorySpoilsMaxRating, "resources: the plundered country regards us poorly (relations 20)");
+    Check(s.Movements.Any(m => m.Kind == MovementKind.Gold && m.Status == MovementStatus.Completed && m.FromId == persia.Id && m.ToId == p.Id)
+          && s.Movements.Any(m => m.Kind == MovementKind.Goods && m.FromId == persia.Id && m.ToId == p.Id)
+          && s.Movements.Any(m => m.Kind == MovementKind.War && m.Text.Contains("after taking its resources")), "resources: gold, goods and the peace are recorded");
+    Check(eng.ResolveVictory(persia.Id, VictoryChoice.Resources).Outcome == DipOutcome.Invalid, "it cannot be plundered twice for one victory");
+}
 
-    // One annexation per cooldown.
-    var second = eng.AnnexCountry(micronesia.Id);
-    Check(second.Outcome == DipOutcome.Invalid && second.Message.Contains("available again"), "a second annexation must wait");
-    for (int i = 0; i < Balance.AnnexCooldownDays; i++) { p.Gold = 1_000_000; eng.AdvanceOneDay(); }
-    Check(eng.AnnexCountry(micronesia.Id).Ok && micronesia.IsEliminated, "after the cooldown the next one is possible");
+using (var eng = NewDipEngine(58))
+{
+    // Flow 3 — NOTHING: a white peace; the country is grateful.
+    var s = eng.State; var p = s.PlayerNation; var mughal = Ai(eng, "mughal");
+    mughal.AtWarWithPlayer = true; mughal.RelationToPlayer = -100;
+    VictoryService.Begin(s, p, mughal);
+    double pGold = p.Gold, tGold = mughal.Gold; int moved = s.Movements.Count(m => m.Kind is MovementKind.Gold or MovementKind.Goods);
+    var r = eng.ResolveVictory(mughal.Id, VictoryChoice.Nothing);
+    Check(r.Ok && !mughal.IsEliminated && !mughal.AtWarWithPlayer && eng.PendingVictory(mughal.Id) is null, "nothing: the war ends and the country stands");
+    Check(p.Gold == pGold && mughal.Gold == tGold && s.Movements.Count(m => m.Kind is MovementKind.Gold or MovementKind.Goods) == moved, "nothing: nothing at all is taken");
+    Check(Rate(mughal) == Balance.VictoryMercyRating, "nothing: the country is grateful (relations back to neutral)");
+    Check(s.Movements.Any(m => m.Kind == MovementKind.War && m.Status == MovementStatus.Completed && m.Text.Contains("let Mughal Empire go")), "nothing: recorded in the Movement Report");
+}
 
-    // Even at war: an annexation also ends the war and recalls the armies marching on it.
-    var nepal = Ai(eng, "nepal");
-    nepal.Units = UnitCatalog.SeedArmy(2000);
-    for (int i = 0; i < Balance.AnnexCooldownDays; i++) { p.Gold = 1_000_000; eng.AdvanceOneDay(); }
-    eng.DeclareWar(nepal.Id);   // (declared only now, so the beaten AI has no days to sue for peace)
-    eng.LaunchInvasion(nepal.Id, 700);
-    int home = p.Soldiers;
-    Check(eng.AnnexCountry(nepal.Id).Ok && !nepal.AtWarWithPlayer && s.MarchingArmies.Count == 0 && p.Soldiers == home + 700,
-        "annexing a country at war ends the war and the army marching on it comes home");
+using (var eng = NewDipEngine(59))
+{
+    // Unanswered, ended by peace, taken by someone else, saved and loaded.
+    var s = eng.State; var p = s.PlayerNation; var persia = Ai(eng, "persia"); var spain = Ai(eng, "spain"); var nepal = Ai(eng, "nepal"); var france = Ai(eng, "france");
+    persia.AtWarWithPlayer = true; persia.RelationToPlayer = -100;
+    VictoryService.Begin(s, p, persia);
+    for (int i = 0; i < Balance.VictoryDecisionDays; i++) { p.Gold = 1_000_000_000; eng.AdvanceOneDay(); }
+    Check(eng.PendingVictory(persia.Id) is null && !persia.AtWarWithPlayer && !persia.IsEliminated && HasLog(eng, "No decision was made"),
+        "left undecided for 30 days, the country is let go with nothing taken");
+
+    spain.AtWarWithPlayer = true;
+    VictoryService.Begin(s, p, spain);
+    Warfare.AnnexNation(s, france, spain);
+    Check(eng.PendingVictory(spain.Id) is null, "if someone else annexes the country first, the decision disappears");
+
+    nepal.AtWarWithPlayer = true;
+    VictoryService.Begin(s, p, nepal);
+    p.Gold = 1_000_000;
+    Check(eng.SueForPeace(nepal.Id) is null && eng.PendingVictory(nepal.Id) is null, "making peace closes the decision");
+
+    // Save / load.
+    var mughal = Ai(eng, "mughal"); mughal.AtWarWithPlayer = true;
+    VictoryService.Begin(s, p, mughal);
+    var before = s.PendingVictories.Single();
+    await eng.SaveAsync();
+    eng.State.PendingVictories.Clear();
+    await eng.LoadAsync();
+    var after = eng.State.PendingVictories.Single();
+    Check(after.LoserId == before.LoserId && after.LoserName == before.LoserName && after.WonDate == before.WonDate && after.ExpiresDate == before.ExpiresDate,
+        "a pending victory survives save / load");
+    var node = JsonNode.Parse(JsonSerializer.Serialize(eng.State))!.AsObject();
+    node.Remove("PendingVictories");
+    var old = JsonSerializer.Deserialize<GameState>(node.ToJsonString());
+    Check(old is not null && old.PendingVictories.Count == 0, "an old save without the field loads with no pending victories");
 }
 
 Console.WriteLine("== 46. Research: points, technologies and the research contract ==");
@@ -2295,7 +2386,9 @@ using (var eng = NewDipEngine(65))
     Check(eng.EstablishNetwork(persia.Id) is null, "a spy network may still be set up");
     string?[] spy = { eng.SpySteal(persia.Id), eng.SpySabotage(persia.Id), eng.SpyInciteRevolt(persia.Id) };
     Check(spy.All(x => x is not null && x.Contains("guaranteed")), "but hostile spy work is barred");
-    Check(eng.AnnexCountry(persia.Id).Message.Contains("guaranteed"), "and it cannot be annexed");
+    s.PendingVictories.Add(new VictoryDecision { LoserId = persia.Id, LoserName = persia.Name, WonDate = s.CurrentDate, ExpiresDate = s.CurrentDate.AddDays(30) });
+    Check(eng.ResolveVictory(persia.Id, VictoryChoice.Annex).Message.Contains("guaranteed"), "and it cannot be annexed");
+    s.PendingVictories.Clear();
     Check(s.Movements.Any(m => m.Kind == MovementKind.Treaty && m.Text.Contains("sovereignty guarantee")), "the guarantee is in the Movement Report");
 
     // It warms relations faster than an embassy alone.
@@ -2334,6 +2427,559 @@ using (var eng = NewDipEngine(69))
     var old = JsonSerializer.Deserialize<GameState>(node.ToJsonString());
     Check(old is not null && old.PlayerNation.Technologies.Count == 0 && old.PlayerNation.ResearchPoints == 0 && old.PlayerNation.CurrentResearchId is null,
         "an old save without research fields loads with nothing researched");
+}
+
+Console.WriteLine("== 48. AI countries feed themselves; only the chosen country starts short ==");
+double MillOutput(Nation n, ConsumptionSpec spec)
+{
+    var mill = ProductionCatalog.All.First(b => b.Produces == spec.Item);
+    return n.GetProductionBuilding(mill.Id) * ConsumptionService.OutputPerMill(n, mill);
+}
+bool Covers(Nation n) => ConsumptionCatalog.All.All(spec => MillOutput(n, spec) >= ConsumptionService.DailyNeed(spec, n.Population));
+
+using (var eng = NewDipEngine(81))
+{
+    var s = eng.State; var p = s.PlayerNation;
+    Check(s.OtherNations.All(Covers), "every AI country's mills cover every item's need from the start");
+    Check(!Covers(p), "the chosen country starts short: its mills do not cover its need");
+    for (int i = 0; i < 40; i++) { p.Gold = 1_000_000_000; eng.AdvanceOneDay(); }
+    Check(s.OtherNations.All(n => !n.ShortagePct.Values.Any(v => v > 0) && n.LastShortageDeaths == 0), "no AI country is ever short, and none has shortage deaths");
+    Check(s.OtherNations.All(n => n.RulerRating == 50), "no AI country loses ruler rating to shortages");
+}
+
+using (var eng = NewDipEngine(82))
+{
+    eng.StartCampaign("france");
+    var s = eng.State;
+    Check(s.PlayerNation.Id == "france" && !Covers(s.PlayerNation), "whichever country is chosen starts short (here France)");
+    Check(Covers(Ai(eng, "ottoman")), "...and the Ottomans, now an AI country, feed themselves");
+}
+
+using (var eng = NewDipEngine(83))
+{
+    var s = eng.State; var persia = Ai(eng, "persia");
+    persia.Population *= 3;
+    Check(!Covers(persia), "a tripled population outgrows its mills");
+    int added = ConsumptionService.EnsureSupply(persia, Balance.AiSupplyCoverage);
+    Check(added > 0 && Covers(persia), "EnsureSupply adds the mills it needs");
+    Check(ConsumptionService.EnsureSupply(persia, Balance.AiSupplyCoverage) == 0, "and does nothing the second time");
+    var snapshot = persia.ProductionBuildings.ToDictionary(kv => kv.Key, kv => kv.Value);
+    persia.Population /= 3;
+    Check(ConsumptionService.EnsureSupply(persia, Balance.AiSupplyCoverage) == 0 && persia.ProductionBuildings.All(kv => snapshot[kv.Key] == kv.Value),
+        "it never removes mills when the population falls");
+
+    // Once the AI world is awake, a growing country builds what it needs by itself.
+    s.AiWorldStartDate = s.CurrentDate;
+    var spain = Ai(eng, "spain");
+    spain.Population *= 2;
+    for (int i = 0; i < Balance.AiThinkIntervalDays * 2; i++) eng.AdvanceOneDay();
+    Check(Covers(spain), "an AI country whose people doubled builds the mills it needs within a couple of thinks");
+}
+
+using (var eng = NewDipEngine(84))
+{
+    var s = eng.State; var persia = Ai(eng, "persia");
+    int baseSoldiers = persia.BaseSoldiers;
+    Check(baseSoldiers == persia.Soldiers && baseSoldiers > 0 && persia.BasePopulation == persia.Population, "an AI country's base army is its starting army");
+    persia.Units = UnitCatalog.SeedArmy(baseSoldiers / 4);
+    int low = persia.Soldiers;
+    s.AiWorldStartDate = s.CurrentDate.AddDays(10_000);
+    for (int i = 0; i < 60; i++) eng.AdvanceOneDay();
+    Check(persia.Soldiers == low, "before the AI world wakes up, armies are not rebuilt");
+    s.AiWorldStartDate = s.CurrentDate;
+    for (int i = 0; i < 400; i++) eng.AdvanceOneDay();
+    Check(persia.Soldiers > low * 2 && persia.Soldiers <= baseSoldiers * 1.2, "once awake, an AI country rebuilds its army toward its target");
+
+    var spain = Ai(eng, "spain"); var france = Ai(eng, "france");
+    int bs = spain.BaseSoldiers, fs = france.BaseSoldiers; long bp = spain.BasePopulation, fp = france.BasePopulation;
+    Warfare.AnnexNation(s, spain, france);
+    Check(spain.BaseSoldiers == bs + fs && spain.BasePopulation == bp + fp, "annexing a country adds its base army and base population, so the winner's army target is not inflated");
+}
+
+Console.WriteLine("== 49. Relations between AI countries ==");
+using (var eng = NewDipEngine(85))
+{
+    var s = eng.State; var a = Ai(eng, "france"); var b = Ai(eng, "spain");
+    Check(AiWorldService.PairKey(a.Id, b.Id) == AiWorldService.PairKey(b.Id, a.Id), "a pair has one key, whichever way round");
+    Check(Math.Abs(AiWorldService.BaseRelation(a, b) - AiWorldService.BaseRelation(b, a)) < 1e-9, "regard between two countries is symmetric");
+    var all = s.OtherNations;
+    var pairs = (from i in Enumerable.Range(0, all.Count) from j in Enumerable.Range(i + 1, all.Count - i - 1)
+                 select (A: all[i], B: all[j], R: AiWorldService.BaseRelation(all[i], all[j]))).ToList();
+    Check(pairs.All(x => x.R >= -90 && x.R <= 90), "starting regard stays within -90..90");
+    double same = pairs.Where(x => x.A.Religion != "" && x.A.Religion == x.B.Religion).Average(x => x.R);
+    double diff = pairs.Where(x => x.A.Religion != x.B.Religion).Average(x => x.R);
+    Check(same - diff > 15, $"countries of one faith like each other more (average {same:0.#} against {diff:0.#})");
+    Check(pairs.Any(x => x.R < 0) && pairs.Any(x => x.R >= Balance.AiAllianceMinRelation), "there are both rivals and friends to start with");
+
+    double baseR = AiWorldService.BaseRelation(a, b);
+    AiWorldService.AddRelation(s, a, b, 5);
+    Check(Math.Abs(AiWorldService.Relation(s, a, b) - Math.Clamp(baseR + 5, -100, 100)) < 1e-9, "events move regard away from its starting value");
+    AiWorldService.AddRelation(s, a, b, -500);
+    Check(AiWorldService.Relation(s, a, b) == -100, "regard never goes below -100");
+
+    // Changes fade back toward the starting regard once the AI world is awake.
+    s.AiRelations.Clear(); s.AiWorldStartDate = s.CurrentDate;
+    AiWorldService.AddRelation(s, a, b, 10);
+    for (int i = 0; i < 20; i++) eng.AdvanceOneDay();
+    Check(Math.Abs(s.AiRelations[AiWorldService.PairKey(a.Id, b.Id)] - (10 - 20 * Balance.AiRelationDecayPerDay)) < 0.001, "a change in regard fades slowly back over time");
+}
+
+Console.WriteLine("== 50. AI wars, alliances, armies and peace ==");
+using (var eng = NewDipEngine(86))
+{
+    var s = eng.State;
+    for (int i = 0; i < 300; i++) { s.PlayerNation.Gold = 1_000_000_000; eng.AdvanceOneDay(); }
+    Check(s.Wars.Count == 0 && s.AiRelations.Count == 0 && !s.Treaties.Any(t => t.Type == TreatyType.DefensiveAlliance),
+        "the world is calm for the first year: no AI war, regard change or alliance before the AI world wakes up");
+}
+
+using (var eng = NewDipEngine(87))
+{
+    var s = eng.State; s.AiWorldStartDate = s.CurrentDate;
+    var france = Ai(eng, "france"); var persia = Ai(eng, "persia");
+    AiWorldService.DeclareWar(s, france, persia, new Random(1));
+    var war = s.Wars.Single(w => w.Links(france.Id, persia.Id));
+    Check(war.AggressorId == france.Id && war.DefenderId == persia.Id && AiWorldService.AtWar(s, persia.Id, france.Id), "a war between two AI countries is recorded, with who started it");
+    Check(s.AiRelations[AiWorldService.PairKey(france.Id, persia.Id)] == Balance.AiWarRelationHit, "the war sours their regard");
+    Check(s.Movements.Any(m => m.Kind == MovementKind.War && m.FromId == france.Id && m.ToId == persia.Id && m.Text.Contains("declared war")), "it is in the Movement Report");
+    Check(AiWorldService.EnemiesOf(s, france).Any(n => n.Id == persia.Id) && AiWorldService.EnemiesOf(s, persia).Any(n => n.Id == france.Id), "each is the other's enemy");
+    Check(AiWorldService.InWar(s, france, persia) && !AiWorldService.InWar(s, france, Ai(eng, "spain")), "an army may fight a country it is at war with, not another");
+}
+
+{
+    // Allies: those of the attacked country usually join; those of the attacker sometimes do; one that has soured ignores the call.
+    int defenderJoined = 0, attackerJoined = 0;
+    for (int seed = 1; seed <= 20; seed++)
+    {
+        using var e = NewDipEngine(200 + seed);
+        var s = e.State; s.AiWorldStartDate = s.CurrentDate;
+        var france = Ai(e, "france"); var persia = Ai(e, "persia"); var spain = Ai(e, "spain"); var mughal = Ai(e, "mughal");
+        TreatyService.Add(s, TreatyType.DefensiveAlliance, spain, persia);
+        TreatyService.Add(s, TreatyType.DefensiveAlliance, mughal, france);
+        AiWorldService.AddRelation(s, spain, persia, 300); AiWorldService.AddRelation(s, mughal, france, 300);
+        AiWorldService.DeclareWar(s, france, persia, new Random(seed));
+        if (s.Wars.Any(w => w.AggressorId == france.Id && w.DefenderId == spain.Id)) defenderJoined++;
+        if (s.Wars.Any(w => w.AggressorId == mughal.Id && w.DefenderId == persia.Id)) attackerJoined++;
+    }
+    Check(defenderJoined >= 12, $"an ally of the attacked country usually joins ({defenderJoined} of 20)");
+    Check(attackerJoined >= 1 && attackerJoined <= 12 && attackerJoined < defenderJoined, $"an ally of the attacker joins less often ({attackerJoined} of 20)");
+
+    using var eng = NewDipEngine(88);
+    var st = eng.State; st.AiWorldStartDate = st.CurrentDate;
+    var f = Ai(eng, "france"); var pe = Ai(eng, "persia"); var jp = Ai(eng, "japan");
+    TreatyService.Add(st, TreatyType.DefensiveAlliance, jp, pe);
+    AiWorldService.AddRelation(st, jp, pe, -300);   // the alliance has soured
+    AiWorldService.DeclareWar(st, f, pe, new Random(1));
+    Check(!st.Wars.Any(w => w.DefenderId == jp.Id), "an ally that no longer cares ignores the call");
+    Check(AiWorldService.AlliesOf(st, pe).Any(n => n.Id == jp.Id) && AiWorldService.AlliesOf(st, pe).All(n => !n.IsPlayer), "(allies are listed without the player)");
+}
+
+using (var eng = NewDipEngine(89))
+{
+    // Armies march, fight and the war ends in peace.
+    var s = eng.State; s.AiWorldStartDate = s.CurrentDate;
+    var france = Ai(eng, "france"); var persia = Ai(eng, "persia");
+    france.Units = UnitCatalog.SeedArmy(9000); persia.Units = UnitCatalog.SeedArmy(8000);
+    AiWorldService.DeclareWar(s, france, persia, new Random(1));
+    for (int i = 0; i < 200; i++) { s.PlayerNation.Gold = 1_000_000_000; eng.AdvanceOneDay(); }
+    Check(s.Movements.Any(m => m.Kind == MovementKind.March && m.Status == MovementStatus.UnderWay && ((m.FromId == france.Id && m.ToId == persia.Id) || (m.FromId == persia.Id && m.ToId == france.Id))),
+        "the two sides send armies against each other");
+    Check(s.Movements.Any(m => m.Kind == MovementKind.March && m.Status == MovementStatus.Completed && m.Text.Contains("vs")), "their armies fight a battle, and it is recorded");
+    Check(s.OtherNations.All(n => n.Soldiers >= 0), "no army ever goes below zero");
+}
+
+using (var eng = NewDipEngine(90))
+{
+    // A war that has worn both sides out ends in peace.
+    var s = eng.State; s.AiWorldStartDate = s.CurrentDate;
+    var france = Ai(eng, "france"); var persia = Ai(eng, "persia");
+    france.Units = UnitCatalog.SeedArmy(300); persia.Units = UnitCatalog.SeedArmy(300);
+    france.BaseSoldiers = 0; persia.BaseSoldiers = 0;   // (no recruiting, so they stay worn out)
+    AiWorldService.DeclareWar(s, france, persia, new Random(1));
+    for (int i = 0; i < 40; i++) { s.PlayerNation.Gold = 1_000_000_000; eng.AdvanceOneDay(); }
+    Check(!AiWorldService.AtWar(s, france.Id, persia.Id) && HasLog(eng, "France and Iran made peace"), "a war between exhausted countries ends in peace");
+    // (regard fades back toward its starting value by 0.05 a day after the peace, so allow a point or two)
+    Check(Math.Abs(AiWorldService.Relation(s, france, persia) - Balance.AiWarPeaceRelation) < 3 && AiWorldService.Motives(s, france, persia).Grudge < 0.03,
+        "and leaves them neutral, with no grudge left to start the war again");
+}
+
+using (var eng = NewDipEngine(91))
+{
+    // AI countries pick the player as a target: hostile and stronger, within reach.
+    var s = eng.State; s.AiWorldStartDate = s.CurrentDate; var p = s.PlayerNation;
+    var near = s.OtherNations.Where(n => AiWorldService.Distance(n, p) <= Balance.AiWarRange).OrderBy(n => AiWorldService.Distance(n, p)).First();
+    near.Units = UnitCatalog.SeedArmy(200_000);
+    // (An AI country picks its juiciest target, and weaker AI neighbours would outrank the player: move the others out of reach.)
+    foreach (var other in s.OtherNations.Where(n => n.Id != near.Id)) other.MapX += 100_000;
+    for (int i = 0; i < 4000 && !near.AtWarWithPlayer; i++)
+    {
+        near.RelationToPlayer = -60;   // (hostile: peace-time drift would otherwise cool it)
+        p.Gold = 1_000_000_000_000;
+        eng.AdvanceOneDay();
+    }
+    Check(near.AtWarWithPlayer, $"a hostile, much stronger neighbour ({near.Name}) eventually declares war on the player");
+    Check(s.Movements.Any(m => m.Kind == MovementKind.War && m.FromId == near.Id && m.ToId == p.Id && m.Text.Contains("declared war")), "the declaration is recorded");
+    Check(s.ActiveWarnings.Any(w => w.Contains("DECLARED WAR")), "and the player is warned");
+}
+
+using (var eng = NewDipEngine(92))
+{
+    // An attack on the player's ally is flagged to the player.
+    var s = eng.State; s.AiWorldStartDate = s.CurrentDate; var p = s.PlayerNation;
+    var persia = Ai(eng, "persia"); var france = Ai(eng, "france");
+    TreatyService.Add(s, TreatyType.DefensiveAlliance, p, persia);
+    AiWorldService.DeclareWar(s, france, persia, new Random(1));
+    Check(s.ActiveWarnings.Any(w => w.Contains("your ally") && w.Contains("Iran")), "the player is told when an AI country attacks the player's ally");
+
+    // A march between countries that are not at war is called off (nobody may fight without a war).
+    var spain = Ai(eng, "spain"); var mughal = Ai(eng, "mughal");
+    int before = spain.Soldiers;
+    var march = TreatyService.LaunchMarch(s, spain, mughal, 800)!;
+    for (int i = 0; i < march.TotalDays; i++) { p.Gold = 1_000_000_000; eng.AdvanceOneDay(); }
+    Check(!mughal.IsEliminated && s.MarchingArmies.All(m => m.AttackerNationId != spain.Id) && HasLog(eng, "march on Mughal Empire was called off"), "an army sent against a country it is not at war with is called off");
+}
+
+Console.WriteLine("== 51. Wars from motives: any country may attack any other ==");
+
+// Two countries side by side, neutral toward each other: the setting the motive tests start from.
+void Neighbours(GameState st, Nation a, Nation b, double regard = 0)
+{
+    b.MapX = a.MapX + 40; b.MapY = a.MapY;
+    b.Population = a.Population;
+    AiWorldService.SetRelation(st, a, b, regard);
+}
+
+using (var eng = NewDipEngine(100))
+{
+    var s = eng.State; var spain = Ai(eng, "spain"); var persia = Ai(eng, "persia");
+    spain.Units = UnitCatalog.SeedArmy(9000); persia.Units = UnitCatalog.SeedArmy(2000);
+    Neighbours(s, spain, persia);
+    var near = AiWorldService.Motives(s, spain, persia);
+    Check(near.Land > 0.9 && near.Grudge == 0 && near.Duty == 0, $"a populous neighbour is a prize (land {near.Land:0.00}), and there is no grudge between friends of neutral regard");
+    persia.MapX = spain.MapX + 100_000;
+    var far = AiWorldService.Motives(s, spain, persia);
+    Check(far.Land == 0 && far.Fear == 0, "a country beyond reach is neither a prize nor a menace");
+
+    Neighbours(s, spain, persia, -80);
+    Check(Math.Abs(AiWorldService.Motives(s, spain, persia).Grudge - 0.8) < 0.02, "regard below zero is a grudge: -80 gives 0.8");
+    Neighbours(s, spain, persia, 60);
+    Check(AiWorldService.Motives(s, spain, persia).Grudge == 0, "regard above zero is no grudge");
+
+    // Fear: a near neighbour whose army matches one's own, that one is not friendly with.
+    persia.Units = UnitCatalog.SeedArmy(20_000);
+    Neighbours(s, spain, persia, 0);
+    double menace = AiWorldService.Motives(s, spain, persia).Fear;
+    AiWorldService.SetRelation(s, spain, persia, 100);
+    double friend = AiWorldService.Motives(s, spain, persia).Fear;
+    Check(menace > 0.9 && friend < 0.05, $"a strong neighbour is a menace (fear {menace:0.00}), unless it is a close friend (fear {friend:0.00})");
+
+    // Duty: the country is at war with one of the ruler's allies.
+    var mughal = Ai(eng, "mughal");
+    TreatyService.Add(s, TreatyType.DefensiveAlliance, spain, mughal);
+    Check(AiWorldService.Motives(s, spain, persia).Duty == 0, "no duty while nobody is at war");
+    s.Wars.Add(new WarRecord { AggressorId = persia.Id, DefenderId = mughal.Id, StartDate = s.CurrentDate });
+    Check(AiWorldService.Motives(s, spain, persia).Duty == 1, "an enemy of one's ally is a matter of duty");
+}
+
+using (var eng = NewDipEngine(101))
+{
+    // What a war would be for follows the strongest motive.
+    var s = eng.State; var spain = Ai(eng, "spain"); var persia = Ai(eng, "persia");
+    spain.Units = UnitCatalog.SeedArmy(9000);
+    persia.Units = UnitCatalog.SeedArmy(1500);
+    Neighbours(s, spain, persia, 10);
+    Check(AiWorldService.Motives(s, spain, persia).Aim == WarAim.Conquest, "a rich, weak neighbour: a war of conquest");
+    persia.Population = spain.Population / 20; persia.Units = UnitCatalog.SeedArmy(1500);
+    AiWorldService.SetRelation(s, spain, persia, -85);
+    Check(AiWorldService.Motives(s, spain, persia).Aim == WarAim.Humiliation, "a hated but small rival: a war to humble it");
+    persia.Units = UnitCatalog.SeedArmy(30_000);
+    AiWorldService.SetRelation(s, spain, persia, 0);
+    Check(AiWorldService.Motives(s, spain, persia).Aim == WarAim.Containment, "a small but heavily armed neighbour: a war to contain it");
+    persia.MapX = spain.MapX + 100_000;
+    Check(AiWorldService.Motives(s, spain, persia).Aim == WarAim.Containment, "no motive at all ends in a white peace, never a conquest");
+}
+
+using (var eng = NewDipEngine(102))
+{
+    // A weaker country does weigh a war on a stronger one: it is rarer, not forbidden, and allies tip the odds.
+    var s = eng.State; var spain = Ai(eng, "spain"); var persia = Ai(eng, "persia");
+    spain.Units = UnitCatalog.SeedArmy(3000); persia.Units = UnitCatalog.SeedArmy(12_000);
+    Neighbours(s, spain, persia, -70);
+    double weak = AiWorldService.Appetite(s, spain, persia);
+    double strong = AiWorldService.Appetite(s, persia, spain);
+    Check(weak > 0, $"a country four times weaker still has an appetite for the war ({weak:0.000})");
+    Check(strong > weak * 5, $"...but a stronger country wants the same war far more ({strong:0.00} against {weak:0.000})");
+    Check(AiWorldService.Confidence(0.2) > 0 && AiWorldService.Confidence(0.2) < AiWorldService.Confidence(1) && AiWorldService.Confidence(1) < AiWorldService.Confidence(5)
+          && Math.Abs(AiWorldService.Confidence(1) - 0.5) < 1e-9, "confidence rises with the odds: never nil, even at even odds, high for a crushing edge");
+
+    foreach (var id in new[] { "france", "mughal", "japan" })
+    {
+        var ally = Ai(eng, id);
+        ally.Units = UnitCatalog.SeedArmy(12_000);
+        TreatyService.Add(s, TreatyType.DefensiveAlliance, spain, ally);
+    }
+    double backed = AiWorldService.Appetite(s, spain, persia);
+    Check(backed > weak * 4, $"three strong allies make the same war far more tempting ({backed:0.00} against {weak:0.000})");
+}
+
+using (var eng = NewDipEngine(103))
+{
+    // End to end: a weaker, hostile country with strong allies declares war on a stronger neighbour.
+    var s = eng.State; s.AiWorldStartDate = s.CurrentDate; var p = s.PlayerNation;
+    var spain = Ai(eng, "spain"); var persia = Ai(eng, "persia");
+    foreach (var n in s.OtherNations.Where(n => n.Id != spain.Id && n.Id != persia.Id)) n.MapX += 100_000;   // (nobody else is within reach)
+    p.MapX += 100_000;
+    spain.Units = UnitCatalog.SeedArmy(5000); persia.Units = UnitCatalog.SeedArmy(9000);
+    spain.BaseSoldiers = 5000; persia.BaseSoldiers = 9000;
+    Neighbours(s, spain, persia, -100);
+    foreach (var id in new[] { "france", "mughal", "japan" })
+    {
+        var ally = Ai(eng, id); ally.Units = UnitCatalog.SeedArmy(15_000); ally.BaseSoldiers = 15_000;
+        TreatyService.Add(s, TreatyType.DefensiveAlliance, spain, ally);
+    }
+    int day = 0;
+    for (; day < 10_000 && !AiWorldService.AtWar(s, spain.Id, persia.Id); day++)
+    {
+        AiWorldService.SetRelation(s, spain, persia, -100);   // (a standing grudge: peace-time drift would cool it)
+        p.Gold = 1e12;
+        eng.AdvanceOneDay();
+    }
+    var declared = s.Wars.FirstOrDefault(w => w.AggressorId == spain.Id && w.DefenderId == persia.Id);
+    Check(declared is not null && spain.Soldiers < persia.Soldiers, $"the weaker country declared war on the stronger one (after {day} days)");
+    Check(declared?.Aim == WarAim.Humiliation && HasLog(eng, "declared war on Iran — to humble a hated rival"), "for the reason a ruler would give: a grudge, recorded as the war's aim and shown in the Movement Report");
+}
+
+using (var eng = NewDipEngine(104))
+{
+    // The war's aim is fixed when it is declared, whatever happens to the countries' regard afterwards.
+    var s = eng.State; s.AiWorldStartDate = s.CurrentDate;
+    var spain = Ai(eng, "spain"); var persia = Ai(eng, "persia");
+    spain.Units = UnitCatalog.SeedArmy(9000); persia.Units = UnitCatalog.SeedArmy(1500);
+    Neighbours(s, spain, persia, 10);
+    AiWorldService.DeclareWar(s, spain, persia, new Random(1));
+    var war = s.Wars.Single(w => w.Links(spain.Id, persia.Id));
+    Check(war.Aim == WarAim.Conquest && HasLog(eng, "declared war on Iran — it covets its lands"), "a war declared for land is a war of conquest");
+    AiWorldService.SetRelation(s, spain, persia, -100);
+    Check(AiWorldService.Motives(s, spain, persia).Aim != WarAim.Conquest && war.Aim == WarAim.Conquest, "later hatred changes what the ruler would want now, but not what this war was fought for");
+}
+
+using (var eng = NewDipEngine(105))
+{
+    // No limit on alliances: six friends side by side end up allied with each other, five alliances each.
+    var s = eng.State; s.AiWorldStartDate = s.CurrentDate; var p = s.PlayerNation;
+    var ids = new[] { "france", "spain", "persia", "mughal", "japan", "russia" };
+    var club = ids.Select(id => Ai(eng, id)).ToList();
+    foreach (var n in s.OtherNations.Except(club)) n.MapX += 100_000;
+    p.MapX += 100_000;
+    foreach (var n in club) { n.MapX = club[0].MapX; n.MapY = club[0].MapY; }
+    for (int i = 0; i < club.Count; i++)
+        for (int j = i + 1; j < club.Count; j++)
+        {
+            AiWorldService.AddRelation(s, club[i], club[j], 200);
+            TreatyService.Add(s, TreatyType.NonAggression, club[i], club[j], 20_000);   // (no war breaks the friendship before the alliances are made)
+        }
+    for (int i = 0; i < 3000; i++) { p.Gold = 1e12; eng.AdvanceOneDay(); }
+    var counts = club.Select(n => AiWorldService.AlliesOf(s, n).Count).ToList();
+    Check(counts.All(c => c == club.Count - 1), $"every country allied with all five friends (allies each: {string.Join(", ", counts)})");
+    Check(s.Treaties.Count(t => t.Type == TreatyType.DefensiveAlliance && club.Any(n => t.Involves(n.Id))) == club.Count * (club.Count - 1) / 2, "fifteen alliances among the six");
+}
+
+Console.WriteLine("== 52. Winners settle the war by what it was for ==");
+using (var eng = NewDipEngine(93))
+{
+    // Conquest: the winner annexes, and its other wars end with the loser. How strong the loser is does not matter.
+    var s = eng.State; var spain = Ai(eng, "spain"); var france = Ai(eng, "france");
+    spain.Units = UnitCatalog.SeedArmy(4000); france.Units = UnitCatalog.SeedArmy(60_000);
+    var ally = Ai(eng, "persia");
+    s.Wars.Add(new WarRecord { AggressorId = spain.Id, DefenderId = france.Id, StartDate = s.CurrentDate, Aim = WarAim.Conquest });
+    s.Wars.Add(new WarRecord { AggressorId = ally.Id, DefenderId = france.Id, StartDate = s.CurrentDate });
+    bool loserStronger = ArmyHelper.ArmyPower(france.Units) > ArmyHelper.ArmyPower(spain.Units) * 10;
+    VictoryService.ResolveForAi(s, spain, france);
+    Check(loserStronger && france.IsEliminated, "a war of conquest ends in annexation even when the loser's army is many times the winner's: there is no relative-power condition");
+    Check(!s.Wars.Any(w => w.Involves(france.Id)) && !HasLog(eng, "took spoils instead"), "the loser's other wars end with it, and nothing is 'plundered instead'");
+}
+
+using (var eng = NewDipEngine(94))
+{
+    // No cooldown for a winner, no spacing between annexations anywhere: independent wars end in independent annexations, even on one day.
+    var s = eng.State; var spain = Ai(eng, "spain"); var easter = Ai(eng, "easter"); var nepal = Ai(eng, "nepal");
+    var persia = Ai(eng, "persia"); var japan = Ai(eng, "japan");
+    foreach (var (w, l) in new[] { (spain, easter), (spain, nepal), (persia, japan) })
+        s.Wars.Add(new WarRecord { AggressorId = w.Id, DefenderId = l.Id, StartDate = s.CurrentDate, Aim = WarAim.Conquest });
+    VictoryService.ResolveForAi(s, spain, easter);
+    VictoryService.ResolveForAi(s, spain, nepal);
+    VictoryService.ResolveForAi(s, persia, japan);
+    Check(easter.IsEliminated && nepal.IsEliminated && japan.IsEliminated, "one winner annexes two countries back to back, and another annexes on the same day");
+}
+
+using (var eng = NewDipEngine(95))
+{
+    // Humiliation: the loser's wealth is taken, it survives, and the war ends.
+    var s = eng.State; var spain = Ai(eng, "spain"); var france = Ai(eng, "france");
+    s.Wars.Add(new WarRecord { AggressorId = spain.Id, DefenderId = france.Id, StartDate = s.CurrentDate, Aim = WarAim.Humiliation });
+    double w0 = spain.Gold, l0 = france.Gold;
+    VictoryService.ResolveForAi(s, spain, france);
+    double taken = Math.Floor(l0 * Balance.VictorySpoilsFraction);
+    Check(!france.IsEliminated && Math.Abs(spain.Gold - (w0 + taken)) < 0.01 && Math.Abs(france.Gold - (l0 - taken)) < 0.01, "a war to humble a rival takes its wealth and leaves it standing");
+    Check(!AiWorldService.AtWar(s, spain.Id, france.Id) && HasLog(eng, "the rival is humbled"), "the war between them ends");
+    Check(Math.Abs(AiWorldService.Relation(s, spain, france) - Balance.AiWarPeaceRelation) < 0.5, "leaving them at the post-war regard");
+}
+
+using (var eng = NewDipEngine(96))
+{
+    // Containment: the menace is beaten back; nothing is taken.
+    var s = eng.State; var spain = Ai(eng, "spain"); var france = Ai(eng, "france");
+    s.Wars.Add(new WarRecord { AggressorId = spain.Id, DefenderId = france.Id, StartDate = s.CurrentDate, Aim = WarAim.Containment });
+    double w0 = spain.Gold, l0 = france.Gold;
+    VictoryService.ResolveForAi(s, spain, france);
+    Check(!france.IsEliminated && spain.Gold == w0 && france.Gold == l0, "a war to contain a menace takes nothing");
+    Check(!AiWorldService.AtWar(s, spain.Id, france.Id) && HasLog(eng, "the threat is broken"), "and ends in a white peace");
+}
+
+using (var eng = NewDipEngine(97))
+{
+    // A conquest the Assembly or a guarantee forbids is not converted into plunder: the battle is won, the war goes on.
+    var s = eng.State; var spain = Ai(eng, "spain"); var easter = Ai(eng, "easter");
+    s.Wars.Add(new WarRecord { AggressorId = spain.Id, DefenderId = easter.Id, StartDate = s.CurrentDate, Aim = WarAim.Conquest });
+    var guarantee = TreatyService.Add(s, TreatyType.SovereigntyGuarantee, s.PlayerNation, easter, 730);
+    double w0 = spain.Gold, l0 = easter.Gold;
+    VictoryService.ResolveForAi(s, spain, easter);
+    Check(!easter.IsEliminated && HasLog(eng, "cannot annex it"), "a protected country is not annexed, and the refusal is logged");
+    Check(spain.Gold == w0 && easter.Gold == l0 && AiWorldService.AtWar(s, spain.Id, easter.Id), "nothing is taken instead, and the war goes on");
+    s.Treaties.Remove(guarantee);
+    VictoryService.ResolveForAi(s, spain, easter);
+    Check(easter.IsEliminated, "once the protection ends, the next victory annexes it");
+}
+
+using (var eng = NewDipEngine(106))
+{
+    // The aim is the one the aggressor went to war for, not what it feels at the moment of victory.
+    var s = eng.State; var spain = Ai(eng, "spain"); var easter = Ai(eng, "easter");
+    Neighbours(s, spain, easter, -100);   // (it now hates the country: left to its present motives it would only plunder)
+    s.Wars.Add(new WarRecord { AggressorId = spain.Id, DefenderId = easter.Id, StartDate = s.CurrentDate, Aim = WarAim.Conquest });
+    VictoryService.ResolveForAi(s, spain, easter);
+    Check(easter.IsEliminated, "a war that was declared for conquest ends in conquest");
+}
+
+using (var eng = NewDipEngine(107))
+{
+    // A defender that wins, or an ally with no war of its own, has no declared aim: its motives of the moment decide.
+    var s = eng.State; var spain = Ai(eng, "spain"); var france = Ai(eng, "france");
+    Neighbours(s, spain, france, -100);
+    france.Population = spain.Population / 30; france.Units = UnitCatalog.SeedArmy(500);
+    Check(AiWorldService.Motives(s, spain, france).Aim == WarAim.Humiliation, "(the defender hates its invader and has little to gain from its land)");
+    s.Wars.Add(new WarRecord { AggressorId = france.Id, DefenderId = spain.Id, StartDate = s.CurrentDate, Aim = WarAim.Conquest });
+    double w0 = spain.Gold, l0 = france.Gold;
+    VictoryService.ResolveForAi(s, spain, france);   // spain, the defender, wins the field
+    Check(!france.IsEliminated && spain.Gold > w0 && france.Gold < l0 && !AiWorldService.AtWar(s, spain.Id, france.Id),
+        "the defender does not inherit the invader's aim: it humbles it for its hatred instead");
+
+    var persia = Ai(eng, "persia"); var easter = Ai(eng, "easter");
+    persia.MapX = easter.MapX + 100_000;   // (out of reach, and on neutral terms: no motive at all)
+    AiWorldService.SetRelation(s, persia, easter, 20);
+    double persiaGold = persia.Gold;
+    VictoryService.ResolveForAi(s, persia, easter);
+    Check(!easter.IsEliminated && persia.Gold == persiaGold, "an ally that wins a battle in someone else's war, with no motive of its own, annexes and takes nothing");
+}
+
+Console.WriteLine("== 53. The AI world over four years: stability, determinism, independence, saves ==");
+(List<string> Events, int Eliminated, int Declarations, int Alliances, int Peaces, bool Ok, string Problem) RunWorld(int seed)
+{
+    using var eng = NewDipEngine(seed);
+    var s = eng.State; s.AiWorldStartDate = s.CurrentDate;
+    bool ok = true; string problem = "";
+    for (int i = 1; i <= 1460; i++)
+    {
+        s.PlayerNation.Gold = 1_000_000_000_000;
+        eng.AdvanceOneDay();
+        if (i % 30 != 0) continue;
+        foreach (var w in s.Wars)
+        {
+            var a = s.OtherNations.FirstOrDefault(n => n.Id == w.AggressorId); var b = s.OtherNations.FirstOrDefault(n => n.Id == w.DefenderId);
+            if (a is null || b is null || a.IsEliminated || b.IsEliminated) { ok = false; problem = "a war involves a country that no longer exists"; }
+            else if (AiWorldService.Allied(s, a.Id, b.Id)) { ok = false; problem = $"allies {a.Name} and {b.Name} are at war"; }
+        }
+        if (s.Wars.GroupBy(w => AiWorldService.PairKey(w.AggressorId, w.DefenderId)).Any(g => g.Count() > 1)) { ok = false; problem = "two wars between the same pair"; }
+        if (s.OtherNations.Any(n => n.Soldiers < 0 || n.Population < 0 || n.Gold < 0)) { ok = false; problem = "a negative army, population or treasury"; }
+        if (s.OtherNations.Where(n => n.IsEliminated).Any(n => s.Treaties.Any(t => t.Involves(n.Id)))) { ok = false; problem = "an eliminated country still has treaties"; }
+    }
+    var events = s.Movements.Select(m => $"{m.Date:yyyy-MM-dd} {m.Kind} {m.Text}").ToList();
+    return (events, s.OtherNations.Count(n => n.IsEliminated),
+        s.Movements.Count(m => m.Kind == MovementKind.War && m.Text.Contains("declared war") && m.ToId != s.PlayerNation.Id),
+        s.Movements.Count(m => m.Text.Contains("formed a defensive alliance")),
+        s.Movements.Count(m => m.Text.Contains("made peace")), ok, problem);
+}
+{
+    var runA = RunWorld(301);
+    var runB = RunWorld(301);
+    Check(runA.Ok, "four years of AI world: every invariant held at every month-end (" + runA.Problem + ")");
+    Check(runA.Declarations >= 8 && runA.Alliances >= 6 && runA.Peaces >= 4, $"the world is alive: {runA.Declarations} wars declared, {runA.Alliances} alliances formed, {runA.Peaces} peaces made");
+    Check(runA.Eliminated >= 1 && runA.Eliminated <= 10, $"...but not a bloodbath: {runA.Eliminated} of 40 countries eliminated in four years");
+    Check(runA.Events.SequenceEqual(runB.Events), "the same seed gives the same history, event for event (determinism)");
+    Check(!RunWorld(302).Events.SequenceEqual(runA.Events), "a different seed gives a different history");
+}
+
+{
+    // The AI world never disturbs the rolls the rest of the simulation makes.
+    var simA = new SimulationService(seed: 5); var simB = new SimulationService(seed: 5);
+    using var engA = new GameEngine(simA, new SaveService(saveFolder));
+    using var engB = new GameEngine(simB, new SaveService(saveFolder));
+    engB.State.AiWorldStartDate = engB.State.CurrentDate;   // B has a living world, A a calm one
+    for (int i = 0; i < 200; i++) { engA.State.PlayerNation.Gold = 1e12; engB.State.PlayerNation.Gold = 1e12; engA.AdvanceOneDay(); engB.AdvanceOneDay(); }
+    Check(engB.State.Movements.Any(m => m.Text.Contains("declared war") || m.Text.Contains("formed a defensive alliance")), "(B's world really was active)");
+    Check(!engA.State.Movements.Any(m => m.Text.Contains("declared war") || m.Text.Contains("formed a defensive alliance")), "(and A's world really was calm)");
+    Check(simA.NextDouble() == simB.NextDouble(), "the main random stream is untouched by the AI world");
+}
+
+using (var eng = NewDipEngine(98))
+{
+    // Eliminated countries leave no wars or alliances behind; the world is visible in the Movement Report.
+    var s = eng.State; s.AiWorldStartDate = s.CurrentDate;
+    var persia = Ai(eng, "persia"); var france = Ai(eng, "france"); var spain = Ai(eng, "spain"); var mughal = Ai(eng, "mughal");
+    TreatyService.Add(s, TreatyType.DefensiveAlliance, persia, mughal);
+    AiWorldService.DeclareWar(s, france, persia, new Random(1));
+    s.Wars.Add(new WarRecord { AggressorId = persia.Id, DefenderId = spain.Id, StartDate = s.CurrentDate });
+    var seen = MovementReport.Events(s, persia.Id);
+    Check(seen.Any(m => m.Text.Contains("declared war")) && MovementReport.EventsByState(s).Any(g => g.StateId == france.Id), "AI-to-AI events show in the Movement Report, under the country that acted");
+    Warfare.AnnexNation(s, spain, persia);
+    Check(!s.Wars.Any(w => w.Involves(persia.Id)) && !s.Treaties.Any(t => t.Involves(persia.Id)), "annexing a country ends its wars and alliances");
+}
+
+using (var eng = NewDipEngine(99))
+{
+    // Save / load of the AI world; old saves load calm.
+    var s = eng.State; s.AiWorldStartDate = s.CurrentDate;
+    for (int i = 0; i < 250; i++) { s.PlayerNation.Gold = 1e12; eng.AdvanceOneDay(); }
+    // Two wars with known aims (one without), so the aim is part of what is saved whatever the world happened to do.
+    var easter = Ai(eng, "easter"); var nepal = Ai(eng, "nepal"); var japan = Ai(eng, "japan");
+    s.Wars.RemoveAll(w => w.Involves(easter.Id) || w.Involves(nepal.Id) || w.Involves(japan.Id));
+    s.Wars.Add(new WarRecord { AggressorId = easter.Id, DefenderId = nepal.Id, StartDate = s.CurrentDate, Aim = WarAim.Humiliation });
+    s.Wars.Add(new WarRecord { AggressorId = japan.Id, DefenderId = nepal.Id, StartDate = s.CurrentDate });
+    var wars = s.Wars.Select(w => (w.AggressorId, w.DefenderId, w.StartDate, w.Aim)).ToList();
+    var relations = s.AiRelations.ToDictionary(kv => kv.Key, kv => kv.Value);
+    Check(relations.Count > 0, "(there is AI-world state to save)");
+    var france = Ai(eng, "france"); int fb = france.BaseSoldiers; long fp = france.BasePopulation;
+    await eng.SaveAsync();
+    s.Wars.Clear(); s.AiRelations.Clear(); france.BaseSoldiers = 0;
+    await eng.LoadAsync();
+    var l = eng.State;
+    Check(l.Wars.Select(w => (w.AggressorId, w.DefenderId, w.StartDate, w.Aim)).SequenceEqual(wars), "AI wars survive save / load, with what each was fought for");
+    Check(l.AiRelations.Count == relations.Count && relations.All(kv => Math.Abs(l.AiRelations[kv.Key] - kv.Value) < 1e-9), "AI relations survive save / load");
+    Check(l.AiWorldStartDate == s.AiWorldStartDate && Ai(eng, "france").BaseSoldiers == fb && Ai(eng, "france").BasePopulation == fp,
+        "the AI world's start date and each country's army base survive");
+
+    var node = JsonNode.Parse(JsonSerializer.Serialize(eng.State))!.AsObject();
+    foreach (var key in new[] { "Wars", "AiRelations", "AiWorldStartDate" }) node.Remove(key);
+    foreach (var n in node["OtherNations"]!.AsArray()) { n!.AsObject().Remove("BaseSoldiers"); n.AsObject().Remove("BasePopulation"); }
+    var old = JsonSerializer.Deserialize<GameState>(node.ToJsonString());
+    Check(old is not null && old.Wars.Count == 0 && old.AiRelations.Count == 0 && old.AiWorldStartDate == new DateOnly(1601, 1, 1)
+          && old.OtherNations.All(n => n.BaseSoldiers == 0 && n.BasePopulation == 0), "an old save without the AI world loads calm, with every default");
+
+    // A save from the build that still had the annexation cooldown (the two removed fields) loads without complaint.
+    var older = JsonNode.Parse(JsonSerializer.Serialize(eng.State))!.AsObject();
+    older["LastAiAnnexation"] = "1601-03-01";
+    foreach (var n in older["OtherNations"]!.AsArray()) n!.AsObject()["LastAnnexed"] = "1601-02-01";
+    Check(JsonSerializer.Deserialize<GameState>(older.ToJsonString()) is not null, "a save that still carries the old annexation-cooldown fields loads (they are ignored)");
 }
 
 Console.WriteLine(failures == 0 ? "\nALL CHECKS PASSED" : $"\n{failures} CHECK(S) FAILED");

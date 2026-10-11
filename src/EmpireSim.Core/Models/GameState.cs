@@ -74,7 +74,24 @@ public sealed class GameState
     /// <summary>Everything that moved between states, oldest first (the Movement Report). Capped at <see cref="MaxMovements"/>.</summary>
     public List<MovementRecord> Movements { get; set; } = new();
 
-    public const int MaxMovements = 500;
+    public const int MaxMovements = 1500;   // (the AI world adds a lot of news, so the report keeps more)
+
+    /// <summary>Countries the player has beaten and not yet dealt with: annex, take resources, or let go.</summary>
+    public List<VictoryDecision> PendingVictories { get; set; } = new();
+
+    // ---- The AI world: AI countries live their own lives (see AiWorldService) ----
+
+    /// <summary>Wars between AI countries. (A war with the player is <see cref="Nation.AtWarWithPlayer"/>.)</summary>
+    public List<WarRecord> Wars { get; set; } = new();
+
+    /// <summary>
+    /// How the AI countries' regard for each other has drifted from its starting value, per pair
+    /// (key "idA|idB", ids in alphabetical order). See AiWorldService.Relation.
+    /// </summary>
+    public Dictionary<string, double> AiRelations { get; set; } = new();
+
+    /// <summary>The AI world wakes up on this date: before it, AI countries only farm and keep their armies.</summary>
+    public DateOnly AiWorldStartDate { get; set; } = new DateOnly(1601, 1, 1);
 
     /// <summary>
     /// Records a movement between states for the Movement Report and writes the same line to the event log,
@@ -902,6 +919,11 @@ public sealed class GameState
             // The historical list above keeps only the gold mines: every consumed item's mills are
             // re-sized so the nation starts 30% (big) / 15% (mid) / 10% (small) short of its need.
             ConsumptionService.SeedMills(nation);
+            // ...but that is the PLAYER's starting challenge. Every other country feeds itself (and keeps doing so
+            // as it grows: see AiWorldService), so only the country the player picks begins in shortage.
+            if (!nation.IsPlayer) ConsumptionService.EnsureSupply(nation, Services.Balance.AiSupplyCoverage);
+            nation.BaseSoldiers = nation.Soldiers;
+            nation.BasePopulation = nation.Population;
         }
 
         state.Log($"The campaign begins. Long live {player.Name}!");

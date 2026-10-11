@@ -112,6 +112,30 @@ public static class ConsumptionService
     }
 
     /// <summary>
+    /// Tops the nation's mills up so every consumed item's daily output covers <paramref name="coverage"/> x its daily need
+    /// (rounded up, so every needed item has a mill). This is how AI countries feed their people, and keep feeding them as the
+    /// population grows. Never removes mills. Returns how many mills were added.
+    /// </summary>
+    public static int EnsureSupply(Nation nation, double coverage)
+    {
+        int added = 0;
+        foreach (var spec in ConsumptionCatalog.All)
+        {
+            var mill = ProductionCatalog.All.FirstOrDefault(b => b.Produces == spec.Item);
+            if (mill is null) continue;
+            double perMill = OutputPerMill(nation, mill);
+            double need = DailyNeed(spec, nation.Population);
+            if (perMill <= 0 || need <= 0) continue;
+            int wanted = (int)Math.Ceiling(need * coverage / perMill);
+            int have = nation.GetProductionBuilding(mill.Id);
+            if (have >= wanted) continue;
+            nation.ProductionBuildings[mill.Id] = wanted;
+            added += wanted - have;
+        }
+        return added;
+    }
+
+    /// <summary>
     /// Removes one day of consumption from the nation's stocks (clamped at 0) and
     /// reports how much of each item's need could not be met.
     /// </summary>

@@ -178,6 +178,8 @@ public static class TreatyService
         foreach (var t in state.Treaties.Where(t => t.Involves(loser.Id)).ToList())
             Remove(state, t);
         state.MissionaryInfluence.Remove(loser.Id);
+        state.PendingVictories.RemoveAll(v => v.LoserId == loser.Id);
+        state.Wars.RemoveAll(w => w.Involves(loser.Id));
     }
 
     // ---------------- Troop loans ----------------

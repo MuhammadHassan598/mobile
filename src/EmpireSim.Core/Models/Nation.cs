@@ -25,6 +25,20 @@ public sealed class Nation
 
     /// <summary>Lifetime battles won (statistics).</summary>
     public int BattlesWon { get; set; }
+
+    /// <summary>
+    /// Army size an AI country keeps up (its starting army, growing with its population). It recruits to this
+    /// after losses. 0 = none (the player, and countries from old saves).
+    /// </summary>
+    public int BaseSoldiers { get; set; }
+
+    /// <summary>
+    /// The population <see cref="BaseSoldiers"/> belongs to (its starting population). An AI country's army target grows with
+    /// organic growth only: annexing a country adds that country's base population and base army, nothing more.
+    /// 0 = use the historical population (old saves).
+    /// </summary>
+    public long BasePopulation { get; set; }
+
     public string ColorHex { get; set; } = "#8B0000";
     public bool IsPlayer { get; set; }
 

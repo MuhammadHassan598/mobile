@@ -677,7 +677,7 @@ public sealed partial class GameEngine : IDisposable
 
     /// <summary>
     /// Launches an invasion: the army marches on the target nation and the
-    /// battle resolves on arrival — the winner takes the whole country.
+    /// battle resolves on arrival — the winner then chooses: annex the country, take its resources, or let it go.
     /// Returns (ok, message): an error, or a march confirmation.
     /// </summary>
     public (bool ok, string message) LaunchInvasion(string nationId, int commitCount)
@@ -924,6 +924,7 @@ public sealed partial class GameEngine : IDisposable
         State.PlayerNation.PayGold(Balance.PeaceTributeCost);
         n.AtWarWithPlayer = false;
         n.RelationToPlayer = -20;
+        State.PendingVictories.RemoveAll(v => v.LoserId == n.Id);   // peace made: nothing left to decide
         State.LogMovement(MovementKind.War, MovementStatus.Completed, State.PlayerNation, n, $"You sued for peace with {n.Name} (tribute {Balance.PeaceTributeCost:N0} gold).");
         StateChanged?.Invoke();
         return null;

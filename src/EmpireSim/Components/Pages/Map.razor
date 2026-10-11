@@ -57,7 +57,7 @@
                 @if (!_selectedNation.IsPlayer && !_selectedNation.IsEliminated && _selectedNation.AtWarWithPlayer)
                 {
                     <div class="invade-box">
-                        <div class="invade-title">⚔ Invade @_selectedNation.Name — take the whole country</div>
+                        <div class="invade-title">⚔ Invade @_selectedNation.Name — win, then annex it, take its resources, or let it go</div>
                         <div class="invade-sizes">
                             @foreach (var size in new[] { 500, 2000, 5000 })
                             {

@@ -12,10 +12,17 @@ public sealed class SimulationService
 {
     private readonly Random _rng;
 
+    /// <summary>
+    /// The AI world's own random stream, so AI countries living their lives never disturb the rolls the rest of the
+    /// simulation makes (spy discovery, tribute refusals, AI invasions of the player...).
+    /// </summary>
+    private readonly Random _aiRng;
+
     /// <param name="seed">Fixed seed for deterministic tests. Null = time-based.</param>
     public SimulationService(int? seed = null)
     {
         _rng = seed.HasValue ? new Random(seed.Value) : new Random();
+        _aiRng = seed.HasValue ? new Random(unchecked(seed.Value * 7919 + 104729)) : new Random();
     }
 
     public bool RollChance(double probability) => _rng.NextDouble() < probability;
@@ -33,6 +40,8 @@ public sealed class SimulationService
             AdvanceNation(state, nation);
 
         AdvanceDiplomacy(state);
+        AiWorldService.Advance(state, _aiRng);
+        VictoryService.Advance(state);
         ResearchService.Advance(state);
         AdvanceColonisation(state);
         AdvanceMarches(state);
@@ -368,9 +377,14 @@ public sealed class SimulationService
 
         foreach (var other in state.OtherNations)
         {
+            if (other.IsEliminated) continue;   // a country that no longer exists neither fights nor declares war
+
             if (other.AtWarWithPlayer)
             {
                 other.RelationToPlayer = -100;
+
+                // A country the player has just beaten is waiting to hear its fate: it fights, invades and pleads no more.
+                if (VictoryService.Pending(state, other.Id) is not null) continue;
 
                 // Border skirmishes bleed both armies.
                 ArmyHelper.RemoveSoldiers(player, (int)(player.Soldiers * Balance.WarAttritionPerDay));
@@ -434,13 +448,7 @@ public sealed class SimulationService
                 && TreatyService.ForbidsAttack(state, other.Id, player.Id) is null
                 && RollChance(Balance.AiDeclareWarChancePerDay))
             {
-                other.AtWarWithPlayer = true;
-                other.HasTradePactWithPlayer = false;
-                other.RelationToPlayer = -100;
-                TreatyService.OnWar(state, player, other);
-                state.LogMovement(MovementKind.War, MovementStatus.Completed, other, player, $"{other.Name} declared war on {player.Name}!");
-                state.ActiveWarnings.Add($"⚠ {other.Name} has DECLARED WAR on you!");
-                TreatyService.AllianceDefence(state, other, player);
+                AiWorldService.DeclareWarOnPlayer(state, other);
             }
         }
 
@@ -505,7 +513,7 @@ public sealed class SimulationService
 
             bool recalled = attacker is null || defender is null
                 || attacker.IsEliminated || defender.IsEliminated
-                || !defender.AtWarWithPlayer
+                || !AiWorldService.InWar(state, attacker, defender)
                 || TreatyService.ForbidsAttack(state, attacker.Id, defender.Id) is not null;
             if (recalled)
             {
@@ -522,31 +530,27 @@ public sealed class SimulationService
             }
 
             var def = defender!;
-            var outcome = Warfare.ResolveBattle(march.Force, attacker!, def,
-                attacker!.BattleStrengthMult, _rng);
+            // A battle in the player's war is rolled on the main stream; a war between AI countries on the AI world's own,
+            // so AI countries fighting never disturb the rolls the rest of the simulation makes.
+            var battleRng = attacker!.IsPlayer || def.IsPlayer || def.AtWarWithPlayer ? _rng : _aiRng;
+            var outcome = Warfare.ResolveBattle(march.Force, attacker, def,
+                attacker.BattleStrengthMult, battleRng);
             if (!attacker.IsEliminated)
                 ArmyHelper.MergeStacks(attacker, outcome.AttackerSurvivors);
 
-            // A country the Assembly has put off limits (or whose independence is guaranteed) cannot be
-            // annexed: the battle is fought and its casualties stand, but the country survives.
-            string? protectedBy = outcome.AttackerWon ? TreatyService.AnnexationBlock(state, def.Id) : null;
-            if (outcome.AttackerWon && protectedBy is null)
+            // The spoils of a won battle. The player chooses (annex, take resources, or nothing); an AI winner settles the war
+            // by what it was fought for (conquest, humiliation or containment).
+            if (outcome.AttackerWon)
             {
-                Warfare.AnnexNation(state, attacker, def);
-                state.ActiveWarnings.Add($"🏳 {def.Name} has been annexed by {attacker.Name}!");
-            }
-            else if (protectedBy is not null)
-            {
-                state.LogMovement(MovementKind.War, MovementStatus.Failed, attacker, def,
-                    $"{attacker.Name} won the battle but could not annex {def.Name}: {protectedBy}");
-                if (attacker.IsPlayer) state.ActiveWarnings.Add($"🛡 {def.Name} cannot be annexed: {protectedBy}");
+                if (attacker.IsPlayer) VictoryService.Begin(state, attacker, def);
+                else VictoryService.ResolveForAi(state, attacker, def);
             }
 
             if (attacker.IsPlayer)
             {
                 state.LogMovement(MovementKind.March, MovementStatus.Completed, attacker, def, $"{def.Name}: {outcome.Summary}");
                 state.ActiveWarnings.Add(
-                    $"⚔ Battle for {def.Name}: {(outcome.AttackerWon ? "victory — the country is ours" : "defeat")}!");
+                    $"⚔ Battle for {def.Name}: {(outcome.AttackerWon ? "victory — choose its fate (annex, take resources, or nothing)" : "defeat")}!");
             }
             else
             {

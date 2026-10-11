@@ -145,17 +145,22 @@ grace-warning → desertion path. All must print PASS.
   war; Ask Attack needs relations 70+ but no alliance), Give Army, Send a Gift, Improve Relations, Ask for
   Aid, Present a Colony, Missionary Work (uses the existing religions), **Research Contract** (the partner
   shares half its daily research for a year), **Support Sovereignty** (a two-year independence guarantee:
-  nobody may annex the country, you may not attack it) and **Annex** (a country under a third of your
-  power submits, for 10,000 gold, one per 30 days).
+  nobody may annex the country, you may not attack it).
+  **Victory spoils** (`VictoryService`): when the player wins a battle the country is no longer annexed
+  automatically; a banner (on every page, and behind the 🏰 Annex button) offers three choices, each with
+  its own flow — **Annex** (the whole country becomes yours), **Take resources** (30% of its treasury and
+  stocks; it survives, resentful, relations 20) or **Nothing** (white peace; it is grateful, relations 50).
+  Undecided for 30 days it is let go. While the choice waits the beaten country fights, invades and pleads
+  no more. AI winners settle their wars by what the war was fought for (see *A living AI world*).
   Annexation protection is one shared check (`TreatyService.AnnexationBlock`): an Assembly
-  `annexation_ban` policy or a sovereignty guarantee stops invasions from being launched, stops a won
-  battle from annexing, and blocks the Annex action. Military → Allied Assistance now moves troops OUT of
+  `annexation_ban` policy or a sovereignty guarantee stops invasions from being launched and makes the
+  Annex choice unavailable (the other two still work). Military → Allied Assistance now moves troops OUT of
   the ally's army (10%, −2 relations, 30-day cooldown) instead of copying them.
   **Research** (`/research`, 🔬 tile): the player banks 1 point a day + 1 per 10 million people (+ contract
   income) and spends it on 3 technologies (battle strength, trade income, production output). AI
   countries never research, so nothing changes for them.
   Rules live in `GameEngine.Diplomacy.cs`, `TreatyService.cs` and `ResearchService.cs`; numbers in
-  `Balance.cs`; 20 new SimTests sections (28–47).
+  `Balance.cs`; 20 new SimTests sections (28–47), including victory spoils (45).
 - [x] **Movement Report (done)** — the main menu's 🧭 Movements tile opens `/movements`: an **Events** tab
   (every transfer between states — gold, goods, troops, marches, colonies, envoys, missionaries, spies,
   treaties, war and peace — with date, from ➜ to and a Done / Under way / Refused status; saved with the
@@ -163,4 +168,37 @@ grace-warning → desertion path. All must print PASS.
   marching armies, troop loans, shipments, the colony expedition, spy networks, missionaries, embassies,
   with progress and days left). Filter by state; group *By state* or *By date*. Every movement site calls
   `GameState.LogMovement`, which also writes the usual event-log line. Read side: `MovementReport.cs`.
+- [x] **A living AI world (done)** — AI countries are independent of the player and of each other.
+  *Economy:* only the country you pick starts short of food (the 30/15/10% shortage challenge); every other
+  country's mills cover its needs and are topped up as it grows (`ConsumptionService.EnsureSupply`), so AI
+  countries no longer starve; they also rebuild their armies from their treasury toward a target that grows
+  with their population. *Diplomacy and war* (`AiWorldService`): AI countries hold opinions of each other
+  (faith warms, neighbours quarrel), form defensive alliances with every friend in reach (**no limit** on
+  how many), call their allies in (defenders' allies usually join), send armies marching through the normal
+  march/battle system, and make peace (worn out, a long stalemate, or a victory's terms; afterwards regard is
+  neutral so they do not bounce straight back to war).
+  *Any country may go to war with any other in reach* — the stronger on the weaker, the weaker on the
+  stronger, an AI country on the player — **there is no rule about who is stronger**. A ruler weighs
+  *motives* (`AiWorldService.Motives`): **land** (a near, populous country is a prize), **grudge** (regard
+  below zero), **fear** (a near neighbour with an army to match its own, unless it is a friend) and **duty**
+  (the country is at war with one of its allies), against its **chances** (`Edge`/`Confidence`: its army
+  plus the share of its allies' armies that would join, against the garrison it would meet, by the same rule
+  battles are decided by). Appetite = motives × confidence; the keenest target is picked and the war
+  declared at a steady pace (`AiWarPressure`). A weaker country is held back by poor odds, never barred, and
+  allies tip the odds. The reason is shown in the Movement Report ("declared war on X — to humble a hated
+  rival"). Treaties (alliance, non-aggression pact, guarantee) and a war already on still forbid attacks.
+  *What a war ends in* follows from what it was **for** (`WarAim`, the heaviest motive when it was declared,
+  stored on the war): a war for **land** ends in **annexation** the first time the aggressor wins a battle; a
+  war of **grudge** takes the loser's resources and ends in peace; a war of **fear** is a white peace once the
+  menace is beaten back. A defender that wins, or an ally with no war of its own, judges by its motives at
+  that moment. Annexation depends on nothing but the war — **no relative-power percentage, no per-winner
+  cooldown, no world-wide spacing, no forced plunder when a conquest is not possible**: if the Assembly or a
+  sovereignty guarantee forbids annexing (a real game rule) the battle is won and the war goes on. The world
+  wakes up on 01-01-1601 (a calm first year), runs on its own random stream (so the rest of the simulation is
+  unchanged), and every event appears in the Movement Report ("All states" = world news, or "Only my
+  nation"). A country's panel lists its allies and who it is at war with. Typical result over 5 years:
+  2–7 of 40 countries eliminated, 25–30 wars (mostly ending in tribute or a white peace), ~39 alliances, no
+  shortages; over 15 years the map settles into several rival powers. A completely passive player keeps their
+  country for 5 years in about two worlds out of three. All numbers are in `Balance.cs` (`Ai*`); the only
+  remaining limit on an AI country's own wars is `AiMaxWars` (one war it started itself at a time).
 - [ ] Tune everything in `Balance.cs`.

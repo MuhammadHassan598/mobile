@@ -73,7 +73,7 @@ public static class Warfare
 
         string summary = won
             ? $"Victory over {defender.Name}! {committed:N0} attacked, {committed - survivors:N0} fallen; " +
-              $"the enemy lost {defenderCasualties:N0}. The whole country is ours."
+              $"the enemy lost {defenderCasualties:N0}. Its defence is broken."
             : $"Defeat against {defender.Name}. {committed:N0} attacked, {committed - survivors:N0} fallen; " +
               $"the enemy lost {defenderCasualties:N0}. Our survivors retreat.";
 
@@ -126,6 +126,11 @@ public static class Warfare
             winner.AddProduct(item, amount);
         foreach (var (millId, count) in loser.ProductionBuildings)
             winner.ProductionBuildings[millId] = winner.GetProductionBuilding(millId) + count;
+
+        // An AI winner's army target grows with what it absorbed, not with the absorbed people alone.
+        winner.BaseSoldiers += loser.BaseSoldiers;
+        winner.BasePopulation = (winner.BasePopulation > 0 ? winner.BasePopulation : winner.HistoricalPopulation)
+                              + (loser.BasePopulation > 0 ? loser.BasePopulation : loser.HistoricalPopulation);
 
         winner.Farms += loser.Farms;
         winner.Mines += loser.Mines;

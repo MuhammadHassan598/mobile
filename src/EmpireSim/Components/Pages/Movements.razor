@@ -90,7 +90,10 @@
         <div class="mov-panel" @onclick:stopPropagation>
             <div class="mov-panel-title">Show movements of</div>
             <button class="mov-pick @(_stateId is null ? "active" : "")" @onclick="() => Pick(null)">
-                <span class="mov-pick-emblem">🌍</span><span class="mov-pick-name">All states</span>
+                <span class="mov-pick-emblem">🌍</span><span class="mov-pick-name">All states (world news)</span>
+            </button>
+            <button class="mov-pick @(_stateId == Engine.State.PlayerNation.Id ? "active" : "")" @onclick="() => Pick(Engine.State.PlayerNation.Id)">
+                <span class="mov-pick-emblem">@Engine.State.PlayerNation.Emblem</span><span class="mov-pick-name">Only my nation</span>
             </button>
             @foreach (var n in InvolvedStates())
             {

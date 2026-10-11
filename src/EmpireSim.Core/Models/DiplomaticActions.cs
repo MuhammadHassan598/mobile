@@ -122,8 +122,10 @@ public static class DiplomaticActionCatalog
             $"At peace with them; relations {Balance.AskAttackMinRating}+ (no alliance needed); you are at war with someone else. They must agree.",
             $"They march {Balance.CallToArmsFraction:P0} of their own army on your enemy. Their spoils are their own. Cooldown {Balance.AskAttackCooldownDays} days."),
         new(Annex, "Annex", "🏰", DiplomaticTab.Hostile,
-            $"Your military power is more than {Balance.AnnexPowerRatio:0}x theirs; {Currency.Cost(Balance.AnnexCost)}; not guaranteed, Assembly-protected or bound to you by a pact or alliance; one annexation per {Balance.AnnexCooldownDays} days.",
-            "They submit at once: their people, treasury, resources, buildings and lands become yours, and they cease to exist."),
+            "You have just won a battle against them (winning is what earns the choice).",
+            $"Choose how to end the war. Annex: the whole country becomes yours (not while the Assembly or a guarantee protects it). " +
+            $"Take resources: {Balance.VictorySpoilsFraction:P0} of its treasury and stocks, it survives resentful. " +
+            $"Nothing: a white peace, it is grateful. Unanswered for {Balance.VictoryDecisionDays} days, they are let go."),
     };
 
     public static DiplomaticActionSpec? Get(string id) =>

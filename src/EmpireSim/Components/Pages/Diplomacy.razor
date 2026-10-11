@@ -150,6 +150,18 @@
                 <div class="pstat"><span>Religion:</span><b>@p.Religion</b></div>
                 <div class="pstat"><span>Stance:</span><b class="@DiplomacyService.StatusColorClass(status)">@DiplomacyService.StatusName(status) (@rating)</b></div>
                 <div class="pstat"><span>Treaties:</span><b class="pstat-treaties">@TreatySummary(p)</b></div>
+                @{
+                    var worldAllies = AiWorldService.AlliesOf(Engine.State, p);
+                    var worldEnemies = AiWorldService.EnemiesOf(Engine.State, p);
+                }
+                @if (worldAllies.Count > 0)
+                {
+                    <div class="pstat"><span>Allies:</span><b class="pstat-treaties">@string.Join(" · ", worldAllies.Select(a => $"{a.Emblem} {a.Name}"))</b></div>
+                }
+                @if (worldEnemies.Count > 0)
+                {
+                    <div class="pstat"><span>At war with:</span><b class="pstat-treaties lack">@string.Join(" · ", worldEnemies.Select(e => e.IsPlayer ? "⚔ You" : $"{e.Emblem} {e.Name}"))</b></div>
+                }
                 @if (Engine.MissionaryInfluenceOn(p.Id) > 0)
                 {
                     <div class="pstat"><span>Our missionaries:</span><b>@Engine.MissionaryInfluenceOn(p.Id).ToString("N0") / @Balance.MissionaryConversionThreshold.ToString("N0")</b></div>
@@ -367,9 +379,10 @@
                         </div>
                         break;
                     case DiplomaticActionCatalog.Annex:
-                        <div class="sheet-input">
-                            <div class="dip-hint">Military power: yours @DiplomacyService.MilitaryPower(Engine.State.PlayerNation).ToString("N0") · theirs @DiplomacyService.MilitaryPower(t).ToString("N0") (needs more than @Balance.AnnexPowerRatio.ToString("0")x).</div>
-                        </div>
+                        @if (Engine.PendingVictory(t.Id) is { } victory)
+                        {
+                            <VictoryChoices Decision="victory" OnResolved="OnVictoryResolved" />
+                        }
                         break;
                     case DiplomaticActionCatalog.Missionary:
                         <div class="sheet-input">
@@ -401,8 +414,9 @@
                 {
                     <button class="popup-btn danger" @onclick="CancelTreatyClick">@(_armed ? "CONFIRM CANCEL" : "CANCEL TREATY")</button>
                 }
-                else
+                else if (sp.Id != DiplomaticActionCatalog.Annex)
                 {
+                    @* (Annex has its own three buttons: annex, take resources, nothing.) *@
                     <button class="popup-btn confirm" disabled="@(!usable)" @onclick="RunSheet">@ConfirmLabel(sp)</button>
                 }
             </div>
@@ -512,9 +526,15 @@
     private void SetQtyPct(int pct) =>
         _qty = Math.Clamp((int)(Engine.SpareSoldiers * pct / 100.0), 1, Math.Max(1, Engine.SpareSoldiers));
 
-    /// <summary>Soldier transfers, colony gifts and annexations are permanent: they need a second tap.</summary>
+    /// <summary>Soldier transfers and colony gifts are permanent: they need a second tap (annexing has its own in the victory choices).</summary>
     private static bool NeedsConfirm(string id) =>
-        id is DiplomaticActionCatalog.GiveArmy or DiplomaticActionCatalog.PresentColony or DiplomaticActionCatalog.Annex;
+        id is DiplomaticActionCatalog.GiveArmy or DiplomaticActionCatalog.PresentColony;
+
+    private void OnVictoryResolved(DipResult result)
+    {
+        _sheetOutcome = result.Outcome;
+        _sheetMsg = result.Message;
+    }
 
     private static TreatyType? CancelType(string id) => id switch
     {
@@ -575,7 +595,6 @@
             DiplomaticActionCatalog.Research => "PROPOSE CONTRACT",
             DiplomaticActionCatalog.Sovereignty => "GUARANTEE",
             DiplomaticActionCatalog.AskAttack => "ASK TO ATTACK",
-            DiplomaticActionCatalog.Annex => "ANNEX",
             _ => "CONFIRM"
         };
     }
@@ -608,7 +627,6 @@
             DiplomaticActionCatalog.Aid => Engine.AskForAid(t.Id, _aidRes),
             DiplomaticActionCatalog.Sovereignty => Engine.ProposeSovereigntyGuarantee(t.Id),
             DiplomaticActionCatalog.AskAttack => Engine.AskToAttack(t.Id, _enemyId),
-            DiplomaticActionCatalog.Annex => Engine.AnnexCountry(t.Id),
             DiplomaticActionCatalog.PresentColony => Engine.PresentColonyTo(t.Id, _colonyId),
             DiplomaticActionCatalog.Missionary => Engine.SendMissionary(t.Id),
             _ => DipResult.Invalid("Unknown action.")

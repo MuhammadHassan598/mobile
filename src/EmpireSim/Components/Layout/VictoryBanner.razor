@@ -1,0 +1,48 @@
+@using EmpireSim.Core.Models
+@using EmpireSim.Core.Services
+@inject GameEngine Engine
+@implements IDisposable
+
+@* Shown on every page: a won battle waits here until the player decides what to do with the beaten country. *@
+@if (Engine.PendingVictories.Count > 0 || !string.IsNullOrEmpty(_msg))
+{
+    <div class="vban">
+        @if (!string.IsNullOrEmpty(_msg))
+        {
+            <div class="vban-msg @_cls">
+                <span>@_msg</span>
+                <button @onclick="Dismiss" title="Dismiss">✕</button>
+            </div>
+        }
+        @foreach (var decision in Engine.PendingVictories.ToList())
+        {
+            <VictoryChoices @key="decision.Id" Decision="decision" OnResolved="Resolved" />
+        }
+    </div>
+}
+
+@code {
+    private string? _msg;
+    private string _cls = "";
+
+    protected override void OnInitialized() => Engine.StateChanged += OnStateChanged;
+    private void OnStateChanged() => InvokeAsync(StateHasChanged);
+    public void Dispose() => Engine.StateChanged -= OnStateChanged;
+
+    private void Resolved(DipResult result)
+    {
+        _msg = result.Message;
+        _cls = result.Ok ? "done" : "refused";
+    }
+
+    private void Dismiss() => _msg = null;
+}
+
+<style>
+.vban { margin: 0 0 4px; }
+.vban-msg { display: flex; align-items: center; gap: 8px; margin: 8px 8px 0; padding: 8px 10px; border-radius: 6px; font-family: Georgia, serif; font-size: 0.85rem; }
+.vban-msg span { flex: 1; }
+.vban-msg.done { background: #d4edda; color: #155724; border: 1px solid #2e7d32; }
+.vban-msg.refused { background: #f8d7da; color: #721c24; border: 1px solid #8B0000; }
+.vban-msg button { background: none; border: none; cursor: pointer; font-size: 1rem; color: inherit; }
+</style>

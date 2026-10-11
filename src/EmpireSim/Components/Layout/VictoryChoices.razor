@@ -1,0 +1,70 @@
+@using EmpireSim.Core.Models
+@using EmpireSim.Core.Services
+@inject GameEngine Engine
+
+@{
+    var loser = Engine.State.OtherNations.FirstOrDefault(n => n.Id == Decision.LoserId);
+    string? block = TreatyService.AnnexationBlock(Engine.State, Decision.LoserId);
+    double gold = loser is null ? 0 : Math.Floor(loser.Gold * Balance.VictorySpoilsFraction);
+    int days = Decision.DaysLeft(Engine.State.CurrentDate);
+}
+
+<div class="vic-card">
+    <div class="vic-title">🏆 Victory over @(loser?.Emblem) <b>@Decision.LoserName</b></div>
+    <div class="vic-sub">Choose how to end the war. @days day@(days == 1 ? "" : "s") left; unanswered, they are let go.</div>
+
+    <button class="vic-opt annex @(_armed ? "armed" : "")" disabled="@(block is not null)" @onclick="() => Choose(VictoryChoice.Annex)">
+        <span class="vic-ico">🏰</span>
+        <span class="vic-body">
+            <b>@(_armed ? "Tap again to ANNEX" : "Annex")</b>
+            <small>@(block ?? "The whole country becomes yours: its people, treasury, stocks, buildings and lands. Permanent.")</small>
+        </span>
+    </button>
+    <button class="vic-opt spoils" @onclick="() => Choose(VictoryChoice.Resources)">
+        <span class="vic-ico">💰</span>
+        <span class="vic-body">
+            <b>Take resources</b>
+            <small>@Balance.VictorySpoilsFraction.ToString("P0") of its treasury and stocks (about @gold.ToString("N0") gold). It survives, but resents you.</small>
+        </span>
+    </button>
+    <button class="vic-opt peace" @onclick="() => Choose(VictoryChoice.Nothing)">
+        <span class="vic-ico">🕊️</span>
+        <span class="vic-body">
+            <b>Nothing</b>
+            <small>A white peace: nothing is taken, and they are grateful.</small>
+        </span>
+    </button>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public VictoryDecision Decision { get; set; } = default!;
+
+    /// <summary>Raised with the outcome once a choice has been made (or refused).</summary>
+    [Parameter] public EventCallback<DipResult> OnResolved { get; set; }
+
+    private bool _armed;
+
+    private async Task Choose(VictoryChoice choice)
+    {
+        // Annexing is permanent: it needs a second tap.
+        if (choice == VictoryChoice.Annex && !_armed) { _armed = true; return; }
+        _armed = false;
+        var result = Engine.ResolveVictory(Decision.LoserId, choice);
+        await OnResolved.InvokeAsync(result);
+    }
+}
+
+<style>
+.vic-card { background: linear-gradient(#f5e6c4, #e2cb92); border: 3px double #8b6914; border-radius: 10px; padding: 10px; margin: 8px; font-family: Georgia, serif; color: #3d2b1f; box-shadow: 0 2px 8px rgba(0,0,0,.4); }
+.vic-title { font-size: 1rem; text-align: center; }
+.vic-sub { font-size: 0.78rem; color: #5a4a2a; text-align: center; margin: 2px 0 8px; }
+.vic-opt { display: flex; align-items: center; gap: 10px; width: 100%; margin-bottom: 6px; padding: 8px; text-align: left; cursor: pointer; font-family: inherit; color: #f5e6c4; border: 2px solid #2e1c0c; border-radius: 8px; background: linear-gradient(#7a5230, #4a2e14); }
+.vic-opt.spoils { background: linear-gradient(#7a6a30, #4a3e14); }
+.vic-opt.peace { background: linear-gradient(#4a7a8a, #2e4a5a); }
+.vic-opt.armed { box-shadow: 0 0 10px #ff9800; border-color: #ff9800; }
+.vic-opt:disabled { opacity: 0.5; cursor: not-allowed; }
+.vic-ico { font-size: 1.6rem; width: 36px; text-align: center; flex-shrink: 0; }
+.vic-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.vic-body b { font-size: 0.95rem; }
+.vic-body small { font-size: 0.72rem; opacity: 0.92; line-height: 1.2; }
+</style>

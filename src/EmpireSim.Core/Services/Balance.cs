@@ -158,10 +158,52 @@ public static class Balance
     public const int AskAttackAcceptScore = 70;
     public const int AskAttackCooldownDays = 14;
 
-    // Annex: a country far weaker than you submits and is absorbed whole.
-    public const double AnnexPowerRatio = 3.0;            // your power must exceed theirs by this factor
-    public const double AnnexCost = 10_000;               // settlement paid to the court
-    public const int AnnexCooldownDays = 30;              // between any two annexations
+    // ---- The AI world: AI countries farm, recruit, ally, fight each other and pick targets ----
+    // Economy: only the country the player picks starts short of food; every other country feeds itself.
+    public const double AiSupplyCoverage = 1.15;          // mills cover 115% of need (topped up as the population grows)
+    public const double AiRecruitPerThink = 0.03;         // share of its target army an AI recruits per think (while below target)
+
+    // Cadence and reach.
+    public const int AiThinkIntervalDays = 10;            // each country weighs its options this often (staggered)
+    public const double AiWarRange = 650;                 // map distance between capitals within which countries fight
+    public const double AiNeighbourDistance = 300;        // closer than this, countries quarrel a little more
+    public const double AiRelationDecayPerDay = 0.05;     // drift of wartime/alliance changes back to the starting regard
+
+    // Alliances: a country may ally with every friend within reach (there is no limit on how many).
+    public const double AiAllianceChance = 0.10;          // per think, chance that it looks for a new ally
+    public const double AiAllianceMinRelation = 25;       // -100..100: friends only (in practice, countries of one faith)
+    public const double AiAllianceRelationGain = 15;
+    public const double AiDefenderAllyJoinChance = 0.8;   // an ally of the attacked country joins the war
+    public const double AiAttackerAllyJoinChance = 0.3;   // an ally of the attacker joins the war
+    public const double AiAllyHonorMinRelation = 20;      // below this an ally ignores the call
+
+    // Wars: any country may go to war with any other within reach. Whether it does is a judgement of motives
+    // (land, grudge, fear, duty to an ally) weighed against its chances; nothing is ruled out by relative strength or regard.
+    public const double AiGrudgeWeight = 2.0;             // how much a ruler's dislike of a country weighs in wanting war with it
+    public const double AiLandWeight = 0.5;               // ... how much coveting its lands weighs
+    public const double AiFearWeight = 0.5;               // ... how much fearing its strength weighs
+    public const double AiDutyWeight = 1.0;               // ... how much an ally's war weighs
+    public const double AiWarPressure = 0.008;            // pace: per think, chance that a ruler with the strongest possible appetite declares war (appetite = motives x chances)
+    public const double AiOddsSharpness = 4.0;            // how strongly poor odds hold a ruler back (1 = gently, higher = a gambler's war is rarer)
+    public const int AiMaxWars = 1;                       // wars it starts itself (allies may join more)
+    public const double AiWarRelationHit = -60;           // regard drop when a war is declared
+
+    // Fighting and peace.
+    public const int AiInvasionIntervalDays = 30;         // each side may send an army this often
+    public const double AiInvasionChance = 0.7;
+    public const double AiInvasionCommitFraction = 0.5;   // share of its soldiers an AI army marches with
+    public const int AiPeaceCheckDays = 15;
+    public const double AiPeaceChance = 0.08;
+    public const int AiMinWarForce = 600;                 // a side with fewer soldiers than this wants peace
+    public const int AiMaxWarDays = 540;
+    public const double AiWarPeaceRelation = 0;           // regard after a peace (-100..100): neutral, so no grudge is left to start the same war again
+
+    // Victory: after the player beats a country in battle, the player chooses what to do with it
+    // (annex it, take its resources, or let it go). Each choice has its own flow.
+    public const int VictoryDecisionDays = 30;            // unanswered, the country is let go
+    public const double VictorySpoilsFraction = 0.30;     // share of treasury and stocks taken by "resources"
+    public const int VictorySpoilsMaxRating = 20;         // a plundered country regards you no better than this (0-100)
+    public const int VictoryMercyRating = 50;             // a country you let go starts from neutral
 
     // Sovereignty guarantee: you vouch for a country's independence.
     public const double SovereigntyCost = 2_500;

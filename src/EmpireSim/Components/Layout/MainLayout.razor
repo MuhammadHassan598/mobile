@@ -9,6 +9,7 @@
         @if (!IsMapPage)
         {
             <TopBar />
+            <VictoryBanner />
         }
         <main class="@(IsMapPage ? "map-full" : null)">
             <article class="content @(IsMapPage ? "content-map" : null)">

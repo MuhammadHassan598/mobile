@@ -106,7 +106,7 @@ public sealed partial class GameEngine
         DiplomaticActionCatalog.Missionary => Currency.Cost(Balance.MissionaryCost),
         DiplomaticActionCatalog.Research => Currency.Cost(Balance.ResearchContractCost),
         DiplomaticActionCatalog.Sovereignty => Currency.Cost(Balance.SovereigntyCost),
-        DiplomaticActionCatalog.Annex => Currency.Cost(Balance.AnnexCost),
+        DiplomaticActionCatalog.Annex => "free",
         DiplomaticActionCatalog.Gift => $"from {Currency.Cost(Balance.GiftMinAmount)}",
         _ => "free"
     };
@@ -591,41 +591,35 @@ public sealed partial class GameEngine
         return DipResult.Done($"Your missionaries spread {player.Religion} in {t.Name}: influence {influence:N0} of {Balance.MissionaryConversionThreshold:N0}.");
     }
 
-    // ---------------- Annex ----------------
+    // ---------------- Victory: annex, take resources, or let go ----------------
 
+    /// <summary>Victories over countries the player has beaten and not yet decided about.</summary>
+    public IReadOnlyList<VictoryDecision> PendingVictories => State.PendingVictories;
+
+    /// <summary>The pending victory over a country, if the player has just beaten it.</summary>
+    public VictoryDecision? PendingVictory(string nationId) => VictoryService.Pending(State, nationId);
+
+    /// <summary>Why Annex cannot be used on this country right now (null = a victory over it is waiting for the player's decision).</summary>
     private string? WhyAnnex(Nation? t)
     {
         if (t is null) return "Nation not found.";
         if (t.IsEliminated) return $"{t.Name} no longer exists.";
-        var player = State.PlayerNation;
-        if (TreatyService.AnnexationBlock(State, t.Id) is { } block) return block;
-        if (TreatyService.ForbidsAttack(State, player.Id, t.Id) is { } treaty) return treaty;
-        if (player.DiplomacyCooldowns.TryGetValue("annex_any", out var until) && State.CurrentDate < until)
-            return $"Your court cannot take another country yet: available again in {until.DayNumber - State.CurrentDate.DayNumber} days.";
-        double mine = DiplomacyService.MilitaryPower(player), theirs = DiplomacyService.MilitaryPower(t);
-        if (mine <= theirs * Balance.AnnexPowerRatio)
-            return $"Needs more than {Balance.AnnexPowerRatio:0}x their military power (yours {mine:N0}, theirs {theirs:N0}).";
-        if (!player.CanPay(Balance.AnnexCost))
-            return $"Needs {Currency.Cost(Balance.AnnexCost)} (you have {Currency.Cost(player.Gold)}).";
+        if (VictoryService.Pending(State, t.Id) is null)
+            return $"Win a battle against {t.Name} first: a victory lets you annex them, take their resources, or let them go.";
         return null;
     }
 
     /// <summary>
-    /// Annexes a country that is far weaker than the player (more than <see cref="Balance.AnnexPowerRatio"/>x their power):
-    /// it submits, and its people, treasury, resources, buildings and lands become the player's at once. Not possible against
-    /// a country the Assembly has put off limits, whose independence is guaranteed, or that a pact or alliance protects.
+    /// Decides what to do with a country the player has beaten. Three choices, each with its own flow:
+    /// <see cref="VictoryChoice.Annex"/> absorbs the whole country (refused while the Assembly or a guarantee protects it),
+    /// <see cref="VictoryChoice.Resources"/> takes a share of its treasury and stocks and leaves it standing, resentful,
+    /// <see cref="VictoryChoice.Nothing"/> takes nothing and makes a white peace.
     /// </summary>
-    public DipResult AnnexCountry(string nationId)
+    public DipResult ResolveVictory(string nationId, VictoryChoice choice)
     {
-        var t = FindNation(nationId);
-        if (WhyAnnex(t) is { } why) return DipResult.Invalid(why);
-
-        var player = State.PlayerNation;
-        player.PayGold(Balance.AnnexCost);
-        player.DiplomacyCooldowns["annex_any"] = State.CurrentDate.AddDays(Balance.AnnexCooldownDays);
-        Warfare.AnnexNation(State, player, t!, byBattle: false);
-        StateChanged?.Invoke();
-        return DipResult.Done($"{t!.Name} submits to annexation: its people, treasury and lands are now yours.");
+        var result = VictoryService.Resolve(State, nationId, choice);
+        if (result.Ok) StateChanged?.Invoke();
+        return result;
     }
 
     /// <summary>Current missionary influence over a country (0 if none).</summary>
