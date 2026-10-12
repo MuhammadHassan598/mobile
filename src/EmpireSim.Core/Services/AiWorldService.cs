@@ -163,6 +163,11 @@ public static class AiWorldService
     private static void Think(GameState state, Nation n, Random rng)
     {
         Economy(n);
+        // An AI master governs its annexed territories through the simulation too: it keeps their people fed as it does its own (the
+        // territories' economies themselves are advanced every day, with their tax paid to the master).
+        foreach (var territory in state.AnnexedBy(n.Id))
+            ConsumptionService.EnsureSupply(territory, Balance.AiSupplyCoverage);
+        CommandStaffService.AiAppoint(state, n);   // it fills one vacant post of its own command staff when it can afford it
         TryAlliance(state, n, rng);
         TryWar(state, n, rng);
     }
@@ -180,7 +185,7 @@ public static class AiWorldService
         if (deficit <= 0) return;
 
         int add = Math.Min(deficit, Math.Max(20, (int)(target * Balance.AiRecruitPerThink)));
-        double cost = add * UnitCatalog.Get(UnitType.Musketeer).GoldCost;
+        double cost = add * UnitCatalog.Get(UnitType.Musketeer).GoldCost * CommandStaffService.LandRecruitMult(n);
         if (!n.CanPay(cost)) return;
         n.PayGold(cost);
         ArmyHelper.MergeStacks(n, UnitCatalog.SeedArmy(add));
@@ -220,7 +225,7 @@ public static class AiWorldService
     /// What draws one ruler toward a war with another. Each part runs from 0 to 1 (duty is 0 or 1):
     /// <list type="bullet">
     /// <item><b>Land</b> — the prize: how near the country lies, times how big it is next to the ruler's own (a populous neighbour is worth more than a hamlet).</item>
-    /// <item><b>Grudge</b> — how much the ruler dislikes it (its regard below zero).</item>
+    /// <item><b>Grudge</b> — how much the ruler dislikes it (its regard below zero; toward the player, only what has soured since the start of the game).</item>
     /// <item><b>Fear</b> — the menace: a near neighbour with an army to match the ruler's, that the ruler is not friendly with.</item>
     /// <item><b>Duty</b> — it is at war with one of the ruler's allies.</item>
     /// </list>
@@ -259,7 +264,11 @@ public static class AiWorldService
         double theirPower = ArmyHelper.ArmyPower(m.Units);
 
         double land = reach * Math.Min(1.0, (double)m.Population / Math.Max(1, n.Population));
-        double grudge = Math.Max(0, -regard) / 100.0;
+        // A grudge is dislike that has built up. Toward the player it is only what has soured below the country's historical
+        // level (HistoricalDiplomacy): old bad blood colours diplomacy, but it takes a fresh insult, threat or war to make it a
+        // reason to attack. (With no history — baseline 0 — this is simply the regard below zero.)
+        double owed = m.IsPlayer ? Math.Max(0, n.BaselineRelation - regard) : double.PositiveInfinity;
+        double grudge = Math.Min(Math.Max(0, -regard), owed) / 100.0;
         double fear = reach * Math.Min(1.0, theirPower / myPower) * (1 - Math.Max(0, regard) / 100.0);
         allies ??= AlliesOf(state, n);
         double duty = allies.Any(a => m.IsPlayer ? a.AtWarWithPlayer : AtWar(state, a.Id, m.Id)) ? 1 : 0;
@@ -414,6 +423,7 @@ public static class AiWorldService
         aggressor.HasTradePactWithPlayer = false;
         aggressor.RelationToPlayer = -100;
         TreatyService.OnWar(state, player, aggressor);
+        PeaceService.OnWarStarted(state, aggressor, playerStarted: false);
         state.LogMovement(MovementKind.War, MovementStatus.Completed, aggressor, player,
             reason is null ? $"{aggressor.Name} declared war on {player.Name}!" : $"{aggressor.Name} declared war on {player.Name} — {reason}!",
             inbox: InboxTopic.WarDeclared);

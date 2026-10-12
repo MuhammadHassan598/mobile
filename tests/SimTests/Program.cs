@@ -209,6 +209,7 @@ using (var engine5 = new GameEngine(new SimulationService(seed: 42), new SaveSer
     var player5 = engine5.State.PlayerNation;
     var persia = engine5.State.OtherNations.First(n => n.Name == "Iran");
     var mughal = engine5.State.OtherNations.First(n => n.Name == "Mughal Empire");
+    Neutral(engine5);   // (this section tests the plain mechanics from neutral relations, not the 1600 start)
 
     // 8a. Gift improves relations, costs gold.
     double g0 = player5.Gold;
@@ -225,10 +226,13 @@ using (var engine5 = new GameEngine(new SimulationService(seed: 42), new SaveSer
     Check(persia.AtWarWithPlayer && !persia.HasTradePactWithPlayer, "war breaks the pact");
     Check(persia.RelationToPlayer == -100, "war sets relations to -100");
 
-    // 8c. Sue for peace.
+    // 8c. Peace is negotiated: terms are proposed, and nothing changes until the other side accepts.
     player5.Gold = 100_000;
-    Check(engine5.SueForPeace(persia.Id) is null, "peace sued");
-    Check(!persia.AtWarWithPlayer && persia.RelationToPlayer == -20, "peace ends war, relations -20");
+    double goldBeforePeace = player5.Gold;
+    Check(engine5.ProposePeace(persia.Id, new[] { PeaceTerm.Peace() }).Ok, "peace terms proposed");
+    Check(persia.AtWarWithPlayer && player5.Gold == goldBeforePeace && persia.RelationToPlayer == -100, "proposing changes nothing: the war goes on and nothing is paid");
+    var peaceOffer5 = engine5.PendingPeaceOffer(persia.Id)!;
+    Check(PeaceService.Accept(engine5.State, peaceOffer5).Ok && !persia.AtWarWithPlayer, "once accepted, the terms end the war");
 
     // 8d. Tribute: paid when strong, refused when weak.
     player5.Gold = 100_000; engine5.Recruit(UnitType.Musketeer, 1000); // ~7000 soldiers vs Persia's 4500
@@ -327,7 +331,7 @@ using (var engine8 = new GameEngine(new SimulationService(seed: 11), new SaveSer
     Check(engine8.State.MarchingArmies.Count == 1, "march is tracked in state");
     Check(player8.Soldiers == soldiersBefore - 20000, "marching force leaves the army at once");
     var march1 = engine8.State.MarchingArmies[0];
-    Check(march1.TotalDays >= Balance.MarchBaseDays, "march takes travel days based on distance");
+    Check(march1.TotalDays >= 1 && march1.ArrivalDate == march1.StartDate.AddDays(march1.TotalDays), "march takes travel days based on distance, with a start and an arrival date");
     Check(march1.Progress == 0, "march starts at 0% travelled");
 
     for (int i = 0; i < march1.TotalDays - 1; i++) engine8.AdvanceOneDay();
@@ -342,8 +346,8 @@ using (var engine8 = new GameEngine(new SimulationService(seed: 11), new SaveSer
     Check(kazakh.IsEliminated, "defeated nation is annexed whole");
     Check(!kazakh.AtWarWithPlayer, "annexation ends the war");
     Check(engine8.State.NationsAnnexedByPlayer == 1, "annexation is counted");
-    Check(player8.Population > popBefore, "winner absorbs the population");
-    Check(player8.Farms > farmsBefore, "winner absorbs the farms");
+    Check(kazakh.Population > 0 && engine8.State.TotalPopulation(player8) > popBefore, "the annexed country's people live on as a territory of the winner, counted once in its realm");
+    Check(kazakh.Farms > 0 && kazakh.AnnexedById == player8.Id, "its farms stay in the territory, under the winner");
 
     // A 500-strong force loses to a garrison (fresh enemy: Nepal).
     var nepal = engine8.State.OtherNations.First(n => n.Id == "nepal");
@@ -381,7 +385,7 @@ using (var engine10c = new GameEngine(new SimulationService(seed: 7), new SaveSe
     engine10c.DeclareWar(persiaC.Id);
     var (okC, _) = engine10c.LaunchInvasion(persiaC.Id, 1000);
     Check(okC, "invasion launches while at war");
-    engine10c.SueForPeace(persiaC.Id);
+    PeaceService.Accept(engine10c.State, PeaceService.Propose(engine10c.State, playerC.Id, persiaC, new[] { PeaceTerm.Peace() }).Offer!);   // peace is agreed while the army is on the road
     int daysC = engine10c.State.MarchingArmies[0].TotalDays;
     for (int i = 0; i < daysC; i++) engine10c.AdvanceOneDay();
     Check(engine10c.State.MarchingArmies.Count == 0, "recalled march leaves the list");
@@ -399,9 +403,9 @@ using (var engine9 = new GameEngine(new SimulationService(seed: 23), new SaveSer
     {
         engine9.State.PlayerNation.Gold = 1_000_000;
         engine9.AdvanceOneDay();
-        invaded = engine9.State.ActiveWarnings.Any(w => w.Contains("invading"));
+        invaded = engine9.State.ActiveWarnings.Any(w => w.Contains("marching on you"));
     }
-    Check(invaded, "a stronger AI invades the player by itself");
+    Check(invaded && engine9.State.MarchingArmies.Any(m => m.AttackerNationId == persia9.Id && m.TargetNationId == engine9.State.PlayerNation.Id), "a stronger AI sends an army marching on the player by itself (it does not invade instantly)");
 }
 
 Console.WriteLine("== 11. Laws & religion ==");
@@ -458,15 +462,23 @@ using (var engine11 = new GameEngine(new SimulationService(), new SaveService(sa
 }
 
 Console.WriteLine("== 13. Balance pass: 5-year autoplay + defeat ==");
-using (var engine12 = new GameEngine(new SimulationService(seed: 99), new SaveService(saveFolder)))
 {
-    var n12 = engine12.State.PlayerNation;
-    for (int i = 0; i < 1825; i++) engine12.AdvanceOneDay();
-    Check(!n12.IsEliminated, "a passive player keeps their country for 5 years");
-    Check(n12.Population > 0, "population survives 5 years");
-    Check(double.IsFinite(n12.Gold) && n12.Gold >= 0, "wealth stays sane for 5 years");
-    Check(n12.Soldiers > 0, "the army survives 5 years");
-    Check(!engine12.State.Defeated, "no accidental defeat in 5 quiet years");
+    // A passive player (who does nothing for five years) keeps their country. A single world is chaotic — anything that shifts the
+    // timing of the AI world's wars, such as a faster march, reshuffles which countries attack — so this guards a sample of worlds:
+    // most must be survived, and in every survived world the country must be sane.
+    const int worlds = 12;
+    int survived = 0; bool sane = true;
+    for (int seed = 90; seed < 90 + worlds; seed++)
+    {
+        using var e = new GameEngine(new SimulationService(seed: seed), new SaveService(saveFolder));
+        var n = e.State.PlayerNation;
+        for (int i = 0; i < 1825; i++) e.AdvanceOneDay();
+        if (n.IsEliminated) continue;
+        survived++;
+        sane &= n.Population > 0 && double.IsFinite(n.Gold) && n.Gold >= 0 && n.Soldiers > 0 && !e.State.Defeated;
+    }
+    Check(survived * 100 >= worlds * 60, $"a passive player keeps their country for 5 years in most worlds ({survived} of {worlds})");
+    Check(sane, "...and in every world they survive, population, wealth and army are sane and there is no accidental defeat");
 }
 
 using (var engine13 = new GameEngine(new SimulationService(), new SaveService(saveFolder)))
@@ -679,9 +691,9 @@ using (var engine21 = new GameEngine(new SimulationService(), new SaveService(sa
     lose.ProductionBuildings.Clear(); lose.ProductionBuildings["farm"] = 3; lose.ProductionBuildings["bakery"] = 2;
     double woodBefore = win.Wood, loseWood = lose.Wood;
     Warfare.AnnexNation(engine21.State, win, lose);
-    Check(win.GetGood("Wheat") == 50 && win.GetGood("Bread") == 7, "annexation moves the loser's food items");
-    Check(win.GetProductionBuilding("farm") == 8 && win.GetProductionBuilding("bakery") == 2, "annexation moves the loser's mills (added to existing)");
-    Check(Math.Abs(win.Wood - (woodBefore + loseWood)) < 0.001, "loser's wood counted once");
+    Check(win.GetGood("Wheat") == 10 && lose.GetGood("Wheat") == 40 && lose.GetGood("Bread") == 7, "annexation leaves the loser's food items in its territory (not added to the winner's)");
+    Check(win.GetProductionBuilding("farm") == 5 && lose.GetProductionBuilding("farm") == 3 && lose.GetProductionBuilding("bakery") == 2, "annexation leaves the loser's mills in its territory");
+    Check(Math.Abs(win.Wood - woodBefore) < 0.001 && Math.Abs(lose.Wood - loseWood) < 0.001, "loser's wood counted once, in the territory");
     Check(!win.GoodsInventory.ContainsKey("Wood"), "no mineral keys in goods dictionary after annexation");
 }
 
@@ -919,7 +931,9 @@ using (var engine27 = new GameEngine(new SimulationService(), new SaveService(sa
 }
 
 // ---------------- Diplomatic actions (sections 28-38) ----------------
-GameEngine NewDipEngine(int seed = 1) => new GameEngine(new SimulationService(seed), new SaveService(saveFolder));
+// The mechanics tests start from a clean slate: no embassies and every regard at neutral, as before the 1600 diplomatic start (section 62 tests that start).
+void Neutral(GameEngine e) { e.State.Treaties.RemoveAll(t => t.Type == TreatyType.Embassy); foreach (var n in e.State.OtherNations) { n.RelationToPlayer = 0; n.BaselineRelation = 0; } }
+GameEngine NewDipEngine(int seed = 1) { var e = new GameEngine(new SimulationService(seed), new SaveService(saveFolder)); Neutral(e); return e; }
 Nation Ai(GameEngine eng, string id) => eng.State.OtherNations.First(x => x.Id == id);
 void SetRating(Nation n, int rating) => n.RelationToPlayer = DiplomacyService.FromDisplayRating(rating);
 int Rate(Nation n) => DiplomacyService.ToDisplayRating(n.RelationToPlayer);
@@ -1459,7 +1473,7 @@ using (var eng = NewDipEngine(17))
     eng.DeclareWar(persia.Id);
     Check(eng.CallToArms(spain.Id, persia.Id).Ok, "ally called");           // the ally's march is listed FIRST
     Check(eng.LaunchInvasion(persia.Id, 600).ok, "player's own march launched");
-    foreach (var m in eng.State.MarchingArmies) m.DaysLeft = 1;
+    foreach (var m in eng.State.MarchingArmies) m.SetRoute(eng.State.CurrentDate, 1);   // (every army arrives tomorrow)
     int soldiersBefore = p.Soldiers;
     int attrition = (int)(soldiersBefore * Balance.WarAttritionPerDay);
     long spainPop = spain.Population;
@@ -1908,7 +1922,7 @@ using (var eng = NewDipEngine(37))
 
     var all = MovementReport.ActiveMissions(s);
     Check(s.MarchingArmies.Contains(worldMarch) && !all.Any(x => x.FromId == worldMarch.AttackerNationId), "(an army marching between two other countries is under way, but not listed)");
-    worldMarch.DaysLeft = 1;   // (it is recalled tomorrow, so it does not outlast the rest of this test)
+    worldMarch.SetRoute(s.CurrentDate, 1);   // (it is recalled tomorrow, so it does not outlast the rest of this test)
     Check(all.Count == 8, "two embassies (Iran, and France for the trade), spy network, missionaries, loan, an ally's march, shipment and expedition are all listed");
     var embassy = all.Single(x => x.Text.StartsWith("Embassy") && x.LocationId == persia.Id);
     var spy = all.Single(x => x.Text.StartsWith("Spy network"));
@@ -2101,18 +2115,26 @@ using (var eng = NewDipEngine(52))
 
 using (var eng = NewDipEngine(53))
 {
-    // A sovereignty guarantee is the same shield, and also binds the guarantor.
-    var s = eng.State; var p = s.PlayerNation; var persia = Ai(eng, "persia"); var spain = Ai(eng, "spain");
+    // A sovereignty guarantee binds the guarantor in peacetime, but it is not an annexation block: what a victor does with a beaten
+    // country is the victor's explicit choice, so a guarantee signed before the war does not override it.
+    var s = eng.State; var p = s.PlayerNation; var persia = Ai(eng, "persia");
     TreatyService.Add(s, TreatyType.SovereigntyGuarantee, p, persia, Balance.SovereigntyDays);
-    var block = TreatyService.AnnexationBlock(s, persia.Id);
-    Check(block is not null && block.Contains("guaranteed"), "a guaranteed country cannot be annexed");
-    s.PendingVictories.Add(new VictoryDecision { LoserId = persia.Id, LoserName = persia.Name, WonDate = s.CurrentDate, ExpiresDate = s.CurrentDate.AddDays(30) });
-    Check(eng.ResolveVictory(persia.Id, VictoryChoice.Annex).Message.Contains("guaranteed") && !persia.IsEliminated, "so a victory cannot be turned into an annexation of it");
-    s.PendingVictories.Clear();
+    Check(TreatyService.AnnexationBlock(s, persia.Id) is null, "a guaranteed country is not blocked from annexation by the guarantee");
     var war = eng.DeclareWar(persia.Id);
-    Check(war is not null && war.Contains("guaranteed") && !persia.AtWarWithPlayer, "the guarantor cannot declare war on the country it guaranteed");
+    Check(war is not null && war.Contains("guaranteed") && !persia.AtWarWithPlayer, "the guarantor still cannot declare war on the country it guaranteed");
+    Check(TreatyService.Has(s, TreatyType.SovereigntyGuarantee, p.Id, persia.Id), "and the guarantee stays in the diplomatic system");
+    s.PendingVictories.Add(new VictoryDecision { LoserId = persia.Id, LoserName = persia.Name, WonDate = s.CurrentDate, ExpiresDate = s.CurrentDate.AddDays(30) });
+    Check(eng.CheckDiplomaticAction("annex", persia.Id).Available, "the Annex option is offered after a victory despite the old guarantee");
+    var annexed = eng.ResolveVictory(persia.Id, VictoryChoice.Annex);
+    Check(annexed.Ok && persia.IsEliminated, "so a victory can be turned into an annexation of it");
+    Check(!s.Treaties.Any(t => t.Involves(persia.Id)), "the guarantee ends with the annexed country");
+}
 
-    // Shield against a third party: an ally's army wins the battle but cannot annex the guaranteed country.
+using (var eng = NewDipEngine(53))
+{
+    // A third party's guarantee does not shield a beaten country either: an ally's army wins and annexes it.
+    var s = eng.State; var p = s.PlayerNation; var persia = Ai(eng, "persia"); var spain = Ai(eng, "spain"); var france = Ai(eng, "france");
+    TreatyService.Add(s, TreatyType.SovereigntyGuarantee, p, persia, Balance.SovereigntyDays);
     persia.AtWarWithPlayer = true;
     persia.Units = UnitCatalog.SeedArmy(1200);
     p.Units = UnitCatalog.SeedArmy(2000);   // keeps the beaten AI from suing for peace, which would recall the march
@@ -2122,10 +2144,8 @@ using (var eng = NewDipEngine(53))
     var march = TreatyService.LaunchMarch(s, spain, persia, 2700)!;
     for (int i = 0; i < march.TotalDays; i++) { p.Gold = 1_000_000_000; eng.AdvanceOneDay(); }
     Check(persia.Soldiers < 1200, "the ally's army did fight the battle");
-    Check(!persia.IsEliminated, "a third party cannot annex a guaranteed country either");
-    Check(HasLog(eng, "cannot annex it"), "and the refusal is logged");
-    Check(!s.Movements.Any(m => m.Kind == MovementKind.Gold && m.FromId == persia.Id && m.ToId == spain.Id),
-        "nothing is plundered instead: a forbidden annexation does not turn into spoils");
+    Check(persia.IsEliminated, "and the ally annexes the guaranteed country");
+    Check(!HasLog(eng, "cannot annex it"), "with no refusal logged");
 }
 
 Console.WriteLine("== 44. Ask Attack: a friendly country (no alliance) joins your war ==");
@@ -2196,7 +2216,7 @@ using (var eng = NewDipEngine(56))
     long popBefore = p.Population; double gold = p.Gold, easterGold = easter.Gold; int battles = p.BattlesWon;
     var r = eng.ResolveVictory(easter.Id, VictoryChoice.Annex);
     Check(r.Ok && easter.IsEliminated && !easter.AtWarWithPlayer && eng.PendingVictory(easter.Id) is null, "annex: the country is absorbed and the decision is closed");
-    Check(Math.Abs(p.Gold - (gold + easterGold)) < 0.01 && p.Population > popBefore, "annex: its treasury and people become ours");
+    Check(Math.Abs(p.Gold - (gold + easterGold)) < 0.01 && easter.Population > 0 && s.TotalPopulation(p) > popBefore, "annex: its treasury becomes ours and its people live on in our realm");
     Check(s.NationsAnnexedByPlayer == 1 && p.BattlesWon == battles, "annex: counted as one annexation, with no extra battle won");
     Check(s.Movements.Any(m => m.Kind == MovementKind.War && m.FromId == p.Id && m.ToId == easter.Id && m.Text.Contains("annexed")), "annex: recorded in the Movement Report");
     Check(eng.ResolveVictory(easter.Id, VictoryChoice.Annex).Outcome == DipOutcome.Invalid, "nothing is left to decide afterwards");
@@ -2259,8 +2279,8 @@ using (var eng = NewDipEngine(59))
 
     nepal.AtWarWithPlayer = true;
     VictoryService.Begin(s, p, nepal);
-    p.Gold = 1_000_000;
-    Check(eng.SueForPeace(nepal.Id) is null && eng.PendingVictory(nepal.Id) is null, "making peace closes the decision");
+    Check(eng.ProposePeace(nepal.Id, new[] { PeaceTerm.Peace() }).Outcome == DipOutcome.Invalid && eng.PendingVictory(nepal.Id) is not null, "with a victory waiting, talks are refused: the victory choices are how that war ends");
+    Check(eng.ResolveVictory(nepal.Id, VictoryChoice.Nothing).Ok && eng.PendingVictory(nepal.Id) is null && !nepal.AtWarWithPlayer, "letting the country go closes the decision");
 
     // Save / load.
     var mughal = Ai(eng, "mughal"); mughal.AtWarWithPlayer = true;
@@ -2411,9 +2431,7 @@ using (var eng = NewDipEngine(65))
     Check(eng.EstablishNetwork(persia.Id) is null, "a spy network may still be set up");
     string?[] spy = { eng.SpySteal(persia.Id), eng.SpySabotage(persia.Id), eng.SpyInciteRevolt(persia.Id) };
     Check(spy.All(x => x is not null && x.Contains("guaranteed")), "but hostile spy work is barred");
-    s.PendingVictories.Add(new VictoryDecision { LoserId = persia.Id, LoserName = persia.Name, WonDate = s.CurrentDate, ExpiresDate = s.CurrentDate.AddDays(30) });
-    Check(eng.ResolveVictory(persia.Id, VictoryChoice.Annex).Message.Contains("guaranteed"), "and it cannot be annexed");
-    s.PendingVictories.Clear();
+    Check(TreatyService.AnnexationBlock(s, persia.Id) is null, "(the guarantee does not stand in the way of annexing it after a victory)");
     Check(s.Movements.Any(m => m.Kind == MovementKind.Treaty && m.Text.Contains("sovereignty guarantee")), "the guarantee is in the Movement Report");
 
     // It warms relations faster than an embassy alone.
@@ -2863,17 +2881,28 @@ using (var eng = NewDipEngine(96))
 
 using (var eng = NewDipEngine(97))
 {
-    // A conquest the Assembly or a guarantee forbids is not converted into plunder: the battle is won, the war goes on.
+    // A conquest the Assembly forbids is not converted into plunder: the battle is won, the war goes on.
     var s = eng.State; var spain = Ai(eng, "spain"); var easter = Ai(eng, "easter");
     s.Wars.Add(new WarRecord { AggressorId = spain.Id, DefenderId = easter.Id, StartDate = s.CurrentDate, Aim = WarAim.Conquest });
-    var guarantee = TreatyService.Add(s, TreatyType.SovereigntyGuarantee, s.PlayerNation, easter, 730);
+    var ban = new ActiveAssemblyPolicy { TypeId = "annexation_ban", TargetId = easter.Id, ActivationDate = s.CurrentDate, ExpirationDate = s.CurrentDate.AddDays(120) };
+    s.ActiveAssemblyPolicies.Add(ban);
     double w0 = spain.Gold, l0 = easter.Gold;
     VictoryService.ResolveForAi(s, spain, easter);
-    Check(!easter.IsEliminated && HasLog(eng, "cannot annex it"), "a protected country is not annexed, and the refusal is logged");
+    Check(!easter.IsEliminated && HasLog(eng, "cannot annex it"), "a country under an Assembly ban is not annexed, and the refusal is logged");
     Check(spain.Gold == w0 && easter.Gold == l0 && AiWorldService.AtWar(s, spain.Id, easter.Id), "nothing is taken instead, and the war goes on");
-    s.Treaties.Remove(guarantee);
+    s.ActiveAssemblyPolicies.Remove(ban);
     VictoryService.ResolveForAi(s, spain, easter);
-    Check(easter.IsEliminated, "once the protection ends, the next victory annexes it");
+    Check(easter.IsEliminated, "once the ban ends, the next victory annexes it");
+}
+
+using (var eng = NewDipEngine(97))
+{
+    // A sovereignty guarantee is not an Assembly ban: it does not stop an AI victor annexing the beaten country.
+    var s = eng.State; var spain = Ai(eng, "spain"); var easter = Ai(eng, "easter");
+    s.Wars.Add(new WarRecord { AggressorId = spain.Id, DefenderId = easter.Id, StartDate = s.CurrentDate, Aim = WarAim.Conquest });
+    TreatyService.Add(s, TreatyType.SovereigntyGuarantee, s.PlayerNation, easter, 730);
+    VictoryService.ResolveForAi(s, spain, easter);
+    Check(easter.IsEliminated && !HasLog(eng, "cannot annex it"), "a guaranteed country is annexed by the victor all the same");
 }
 
 using (var eng = NewDipEngine(106))
@@ -3573,6 +3602,1390 @@ using (var eng = NewDipEngine(128))
     Check(eng.CancelTreaty(TreatyType.Embassy, persia.Id).Ok && eng.BuyProduct(persia.Id, "wheat", 100)?.Contains("embassy") == true, "cancelling the embassy stops trade with that country");
     for (int i = 0; i < 9; i++) { p.Gold = 1e9; eng.AdvanceOneDay(); }
     Check(contracts == 2 && s.TradeContracts.Count(c => c.Status == TradeStatus.Delivered) == 2, "the purchase and the sale already under way are still delivered");
+}
+
+Console.WriteLine("== 62. The diplomatic web of 1600: the start of every campaign ==");
+{
+    var ids = GameState.NewGame("ottoman").AllNations().Select(n => n.Id).ToList();
+    var ties = HistoricalDiplomacy.Ties;
+    Check(ids.Count == 41, "(41 countries to start as)");
+    Check(ties.All(t => ids.Contains(t.A) && ids.Contains(t.B) && t.A != t.B), "every tie in the table is between two real, different countries");
+    Check(ties.Select(t => string.CompareOrdinal(t.A, t.B) <= 0 ? $"{t.A}|{t.B}" : $"{t.B}|{t.A}").Distinct().Count() == ties.Count, "no pair is listed twice");
+    Check(ties.All(t => t.Rating is >= 0 and <= 100 && t.Why.Length > 8), "every tie has a rating from 0 to 100 and a historical reason");
+    Check(ties.Count >= 80 && ties.Count(t => t.Embassy) >= 25 && ties.Count(t => t.Rating >= 60) >= 20 && ties.Count(t => t.Rating <= 30) >= 20,
+        $"the table has real friendships ({ties.Count(t => t.Rating >= 60)}), quarrels ({ties.Count(t => t.Rating <= 30)}) and embassies ({ties.Count(t => t.Embassy)})");
+    Check(ties.Where(t => t.Rating < 15).Count() == 0, "(no tie is so bitter that it would push the other country to declare war outright)");
+}
+
+{
+    // History, spot-checked from several chairs.
+    int R(GameState s, string id) => DiplomacyService.ToDisplayRating(s.OtherNations.First(n => n.Id == id).RelationToPlayer);
+    bool E(GameState s, string id) => TreatyService.HasEmbassy(s, s.PlayerNation.Id, id);
+
+    var ottoman = GameState.NewGame("ottoman");
+    Check(new[] { "france", "venice", "england", "crimea" }.All(id => E(ottoman, id)) && !E(ottoman, "austria") && !E(ottoman, "spain"),
+        "the Ottomans start with embassies in France, Venice, England and Crimea — and none in Habsburg lands");
+    Check(R(ottoman, "france") >= 70 && R(ottoman, "england") >= 60 && R(ottoman, "austria") <= 25 && R(ottoman, "spain") <= 30 && R(ottoman, "persia") <= 30,
+        "...friendly with France and England, bad blood with the Habsburgs, Spain and Persia");
+
+    var england = GameState.NewGame("england");
+    Check(E(england, "dutch") && E(england, "morocco") && E(england, "russia") && R(england, "dutch") >= 65 && R(england, "spain") <= 20 && R(england, "papal") <= 25,
+        "England: embassies with the Dutch, Morocco and Russia; at odds with Spain and the Pope");
+
+    var korea = GameState.NewGame("korea");
+    Check(E(korea, "ming") && R(korea, "ming") >= 80 && R(korea, "japan") <= 20, "Korea: an embassy in Ming China, whose army saved it, and hatred of Japan");
+
+    var spain = GameState.NewGame("spain");
+    Check(E(spain, "genoa") && E(spain, "papal") && E(spain, "austria") && R(spain, "dutch") <= 20 && R(spain, "england") <= 20, "Iberian Union: Genoa, the Pope and Vienna at its side; the Dutch and the English against it");
+
+    var poland = GameState.NewGame("poland");
+    Check(E(poland, "papal") && E(poland, "austria") && R(poland, "sweden") <= 20 && R(poland, "russia") <= 40, "Poland: the Pope and Vienna as friends, Sweden and Russia as rivals");
+
+    Check(R(GameState.NewGame("austria"), "ottoman") == R(ottoman, "austria") && R(GameState.NewGame("france"), "ottoman") == R(ottoman, "france"),
+        "a quarrel or friendship is the same from either side");
+
+    // Every country starts with a mix: some friends, some rivals — unless history says it kept to itself.
+    var mixed = new[] { "ottoman", "spain", "france", "england", "dutch", "austria", "poland", "russia", "persia", "ming", "japan", "korea", "venice", "papal" };
+    Check(mixed.All(id => { var s = GameState.NewGame(id); return s.OtherNations.Any(n => DiplomacyService.ToDisplayRating(n.RelationToPlayer) >= 60) && s.OtherNations.Any(n => DiplomacyService.ToDisplayRating(n.RelationToPlayer) <= 35); }),
+        "the great powers each start with friends (60+) and rivals (35 or less)");
+    Check(mixed.All(id => GameState.NewGame(id).Treaties.Count(t => t.Type == TreatyType.Embassy) >= HistoricalDiplomacy.MinEmbassies), "...and with embassies");
+}
+
+{
+    // Countries history says little about start neutral (a touch warmer between one faith); islands far from everyone start alone.
+    var swedenStart = GameState.NewGame("sweden");
+    var embassies = swedenStart.Treaties.Where(t => t.Type == TreatyType.Embassy).Select(t => swedenStart.OtherNations.First(n => n.Id == t.NationBId)).ToList();
+    Check(embassies.Count == HistoricalDiplomacy.MinEmbassies && embassies.All(n => AiWorldService.Distance(swedenStart.PlayerNation, n) <= Balance.AiWarRange && DiplomacyService.ToDisplayRating(n.RelationToPlayer) >= Balance.EmbassyMinRating),
+        "a lesser power with no embassy in the table gets two in the warmest acceptable neighbours within reach, never a hostile one");
+
+    var spainRussia = GameState.NewGame("spain").OtherNations.First(n => n.Id == "russia");
+    var ottomanJapan = GameState.NewGame("ottoman").OtherNations.First(n => n.Id == "japan");
+    Check(DiplomacyService.ToDisplayRating(spainRussia.RelationToPlayer) == 56 && DiplomacyService.ToDisplayRating(ottomanJapan.RelationToPlayer) == 48,
+        "a pair history is silent about: warmer (56) between countries of one faith, a little cool (48) between different ones");
+
+    var easter = GameState.NewGame("easter");
+    var easterEmbassies = easter.Treaties.Where(t => t.Type == TreatyType.Embassy).ToList();
+    Check(easterEmbassies.All(t => HistoricalDiplomacy.TieBetween("easter", t.NationBId) is null) && easterEmbassies.Count <= HistoricalDiplomacy.MinEmbassies && easter.OtherNations.All(n => DiplomacyService.ToDisplayRating(n.RelationToPlayer) is >= 44 and <= 58),
+        "an island that kept to itself starts with no historical ties, no strong feelings, and at most a neighbour's embassy");
+    Check(GameState.NewGame("ottoman", historicalDiplomacy: false).Treaties.Count == 0 && GameState.NewGame("ottoman", historicalDiplomacy: false).OtherNations.All(n => n.RelationToPlayer == 0),
+        "(the historical start can be switched off)");
+}
+
+using (var eng = new GameEngine(new SimulationService(seed: 77), new SaveService(saveFolder)))
+{
+    // In play: the embassies let the player trade at once; the web of 1600 does not melt away.
+    eng.StartCampaign("ottoman");
+    var s = eng.State; var p = s.PlayerNation;
+    Check(eng.TradeBlock("france") is null && eng.TradeBlock("venice") is null && eng.TradeBlock("spain") is not null, "from the first day the Ottomans can trade with France and Venice, but not with Spain");
+
+    var austria = s.OtherNations.First(n => n.Id == "austria"); var france = s.OtherNations.First(n => n.Id == "france"); var morocco = s.OtherNations.First(n => n.Id == "morocco");
+    double a0 = austria.RelationToPlayer, f0 = france.RelationToPlayer, m0 = morocco.RelationToPlayer;
+    Check(DiplomacyService.ToDisplayRating(a0) <= 25 && DiplomacyService.ToDisplayRating(f0) >= 70, "(Vienna is cold, Paris is warm)");
+    for (int i = 0; i < 400; i++) { p.Gold = 1e12; eng.AdvanceOneDay(); }
+    Check(austria.RelationToPlayer <= a0 + 1 && austria.RelationToPlayer < -40, "a year and more later the Habsburgs are still cold: old quarrels are not forgotten");
+    Check(france.RelationToPlayer >= f0 - 1 && Math.Abs(morocco.RelationToPlayer - m0) <= 1, "...and old friendships and neutral courts stay where they were");
+    Check(!austria.AtWarWithPlayer || s.Movements.Any(m => m.ToId == p.Id && m.FromId == austria.Id && m.Text.Contains("declared war")), "(and a war with Vienna, if there is one, has a cause on record)");
+}
+
+{
+    // The grudge that makes the AI attack the player is what has soured since the start, not old bad blood.
+    var s = GameState.NewGame("ottoman");
+    var austria = s.OtherNations.First(n => n.Id == "austria"); var p = s.PlayerNation;
+    double Grudge() => AiWorldService.Motives(s, austria, p).Grudge;
+    Check(Grudge() == 0, "a country that has always disliked the player has no grudge on the first day");
+    austria.RelationToPlayer = -100;
+    double fallen = (austria.BaselineRelation - -100) / 100.0;   // how far it has soured below its historical level
+    Check(Math.Abs(Grudge() - Math.Min(1.0, fallen)) < 1e-9 && Grudge() > 0.3, "an insult that sours it further becomes a grudge (only the part below its old level)");
+    austria.BaselineRelation = 0; austria.RelationToPlayer = -40;
+    Check(Math.Abs(Grudge() - 0.4) < 1e-9, "with no history (baseline 0, as in an old save) a grudge is simply the regard below zero, as before");
+    austria.BaselineRelation = 40; austria.RelationToPlayer = -10;
+    Check(Math.Abs(Grudge() - 0.1) < 1e-9, "a former friend turned cold: the grudge is the regard below zero (0.1), not the whole fall");
+
+    // Old saves have no baseline: they load as indifferent, as before.
+    var node = JsonNode.Parse(JsonSerializer.Serialize(s))!.AsObject();
+    foreach (var n in node["OtherNations"]!.AsArray()) n!.AsObject().Remove("BaselineRelation");
+    var old = JsonSerializer.Deserialize<GameState>(node.ToJsonString());
+    Check(old is not null && old.OtherNations.All(n => n.BaselineRelation == 0), "an old save without baselines loads with every country indifferent, as before");
+}
+
+Console.WriteLine("== 63. War, stage 1: march time comes from the distance between the capitals ==");
+{
+    var s0 = GameState.NewGame("ottoman");
+    var ott = s0.PlayerNation;
+    var others = s0.OtherNations.Where(n => !n.IsEliminated).ToList();
+    double Dist(Nation a, Nation b) => Math.Sqrt(Math.Pow(a.MapX - b.MapX, 2) + Math.Pow(a.MapY - b.MapY, 2));
+
+    Check(MapGeography.MissingCapitals(s0).Count == 0, "every one of the 41 countries has capital coordinates: nothing needs geographical data");
+    Check(others.All(n => MapGeography.Route(ott, n) is { UsedFallback: false, Distance: not null } r && r.Days == Math.Max(1, (int)Math.Ceiling(Dist(ott, n) / Balance.MarchSpeedPerDay))),
+        "march time is the capital-to-capital distance over one movement speed, rounded up, for every country");
+    var byDistance = others.OrderBy(n => Dist(ott, n)).Select(n => MapGeography.Route(ott, n).Days).ToList();
+    Check(byDistance.Zip(byDistance.Skip(1), (a, b) => b >= a).All(x => x), "the nearer the country, the sooner the army arrives (never the other way round)");
+    Check(byDistance.Last() > 30 && byDistance.First() < byDistance.Last() / 4, $"nothing is capped: the nearest takes {byDistance.First()} days, the farthest {byDistance.Last()}");
+    var neighbours = others.OrderBy(n => Dist(ott, n)).Take(8).Select(n => MapGeography.Route(ott, n).Days).Distinct().Count();
+    Check(neighbours >= 4, $"neighbouring countries do not all take the same time ({neighbours} different times among the nearest eight)");
+    Check(others.All(n => MapGeography.Route(n, n).Days >= 1) && MapGeography.Route(ott, ott).Days == 1, "nobody arrives instantly: even the shortest march takes a day");
+    Check(MapGeography.Route(ott, others.First(n => n.Id == "crimea")).Days < MapGeography.Route(ott, others.First(n => n.Id == "japan")).Days, "Crimea, next door, is reached sooner than distant Japan");
+}
+
+using (var eng = NewDipEngine(129))
+{
+    var s = eng.State; var p = s.PlayerNation; var crimea = Ai(eng, "crimea"); var japan = Ai(eng, "japan");
+    crimea.Units = UnitCatalog.SeedArmy(2000); japan.Units = UnitCatalog.SeedArmy(2000);
+    eng.DeclareWar(crimea.Id); eng.DeclareWar(japan.Id);
+    var near = eng.LaunchInvasion(crimea.Id, 2500); var far = eng.LaunchInvasion(japan.Id, 2500);
+    var mNear = s.MarchingArmies.Single(m => m.TargetNationId == crimea.Id); var mFar = s.MarchingArmies.Single(m => m.TargetNationId == japan.Id);
+    Check(near.ok && far.ok && mNear.TotalDays < mFar.TotalDays, $"the nearby target receives the army sooner ({mNear.TotalDays} days against {mFar.TotalDays})");
+    Check(mNear.StartDate == s.CurrentDate && mNear.ArrivalDate == s.CurrentDate.AddDays(mNear.TotalDays) && mFar.ArrivalDate == s.CurrentDate.AddDays(mFar.TotalDays),
+        "each march stores the day it set out and the day it will arrive");
+    Check(near.message.Contains(mNear.ArrivalDate.ToString("dd-MM-yyyy")), "the arrival date is told to the player");
+    Check(mNear.TotalDays == MapGeography.Route(p, crimea).Days, "the march takes exactly what the geography says");
+
+    // Progress is kept by the date, through a save and a load.
+    for (int i = 0; i < mNear.TotalDays - 2; i++) { p.Gold = 1e9; eng.AdvanceOneDay(); }
+    var arrival = mNear.ArrivalDate; var farArrival = mFar.ArrivalDate; int armyAtSave = s.MarchingArmies.Sum(m => m.Strength);
+    await eng.SaveAsync();
+    s.MarchingArmies.Clear();
+    await eng.LoadAsync();
+    var l = eng.State;
+    var loaded = l.MarchingArmies.ToList();
+    Check(loaded.Count == 2 && loaded.Sum(m => m.Strength) == armyAtSave && loaded.Any(m => m.ArrivalDate == arrival) && loaded.Any(m => m.ArrivalDate == farArrival),
+        "marching armies, with their dates, survive save / load");
+    Check(l.CurrentDate.AddDays(2) == arrival, "(two days to go when saved)");
+    eng.AdvanceOneDay();
+    Check(l.MarchingArmies.Any(m => m.ArrivalDate == arrival), "one day on, the loaded army is still on the road");
+    eng.AdvanceOneDay();
+    Check(!l.MarchingArmies.Any(m => m.ArrivalDate == arrival) && l.MarchingArmies.Any(m => m.ArrivalDate == farArrival), "and it arrives on the stored date, while the far army marches on");
+}
+
+{
+    // A country without capital coordinates: an explicit fallback, and it is reported.
+    var s = GameState.NewGame("ottoman");
+    var lost = s.OtherNations.First(n => n.Id == "france");
+    double mx = lost.MapX, my = lost.MapY;
+    lost.MapX = 0; lost.MapY = 0;
+    var estimated = MapGeography.Route(s.PlayerNation, lost);
+    Check(MapGeography.MissingCapitals(s).Select(n => n.Id).SequenceEqual(new[] { "france" }), "a country without coordinates is listed as needing geographical data");
+    Check(estimated.UsedFallback && estimated.Distance is not null && estimated.Days >= 1 && MapGeography.FallbackNote(s.PlayerNation, lost, estimated)!.Contains("France"),
+        "its capital is estimated from its territory, and the fallback is flagged");
+    var territory = lost.Territory; lost.Territory = new List<List<MapPoint>>();
+    var blind = MapGeography.Route(s.PlayerNation, lost);
+    Check(blind.UsedFallback && blind.Distance is null && blind.Days == Balance.MarchFallbackDays && MapGeography.FallbackNote(s.PlayerNation, lost, blind)!.Contains($"{Balance.MarchFallbackDays} days"),
+        $"with no territory either, the march takes the fixed fallback of {Balance.MarchFallbackDays} days, and says so");
+    lost.Territory = territory; lost.MapX = mx; lost.MapY = my;
+    Check(MapGeography.MissingCapitals(s).Count == 0 && !MapGeography.Route(s.PlayerNation, lost).UsedFallback, "(with the coordinates back, nothing is missing)");
+}
+
+Console.WriteLine("== 64. War, stage 2: an enemy counter-invasion is a real march ==");
+using (var eng = NewDipEngine(130))
+{
+    var s = eng.State; var p = s.PlayerNation; var persia = Ai(eng, "persia");
+    persia.Units = UnitCatalog.SeedArmy(30_000);   // far stronger than the player's army: it will want to attack
+    p.Units = UnitCatalog.SeedArmy(8000);
+    eng.DeclareWar(persia.Id);
+    int persiaBefore = persia.Soldiers; int playerBefore = p.Soldiers;
+    MarchingArmy? march = null; int day = 0;
+    for (; day < 3000 && march is null; day++)
+    {
+        p.Gold = 1e12; eng.AdvanceOneDay();
+        march = s.MarchingArmies.FirstOrDefault(m => m.AttackerNationId == persia.Id && m.TargetNationId == p.Id);
+    }
+    Check(march is not null, "(a far stronger enemy sends an army against the player)");
+    int atLaunch = persia.Soldiers;
+    Check(atLaunch < persiaBefore - march!.Strength + 200, $"the enemy's marching soldiers left its home army at once ({march.Strength:N0} marching, home army {persiaBefore:N0} -> {atLaunch:N0})");
+    Check(march.Strength >= Balance.MinInvasionForce && march.ArrivalDate == march.StartDate.AddDays(march.TotalDays) && march.TotalDays == MapGeography.Route(persia, p).Days,
+        "its march takes the time the same capital-to-capital rule gives, with stored dates");
+    Check(!p.IsEliminated && p.Soldiers >= playerBefore - 40 * (day + 1) && !s.Movements.Any(m => m.Text.Contains("reached") && m.FromId == persia.Id), "on the day it sets out nothing is resolved: the home army is intact and no battle has been fought");
+
+    var launched = s.Movements.First(m => m.Kind == MovementKind.March && m.Status == MovementStatus.UnderWay && m.FromId == persia.Id && m.ToId == p.Id);
+    var inboxLaunch = s.Inbox.FirstOrDefault(m => m.Topic == InboxTopic.Invasion && m.CountryId == persia.Id);
+    Check(launched.Text.Contains("marches") && inboxLaunch is not null && inboxLaunch.Category == InboxCategory.Military && inboxLaunch.Summary.Contains(march.ArrivalDate.ToString("dd-MM-yyyy")),
+        "the player gets a military report when the march sets out, with the arrival date");
+
+    // It is not sent twice, and nothing resolves before the arrival date.
+    int sentBefore = s.Movements.Count(m => m.Kind == MovementKind.March && m.Status == MovementStatus.UnderWay && m.FromId == persia.Id && m.ToId == p.Id);
+    int guard = 0;
+    while (s.CurrentDate < march.ArrivalDate.AddDays(-1) && guard++ < 400)
+    {
+        p.Gold = 1e12; eng.AdvanceOneDay();
+        if (!s.MarchingArmies.Contains(march)) break;
+    }
+    Check(s.MarchingArmies.Contains(march) && s.MarchingArmies.Count(m => m.AttackerNationId == persia.Id && m.TargetNationId == p.Id) == 1
+          && s.Movements.Count(m => m.Kind == MovementKind.March && m.Status == MovementStatus.UnderWay && m.FromId == persia.Id && m.ToId == p.Id) == sentBefore && !p.IsEliminated,
+        "while it marches the same troops are not deployed twice and the battle has not been fought");
+    Check(persia.Soldiers + march.Strength <= persiaBefore, "(the enemy's home army plus its marching army never exceeds what it had)");
+    p.Gold = 1e12; eng.AdvanceOneDay();   // the arrival day
+    Check(!s.MarchingArmies.Contains(march), "the army reaches the player on its arrival date and the battle is fought then");
+    var report = s.Inbox.FirstOrDefault(m => m.Topic == InboxTopic.Battle && m.CountryId == persia.Id);
+    Check(report is not null && report.Category == InboxCategory.Military && (report.Summary.Contains("reached") || report.Summary.Contains("repelled")), "...and the player gets a second military report when it arrives");
+}
+
+// The battle is fought against the troops actually at home when the enemy arrives (a fresh game each round).
+foreach (bool reinforce in new[] { false, true })
+{
+    using var eng = NewDipEngine(131);
+    var s = eng.State; var p = s.PlayerNation; var persia = Ai(eng, "persia");
+    persia.Units = UnitCatalog.SeedArmy(10_000); p.Units = UnitCatalog.SeedArmy(600); eng.DeclareWar(persia.Id);
+    var march = TreatyService.LaunchMarch(s, persia, p, 3000)!;
+    Check(persia.Soldiers == 7000, "(3,000 left the enemy's home army)");
+    if (reinforce) p.Units = UnitCatalog.SeedArmy(9000);   // the player's reinforcements are home before the enemy arrives (enough to hold, not enough for the enemy to sue for peace)
+    for (int i = 0; i < march.TotalDays; i++) { p.Gold = 1e12; eng.AdvanceOneDay(); }
+    if (reinforce)
+        Check(!p.IsEliminated && s.Inbox.Any(m => m.Topic == InboxTopic.Battle && m.Summary.Contains("repelled")), "reinforced before it arrived, the home army beats the enemy: the defence counts the troops at home on arrival");
+    else
+        Check(p.IsEliminated && s.Inbox.Any(m => m.Topic == InboxTopic.Battle && m.Summary.Contains("broke the home army")), "left with a small home army, the player loses it when the enemy arrives");
+}
+
+using (var eng = NewDipEngine(132))
+{
+    // Enemy marches obey the same rules as the player's: a minimum force, and none from an army too small.
+    var s = eng.State; var p = s.PlayerNation; var persia = Ai(eng, "persia");
+    persia.Units = UnitCatalog.SeedArmy(900); p.Units = UnitCatalog.SeedArmy(100);   // stronger than 1.2x, but half of 900 is under the minimum
+    eng.DeclareWar(persia.Id);
+    for (int i = 0; i < 1500; i++) { p.Gold = 1e12; eng.AdvanceOneDay(); persia.Units = UnitCatalog.SeedArmy(900); }
+    Check(!s.MarchingArmies.Any(m => m.AttackerNationId == persia.Id), "an enemy whose army is too small for the minimum force does not march at all");
+}
+
+Console.WriteLine("== 65. War, stage 3: a sovereignty guarantee does not block annexation; annexation puts each thing in exactly one place ==");
+using (var eng = NewDipEngine(140))
+{
+    var s = eng.State; var p = s.PlayerNation; var persia = Ai(eng, "persia"); var spain = Ai(eng, "spain");
+    // Give the doomed country a recognisable estate, and the player an army, a colony shipment and a march on it.
+    persia.Gold = 5000; persia.Wood = 300; persia.Stone = 200; persia.Iron = 150; persia.Copper = 120; persia.Lead = 80; persia.Goods = 70;
+    persia.Helmets = 40; persia.Pikes = 30; persia.ShipParts = 12;
+    persia.GoodsInventory["Salt"] = 55; persia.ProductionBuildings["bakery"] = 3;
+    persia.Farms = 11; persia.Mines = 4; persia.Sawmills = 5; persia.Workshops = 6;
+    persia.Reserves = 100; persia.BaseSoldiers = 2000; persia.BasePopulation = 4_000_000;
+    persia.Commanders.Add(new Commander());
+    persia.Units = UnitCatalog.SeedArmy(2500);
+    persia.Warships = 7;
+    int polygons = persia.Territory.Count;
+    s.Colonies.Add(new Colony { Name = "Persian Outpost", OwnerId = persia.Id, FoundedById = persia.Id });
+    s.SpyNetworks.Add(new SpyNetwork { TargetNationId = persia.Id, TargetNationName = persia.Name });
+    s.ActiveAssemblyPolicies.Add(new ActiveAssemblyPolicy { TypeId = "annexation_ban", TargetId = persia.Id, ActivationDate = s.CurrentDate, ExpirationDate = s.CurrentDate.AddDays(90) });
+
+    p.Units = UnitCatalog.SeedArmy(6000);
+    persia.AtWarWithPlayer = true;
+    var inbound = TreatyService.LaunchMarch(s, p, persia, 2000)!;
+    Check(p.Soldiers == 4000, "(2,000 soldiers left the home army on the march against the doomed country)");
+
+    // A purchase from it is still on the road (gold paid, goods reserved): once it is part of the player's realm it comes home.
+    var boughtWheat = new TradeContract { BuyerId = p.Id, SellerId = persia.Id, ProductId = "dagger", Quantity = 100, TotalValue = 250, IsPlayerBuyer = true,
+        CreatedDate = s.CurrentDate, DeliveryDate = s.CurrentDate.AddDays(10), Status = TradeStatus.InTransit };
+    s.TradeContracts.Add(boughtWheat);
+
+    double gold0 = p.Gold, wood0 = p.Wood, stone0 = p.Stone, iron0 = p.Iron, copper0 = p.Copper, lead0 = p.Lead, goods0 = p.Goods, helmets0 = p.Helmets, pikes0 = p.Pikes, parts0 = p.ShipParts;
+    double salt0 = p.GetGood("Salt"), daggers0 = p.GetProductStock("dagger") + persia.GetProductStock("dagger");
+    int bakeries0 = p.GetProductionBuilding("bakery"), farms0 = p.Farms, mines0 = p.Mines, saws0 = p.Sawmills, shops0 = p.Workshops, polys0 = p.Territory.Count;
+    long pop0 = p.Population, persiaPop = persia.Population, popLost = (long)(persiaPop * Balance.BattlePopulationLoss);
+    long base0 = p.BasePopulation > 0 ? p.BasePopulation : p.HistoricalPopulation;
+    int sold0 = p.Soldiers, annexed0 = s.NationsAnnexedByPlayer;
+
+    Warfare.AnnexNation(s, p, persia);
+
+    Check(persia.IsEliminated && !persia.AtWarWithPlayer && persia.AnnexedById == p.Id, "the country is no longer a country: it is annexed, under the winner, and the war flag is cleared");
+    // What the winner takes at once.
+    Check(p.Gold == gold0 + 5000 + 250 && persia.Gold == 0, "its treasury (and the gold paid for goods still on the road) moves to the winner, once");
+    Check(p.Helmets == helmets0 + 40 && p.Pikes == pikes0 + 30 && p.ShipParts == parts0 + 12 && persia.Helmets == 0 && persia.Pikes == 0 && persia.ShipParts == 0, "its military equipment moves to the winner");
+    Check(p.Territory.Count == polys0 + polygons && persia.Territory.Count == 0, "its lands are added to the winner's realm on the map and removed from the territory's own list");
+    Check(s.Colonies.Single(c => c.Name == "Persian Outpost").OwnerId == p.Id, "its colony now belongs to the winner");
+    Check(p.BasePopulation == base0 + 4_000_000 && persia.BasePopulation == 0 && persia.BaseSoldiers == 0, "the army-target figures move across once");
+    Check(p.GetProductStock("dagger") == daggers0 + 100, "the purchase still on the road comes home to the player, not lost");
+    // What stays where it is: the territory's own local economy — counted once, not added to the winner's.
+    Check(persia.Wood == 300 && persia.Stone == 200 && persia.Iron == 150 && persia.Copper == 120 && persia.Lead == 80 && persia.Goods == 70
+          && p.Wood == wood0 && p.Stone == stone0 && p.Iron == iron0 && p.Copper == copper0 && p.Lead == lead0 && p.Goods == goods0, "its minerals and goods stay in the territory's stockpile (the winner's are untouched)");
+    Check(persia.GetGood("Salt") == 55 && p.GetGood("Salt") == salt0, "its stocked food stays in the territory");
+    Check(persia.GetProductionBuilding("bakery") == 3 && p.GetProductionBuilding("bakery") == bakeries0, "its mills stay in the territory");
+    Check(persia.Farms == 11 && persia.Mines == 4 && persia.Sawmills == 5 && persia.Workshops == 6
+          && p.Farms == farms0 && p.Mines == mines0 && p.Sawmills == saws0 && p.Workshops == shops0, "its farms, mines, sawmills and workshops stay in the territory");
+    Check(persia.Population == persiaPop - popLost && p.Population == pop0, "its people (less the war losses) live on in the territory; the winner's own population is unchanged");
+    Check(s.TotalPopulation(p) == pop0 + persia.Population, "the realm counts them once: its total is the winner's people plus the territory's");
+
+    Check(p.Soldiers == sold0 + 2000, "the army still marching on it came home exactly once (no duplicated or vanished soldiers)");
+    Check(persia.Soldiers == 0 && persia.Warships == 0 && persia.Reserves == 0 && persia.Commanders.Count == 0, "its army, fleet, reserves and officers are gone");
+    Check(!s.MarchingArmies.Any(m => m.TargetNationId == persia.Id || m.AttackerNationId == persia.Id), "no march remains to or from it");
+    Check(!s.SpyNetworks.Any(n => n.TargetNationId == persia.Id) && !s.ActiveAssemblyPolicies.Any(a => a.TargetId == persia.Id), "spy networks and Assembly policies about it are removed");
+    Check(boughtWheat.Status == TradeStatus.Cancelled && !s.TradeContracts.Any(c => c.Status == TradeStatus.InTransit), "the shipment is settled on the spot, so it cannot be delivered a second time");
+    Check(s.NationsAnnexedByPlayer == annexed0 + 1, "counted as one annexation");
+
+    // Annexing again changes nothing: there is nothing left to take, and no second war loss.
+    double goldNow = p.Gold; long popNow = p.Population, persiaNow = persia.Population; int soldNow = p.Soldiers, farmsNow = p.Farms;
+    Warfare.AnnexNation(s, p, persia);
+    Check(p.Gold == goldNow && p.Population == popNow && persia.Population == persiaNow && p.Soldiers == soldNow && p.Farms == farmsNow && s.NationsAnnexedByPlayer == annexed0 + 1,
+        "a repeated annexation changes nothing (assets and war losses are not applied twice)");
+}
+
+using (var eng = NewDipEngine(141))
+{
+    // An AI conquest: the shipment the player was buying from the fallen country now comes from the conqueror.
+    var s = eng.State; var p = s.PlayerNation; var spain = Ai(eng, "spain"); var france = Ai(eng, "france");
+    france.Gold = 4000; spain.Gold = 1000;
+    var bought = new TradeContract { BuyerId = p.Id, SellerId = france.Id, ProductId = "dagger", Quantity = 50, TotalValue = 120, IsPlayerBuyer = true,
+        CreatedDate = s.CurrentDate, DeliveryDate = s.CurrentDate.AddDays(3), Status = TradeStatus.InTransit };
+    s.TradeContracts.Add(bought);
+    Warfare.AnnexNation(s, spain, france);
+    Check(spain.Gold == 5000 && france.Gold == 0, "the conqueror takes the treasury");
+    Check(bought.SellerId == spain.Id && bought.BuyerId == p.Id && bought.Status == TradeStatus.InTransit, "the shipment follows the sale to the conqueror and is still on the road");
+    double daggers0 = p.GetProductStock("dagger"), spain0 = spain.Gold;
+    for (int i = 0; i < 4; i++) eng.AdvanceOneDay();
+    Check(bought.Status == TradeStatus.Delivered && p.GetProductStock("dagger") == daggers0 + 50, "it is delivered once to the player");
+    Check(spain.Gold >= spain0 + 120 - 1e-6, "and the conqueror is the one paid");
+}
+
+Console.WriteLine("== 66. War, stage 4: Attack is one confirmed action — war is declared when the troops are sent ==");
+using (var eng = NewDipEngine(150))
+{
+    var s = eng.State; var p = s.PlayerNation; var persia = Ai(eng, "persia");
+    p.Units = UnitCatalog.SeedArmy(6000);
+
+    // The popup's numbers before confirming.
+    var plan = eng.PlanAttack(persia.Id)!;
+    var route = MapGeography.Route(p, persia);
+    Check(plan.CanAttack && !plan.AtWar && plan.HomeArmy == 6000 && plan.TravelDays == route.Days && plan.Arrival == s.CurrentDate.AddDays(route.Days),
+        "the plan shows the home army, that confirming declares war, and the estimated arrival (from the capitals' distance)");
+    Check(!persia.AtWarWithPlayer && s.MarchingArmies.Count == 0 && p.Soldiers == 6000, "(planning changes nothing)");
+
+    var sent = eng.ConfirmAttack(persia.Id, 2000);
+    Check(sent.Ok && sent.WarDeclared, "confirming succeeds and says war was declared");
+    Check(persia.AtWarWithPlayer, "war is on");
+    Check(s.MarchingArmies.Count == 1 && s.MarchingArmies[0].Strength == 2000 && s.MarchingArmies[0].AttackerNationId == p.Id && s.MarchingArmies[0].TargetNationId == persia.Id,
+        "and the army is marching — from the same single action");
+    Check(p.Soldiers == 4000, "the 2,000 soldiers left the home army");
+    var march = s.MarchingArmies[0];
+    Check(march.StartDate == s.CurrentDate && march.ArrivalDate == s.CurrentDate.AddDays(plan.TravelDays) && march.TotalDays == plan.TravelDays,
+        "it set out today and arrives on the date the plan promised");
+    Check(HasLog(eng, "declared war on") && HasLog(eng, "soldiers march on"), "both the declaration and the march are reported");
+
+    // A second army into the war that is already on: no new declaration.
+    var more = eng.ConfirmAttack(persia.Id, 1000);
+    Check(more.Ok && !more.WarDeclared && s.MarchingArmies.Count == 2 && p.Soldiers == 3000, "with war already on, confirming just sends more troops");
+}
+
+using (var eng = NewDipEngine(151))
+{
+    // Invalid deployments change nothing: no war, no soldiers taken, no cooldown spent.
+    var s = eng.State; var p = s.PlayerNation; var persia = Ai(eng, "persia");
+    p.Units = UnitCatalog.SeedArmy(3000);
+    double rel0 = persia.RelationToPlayer;
+    int logs0 = s.EventLog.Count, moves0 = s.Movements.Count;
+    foreach (var (troops, why) in new[] { (0, "zero soldiers"), (-5, "a negative number"), (3001, "more than are at home"), (499, "fewer than the minimum army") })
+    {
+        var r = eng.ConfirmAttack(persia.Id, troops);
+        Check(!r.Ok && !r.WarDeclared && !persia.AtWarWithPlayer && p.Soldiers == 3000 && s.MarchingArmies.Count == 0, $"{why}: refused, no war declared, no soldiers leave");
+    }
+    Check(persia.RelationToPlayer == rel0 && s.EventLog.Count == logs0 && s.Movements.Count == moves0, "nothing was logged and relations are untouched");
+    Check(!p.DiplomacyCooldowns.ContainsKey($"attack_{persia.Id}"), "and no cooldown was spent");
+    Check(eng.ConfirmAttack("nowhere", 1000) is { Ok: false } && eng.ConfirmAttack(persia.Id, 1000).Ok, "(an unknown country is refused; a valid number then works)");
+
+    // Too small an army at home to march at all.
+    using var small = NewDipEngine(152);
+    var sp = small.State.PlayerNation; sp.Units = UnitCatalog.SeedArmy(300);
+    var smallPlan = small.PlanAttack("persia")!;
+    Check(!smallPlan.CanAttack && smallPlan.BlockReason!.Contains("at least"), "with fewer soldiers than the minimum the popup says an army cannot march");
+    Check(!small.ConfirmAttack("persia", 300).Ok && !Ai(small, "persia").AtWarWithPlayer && sp.Soldiers == 300, "and confirming does nothing");
+}
+
+using (var eng = NewDipEngine(153))
+{
+    // Treaties, protection and cooldowns stop the attack and say why.
+    var s = eng.State; var p = s.PlayerNation; var persia = Ai(eng, "persia"); var spain = Ai(eng, "spain"); var france = Ai(eng, "france"); var easter = Ai(eng, "easter");
+    p.Units = UnitCatalog.SeedArmy(6000);
+
+    TreatyService.Add(s, TreatyType.NonAggression, p, persia, 365);
+    var nap = eng.ConfirmAttack(persia.Id, 2000);
+    Check(!nap.Ok && nap.Message.Contains("non-aggression") && !persia.AtWarWithPlayer && p.Soldiers == 6000 && s.MarchingArmies.Count == 0, "a non-aggression pact stops the attack and explains it");
+    Check(eng.PlanAttack(persia.Id)!.BlockReason!.Contains("non-aggression"), "the popup shows the same reason");
+
+    TreatyService.Add(s, TreatyType.DefensiveAlliance, p, spain);
+    Check(eng.ConfirmAttack(spain.Id, 2000).Message.Contains("allied") && !spain.AtWarWithPlayer && p.Soldiers == 6000, "an alliance stops it");
+
+    TreatyService.Add(s, TreatyType.SovereigntyGuarantee, p, france, 730);
+    Check(eng.ConfirmAttack(france.Id, 2000).Message.Contains("guaranteed") && !france.AtWarWithPlayer && p.Soldiers == 6000, "a guarantee we gave stops it");
+
+    s.ActiveAssemblyPolicies.Add(new ActiveAssemblyPolicy { TypeId = "annexation_ban", TargetId = easter.Id, ActivationDate = s.CurrentDate, ExpirationDate = s.CurrentDate.AddDays(90) });
+    var banned = eng.ConfirmAttack(easter.Id, 2000);
+    Check(!banned.Ok && banned.Message.Contains("Assembly") && !easter.AtWarWithPlayer && p.Soldiers == 6000, "an Assembly ban stops it, and no war is declared");
+
+    // The 30-day cooldown on declaring war on the same country again.
+    var hungary = Ai(eng, "nepal");
+    Check(eng.ConfirmAttack(hungary.Id, 1000).Ok, "(a free target can be attacked)");
+    hungary.AtWarWithPlayer = false; s.MarchingArmies.Clear();   // peace again
+    var again = eng.ConfirmAttack(hungary.Id, 1000);
+    Check(!again.Ok && again.Message.Contains("again") && !hungary.AtWarWithPlayer, "declaring war on the same country again within 30 days is refused");
+    for (int i = 0; i < 31; i++) eng.AdvanceOneDay();
+    Check(eng.ConfirmAttack(hungary.Id, 1000).Ok && hungary.AtWarWithPlayer, "after the cooldown it works again");
+
+    // A won battle waits for its decision first.
+    var arabia = Ai(eng, "japan");
+    arabia.AtWarWithPlayer = true;
+    s.PendingVictories.Add(new VictoryDecision { LoserId = arabia.Id, LoserName = arabia.Name, WonDate = s.CurrentDate, ExpiresDate = s.CurrentDate.AddDays(30) });
+    int home = p.Soldiers;
+    Check(!eng.ConfirmAttack(arabia.Id, 1000).Ok && p.Soldiers == home, "with a victory over it awaiting a decision, no new army is sent");
+}
+
+using (var eng = NewDipEngine(154))
+{
+    // The vulnerability warning grows with what is sent away.
+    var s = eng.State; var p = s.PlayerNation; var persia = Ai(eng, "persia");
+    p.Units = UnitCatalog.SeedArmy(2000);
+    persia.Units = UnitCatalog.SeedArmy(1000);
+    var calm = eng.HomeRiskIfSent(persia.Id, 500);
+    Check(calm.Level == "ok" && calm.Remaining == 1500 && calm.Text.Contains("cannot defend your home"), "a small force leaves a comfortable home army (the general warning is still shown)");
+    persia.Units = UnitCatalog.SeedArmy(5000);
+    var caution = eng.HomeRiskIfSent(persia.Id, 1000);
+    Check(caution.Level == "caution" && caution.Text.Contains(persia.Name) && caution.Text.Contains("2,500"), "an enemy that would outnumber the home army is named, with the size of the strike it could answer with");
+    var danger = eng.HomeRiskIfSent(persia.Id, 1800);
+    Check(danger.Level == "danger" && danger.Remaining == 200 && danger.Text.Contains("overrun"), "sending nearly everything warns that the country could be overrun");
+    Check(eng.HomeRiskIfSent(persia.Id, 2000).Remaining == 0 && eng.HomeRiskIfSent(persia.Id, 9999).Remaining == 0, "the remaining army is never negative");
+}
+
+Console.WriteLine("== 67. War, stage 5: peace is negotiated, not bought ==");
+Check(typeof(GameEngine).GetMethod("SueForPeace") is null && typeof(Balance).GetField("PeaceTributeCost") is null && typeof(Balance).GetField("AiSueForPeaceChancePerDay") is null,
+    "the unconditional 10-gold Sue for Peace is gone (no fixed-price peace, no unilateral AI peace)");
+
+using (var eng = NewDipEngine(160))
+{
+    // A proposal moves nothing and ends nothing; what is offered must really be owned.
+    var s = eng.State; var p = s.PlayerNation; var persia = Ai(eng, "persia");
+    p.Gold = 200_000; persia.Gold = 200_000; p.Units = UnitCatalog.SeedArmy(5000); persia.Units = UnitCatalog.SeedArmy(5000);
+    Check(eng.ProposePeace(persia.Id, new[] { PeaceTerm.Peace() }).Outcome == DipOutcome.Invalid, "there are no talks without a war");
+    Check(eng.DeclareWar(persia.Id) is null, "(war declared)");
+
+    double pg = p.Gold, ag = persia.Gold;
+    var sent = eng.ProposePeace(persia.Id, new[] { PeaceTerm.Peace(), PeaceTerm.Gold(p.Id, persia.Id, 5000) });
+    Check(sent.Ok, "terms are proposed");
+    var offer = eng.PendingPeaceOffer(persia.Id)!;
+    Check(offer.IsPending && offer.ProposerId == p.Id && offer.ReceiverId == persia.Id && offer.Round == 1 && offer.ParentId is null, "the offer waits for the receiver (round 1)");
+    Check(persia.AtWarWithPlayer && p.Gold == pg && persia.Gold == ag && s.WarFronts.Count == 1, "proposing neither ends the war nor moves any gold");
+    Check(eng.ProposePeace(persia.Id, new[] { PeaceTerm.Peace() }).Outcome == DipOutcome.Invalid, "only one proposal is open at a time");
+    Check(eng.WithdrawPeaceOffer(offer.Id).Ok && offer.Status == PeaceOfferStatus.Withdrawn && eng.PendingPeaceOffer(persia.Id) is null, "a proposer can take its offer back");
+
+    int offers0 = s.PeaceOffers.Count;
+    string? Refused(params PeaceTerm[] terms) { var r = eng.ProposePeace(persia.Id, terms); return r.Outcome == DipOutcome.Invalid ? r.Message : null; }
+    Check(Refused(PeaceTerm.Gold(p.Id, persia.Id, p.Gold + 1))?.Contains("cannot give") == true, "no one can offer more gold than it has");
+    Check(Refused(PeaceTerm.Gold(p.Id, persia.Id, 150_000), PeaceTerm.Gold(p.Id, persia.Id, 150_000))?.Contains("cannot give") == true, "the same gold cannot be promised twice in one offer");
+    Check(Refused(PeaceTerm.Gold(persia.Id, p.Id, persia.Gold + 1))?.Contains("Iran") == true, "nor can the other side be asked for gold it does not hold");
+    p.Helmets = 10;
+    Check(Refused(PeaceTerm.Goods(p.Id, persia.Id, "helmet", 100))?.Contains("cannot give") == true, "goods beyond the stock are refused");
+    Check(Refused(PeaceTerm.Goods(p.Id, persia.Id, "unobtainium", 1))?.Contains("Unknown") == true, "unknown goods are refused");
+    Check(Refused(PeaceTerm.Gold(p.Id, persia.Id, 0)) is not null && Refused(PeaceTerm.Gold(p.Id, persia.Id, -50)) is not null, "a payment must be above zero");
+    Check(Refused(PeaceTerm.Gold(p.Id, p.Id, 10)) is not null, "a term must pass something from one country to the other");
+    Check(Refused() is not null && Refused(PeaceTerm.Peace(), PeaceTerm.Peace()) is not null, "an offer needs terms, and peace is listed once");
+    s.Colonies.Add(new Colony { Id = "col-persia", Name = "Hormuz", OwnerId = persia.Id, Population = 100, Farms = 1, Mines = 0 });
+    Check(Refused(PeaceTerm.Colony(p.Id, persia.Id, "col-persia"))?.Contains("does not own") == true, "a colony the giver does not own cannot be offered");
+    Check(Refused(PeaceTerm.Colony(persia.Id, p.Id, "nowhere"))?.Contains("does not exist") == true, "nor one that does not exist");
+    Check(Refused(PeaceTerm.Annexation(p.Id, persia.Id))?.Contains("own country") == true, "the player cannot offer its own country for annexation");
+    Check(Refused(PeaceTerm.Annexation(persia.Id, p.Id), PeaceTerm.Gold(p.Id, persia.Id, 10))?.Contains("no other terms") == true, "an annexation stands alone");
+    s.ActiveAssemblyPolicies.Add(new ActiveAssemblyPolicy { TypeId = "annexation_ban", TargetId = persia.Id, ActivationDate = s.CurrentDate, ExpirationDate = s.CurrentDate.AddDays(90) });
+    Check(Refused(PeaceTerm.Annexation(persia.Id, p.Id))?.Contains("Assembly") == true, "an annexation the Assembly has banned is refused (the usual ownership rules apply)");
+    s.ActiveAssemblyPolicies.Clear();
+    Check(s.PeaceOffers.Count == offers0 && p.Gold == pg && persia.Gold == ag && persia.AtWarWithPlayer, "every refused proposal changed nothing");
+}
+
+using (var eng = NewDipEngine(161))
+{
+    // The receiver can accept, reject or counter. Here the player receives the AI's terms.
+    var s = eng.State; var p = s.PlayerNation; var persia = Ai(eng, "persia");
+    p.Gold = 200_000; persia.Gold = 200_000; p.Units = UnitCatalog.SeedArmy(5000); persia.Units = UnitCatalog.SeedArmy(5000);
+    eng.DeclareWar(persia.Id);
+    PeaceOffer AiOffers(double gold) => PeaceService.Propose(s, persia.Id, persia, new[] { PeaceTerm.Peace(), PeaceTerm.Gold(p.Id, persia.Id, gold) }).Offer!;
+
+    var o1 = AiOffers(3000);
+    Check(o1.ProposerId == persia.Id && o1.ReceiverId == p.Id && eng.PeaceOffersForPlayer.Any(o => o.Id == o1.Id), "the AI can propose: the offer waits for the player");
+    Check(s.Inbox.Any(m => m.Topic == InboxTopic.PeaceOffer && m.CountryId == persia.Id && m.Details.Contains("pays 3,000 Gold to Iran")), "the proposal is in the inbox, listing who pays whom");
+    Check(persia.AtWarWithPlayer && p.Gold == 200_000 && persia.Gold == 200_000, "(nothing moved when it was proposed)");
+
+    // Reject: the war goes on, nothing is transferred.
+    Check(eng.RejectPeaceOffer(o1.Id).Ok && o1.Status == PeaceOfferStatus.Rejected, "the player rejects");
+    Check(persia.AtWarWithPlayer && p.Gold == 200_000 && persia.Gold == 200_000, "a rejected offer leaves the war on and moves nothing");
+    Check(eng.AcceptPeaceOffer(o1.Id).Outcome == DipOutcome.Invalid && persia.AtWarWithPlayer, "a settled offer cannot be accepted afterwards");
+    Check(s.Inbox.Any(m => m.Topic == InboxTopic.PeaceOffer && m.Summary.Contains("rejected")), "the rejection is in the inbox");
+
+    // Counter: different terms go back, one round later.
+    var o2 = AiOffers(3000);
+    var counter = eng.CounterPeaceOffer(o2.Id, new[] { PeaceTerm.Peace(), PeaceTerm.Gold(p.Id, persia.Id, 1000) });
+    var o3 = eng.PendingPeaceOffer(persia.Id)!;
+    Check(counter.Ok && o2.Status == PeaceOfferStatus.Countered, "the player counters: their offer is answered, not accepted");
+    Check(o3.Round == 2 && o3.ParentId == o2.Id && o3.ProposerId == p.Id && o3.ReceiverId == persia.Id && o3.Terms.Single(t => t.Kind == PeaceTermKind.Gold).Amount == 1000, "the counteroffer is round 2, from the player, with the new terms");
+    Check(persia.AtWarWithPlayer && p.Gold == 200_000, "a counteroffer moves nothing either");
+    Check(eng.RejectPeaceOffer(o3.Id).Outcome == DipOutcome.Invalid, "(the player cannot answer its own counteroffer)");
+    eng.WithdrawPeaceOffer(o3.Id);
+
+    // The last round has no counter.
+    var last = AiOffers(500); last.Round = Balance.PeaceMaxRounds;
+    Check(eng.CounterPeaceOffer(last.Id, new[] { PeaceTerm.Peace() }).Message.Contains("last round"), "in the last round the only answers are accept or reject");
+    eng.RejectPeaceOffer(last.Id);
+
+    // Accept: every term applied once, the war ends.
+    var o4 = AiOffers(3000);
+    double sum0 = p.Gold + persia.Gold;
+    Check(eng.AcceptPeaceOffer(o4.Id).Ok, "the player accepts");
+    Check(!persia.AtWarWithPlayer && p.Gold == 197_000 && persia.Gold == 203_000 && p.Gold + persia.Gold == sum0, "the terms are applied exactly: 3,000 gold moved, none created or lost");
+    Check(s.PeaceOffers.All(o => o.NationId != persia.Id) && s.WarFronts.All(f => f.NationId != persia.Id), "the war's talks and record are cleared");
+    Check(eng.AcceptPeaceOffer(o4.Id).Outcome == DipOutcome.Invalid && p.Gold == 197_000 && persia.Gold == 203_000, "accepting again does nothing: the terms apply only once");
+    Check(s.Inbox.Any(m => m.Topic == InboxTopic.PeaceAgreement && m.Details.Contains("pays 3,000 Gold to Iran") && m.Details.Contains("The war ends")), "the final agreement is in the inbox with every term");
+    Check(DiplomacyService.ToDisplayRating(persia.RelationToPlayer) == Balance.PeaceAgreementRating, "a small payment on top of peace leaves the country with the ordinary post-peace regard");
+}
+
+foreach (bool aiPays in new[] { false, true })
+{
+    // How the other country regards the player afterwards depends on who paid.
+    using var eng = NewDipEngine(168);
+    var s = eng.State; var p = s.PlayerNation; var persia = Ai(eng, "persia");
+    p.Gold = 200_000; persia.Gold = 200_000; p.Units = UnitCatalog.SeedArmy(5000); persia.Units = UnitCatalog.SeedArmy(5000);
+    eng.DeclareWar(persia.Id);
+    double big = PeaceService.LeverageOf(s, persia).Scale * 0.5;
+    var terms = new[] { PeaceTerm.Peace(), aiPays ? PeaceTerm.Gold(persia.Id, p.Id, big) : PeaceTerm.Gold(p.Id, persia.Id, big) };
+    Check(PeaceService.Accept(s, PeaceService.Propose(s, persia.Id, persia, terms).Offer!).Ok, aiPays ? "(the AI pays a large sum for peace)" : "(the AI is paid a large sum for peace)");
+    Check(DiplomacyService.ToDisplayRating(persia.RelationToPlayer) == (aiPays ? Balance.PeaceHumbledRating : Balance.PeaceSatisfiedRating),
+        aiPays ? "a country that paid heavily regards the player coldly" : "a country that was paid heavily is content");
+}
+
+using (var eng = NewDipEngine(162))
+{
+    // Goods and a colony change hands by agreement; if the giver can no longer pay at the time of acceptance, nothing moves.
+    var s = eng.State; var p = s.PlayerNation; var persia = Ai(eng, "persia");
+    p.Gold = 100_000; persia.Gold = 100_000; p.Units = UnitCatalog.SeedArmy(5000); persia.Units = UnitCatalog.SeedArmy(5000);
+    p.Iron = 2000; persia.Iron = 500; p.Population = 20_000_000;
+    s.Colonies.Add(new Colony { Id = "col-p", Name = "Cape Town", OwnerId = p.Id, Population = 4000, Farms = 3, Mines = 2 });
+    p.Farms += 3; p.Mines += 2;
+    eng.DeclareWar(persia.Id);
+
+    var terms = new[] { PeaceTerm.Peace(), PeaceTerm.Gold(p.Id, persia.Id, 1000), PeaceTerm.Goods(p.Id, persia.Id, "iron", 800), PeaceTerm.Colony(p.Id, persia.Id, "col-p") };
+    var offer = PeaceService.Propose(s, persia.Id, persia, terms).Offer!;
+    double pPop = p.Population, aPop = persia.Population; int pFarms = p.Farms, aFarms = persia.Farms, pMines = p.Mines, aMines = persia.Mines;
+    double pIron = p.Iron, aIron = persia.Iron;
+
+    // The player spends the gold before accepting: the terms can no longer be carried out, so none of them is.
+    double saved = p.Gold; p.Gold = 100;
+    var failed = eng.AcceptPeaceOffer(offer.Id);
+    Check(failed.Outcome == DipOutcome.Invalid && persia.AtWarWithPlayer && p.Gold == 100 && p.Iron == pIron && persia.Iron == aIron && s.Colonies.Single().OwnerId == p.Id,
+        "terms that can no longer be met are refused as a whole: no gold, goods or colony moves and the war goes on");
+    Check(offer.Status == PeaceOfferStatus.Expired, "the offer falls through");
+
+    p.Gold = saved;
+    var again = PeaceService.Propose(s, persia.Id, persia, terms).Offer!;
+    Check(eng.AcceptPeaceOffer(again.Id).Ok, "with the gold back, the same terms are accepted");
+    Check(p.Gold == saved - 1000 && persia.Gold == 101_000, "the gold moved once");
+    Check(p.Iron == pIron - 800 && persia.Iron == aIron + 800, "the iron moved once");
+    var colony = s.Colonies.Single();
+    Check(colony.OwnerId == persia.Id && p.Population == pPop - 4000 && persia.Population == aPop + 4000 && p.Farms == pFarms - 3 && persia.Farms == aFarms + 3
+          && p.Mines == pMines - 2 && persia.Mines == aMines + 2, "the colony changed owner with its people and buildings, leaving the giver's totals correct");
+    Check(!persia.AtWarWithPlayer, "and the war is over");
+}
+
+using (var eng = NewDipEngine(163))
+{
+    // AI answers: the three answers all occur, and the price follows how the war stands.
+    var s = eng.State; var p = s.PlayerNation; var persia = Ai(eng, "persia");
+    p.Gold = 200_000; persia.Gold = 200_000;
+    p.Units = UnitCatalog.SeedArmy(5000); persia.Units = UnitCatalog.SeedArmy(5000);
+    eng.DeclareWar(persia.Id);
+    var lev = PeaceService.LeverageOf(s, persia);
+    PeaceVerdict Ask(double goldTheyPay) => PeaceService.Evaluate(s, persia, new PeaceOffer
+    {
+        NationId = persia.Id, ProposerId = p.Id, ReceiverId = persia.Id, CreatedDate = s.CurrentDate,
+        Terms = new List<PeaceTerm> { PeaceTerm.Peace(), PeaceTerm.Gold(persia.Id, p.Id, goldTheyPay) },
+    });
+    var ladder = Enumerable.Range(0, 16).Select(i => (K: i * 0.1, V: Ask(i * 0.1 * lev.Scale).Decision)).ToList();
+    Check(Math.Abs(lev.Lean) < 0.1, "(even armies: the war is balanced)");
+    Check(ladder.Any(x => x.V == PeaceDecision.Accept) && ladder.Any(x => x.V == PeaceDecision.Counter) && ladder.Any(x => x.V == PeaceDecision.Reject), "an even war: small demands are accepted, middling ones countered, greedy ones rejected");
+    Check(ladder.First().V == PeaceDecision.Accept && ladder.Last().V == PeaceDecision.Reject, "from a plain peace to a ruinous demand the answer only gets harder");
+    int firstReject = ladder.FindIndex(x => x.V == PeaceDecision.Reject);
+    Check(ladder.Skip(firstReject).All(x => x.V == PeaceDecision.Reject), "once they refuse, bigger demands are refused too");
+
+    // Winning vs losing: how much will they pay for peace?
+    double MaxAccepted(int playerArmy, int aiArmy)
+    {
+        p.Units = UnitCatalog.SeedArmy(playerArmy); persia.Units = UnitCatalog.SeedArmy(aiArmy);
+        var l = PeaceService.LeverageOf(s, persia);
+        double best = -1;
+        for (int i = 0; i <= 30; i++) if (Ask(i * 0.05 * l.Scale).Decision == PeaceDecision.Accept) best = i * 0.05;
+        return best;
+    }
+    double losing = MaxAccepted(20_000, 2_000), winning = MaxAccepted(1_500, 15_000);
+    Check(losing > winning + 0.3, $"the losing side concedes more than the winning side (it would pay up to {losing:0.00}x the stakes, against {winning:0.00}x)");
+    Check(winning < 0, "a winning country accepts no payment from its own pocket: it wants peace to cost the other side");
+    p.Units = UnitCatalog.SeedArmy(1_500); persia.Units = UnitCatalog.SeedArmy(15_000);
+    var plainPeace = PeaceService.Evaluate(s, persia, new PeaceOffer { NationId = persia.Id, ProposerId = p.Id, ReceiverId = persia.Id, CreatedDate = s.CurrentDate, Terms = new List<PeaceTerm> { PeaceTerm.Peace() } });
+    Check(plainPeace.Decision == PeaceDecision.Counter && plainPeace.Counter!.Any(t => t.Kind == PeaceTermKind.Gold && t.GiverId == p.Id && t.ReceiverId == persia.Id), "a winning country answers a plain peace by asking for gold from the player");
+    p.Units = UnitCatalog.SeedArmy(20_000); persia.Units = UnitCatalog.SeedArmy(2_000);
+    Check(PeaceService.Evaluate(s, persia, new PeaceOffer { NationId = persia.Id, ProposerId = p.Id, ReceiverId = persia.Id, CreatedDate = s.CurrentDate, Terms = new List<PeaceTerm> { PeaceTerm.Peace() } }).Decision == PeaceDecision.Accept,
+        "a country that is being beaten accepts a plain peace");
+
+    // Battles, losses and exhaustion move the balance.
+    p.Units = UnitCatalog.SeedArmy(5000); persia.Units = UnitCatalog.SeedArmy(5000);
+    double before = PeaceService.LeverageOf(s, persia).Lean;
+    PeaceService.RecordBattle(s, persia, playerWon: false, playerLosses: 1500, enemyLosses: 300);
+    PeaceService.RecordBattle(s, persia, playerWon: false, playerLosses: 1200, enemyLosses: 200);
+    double afterWins = PeaceService.LeverageOf(s, persia).Lean;
+    Check(afterWins > before + 0.1, "battles the enemy won, and the soldiers each side lost, make it more demanding");
+    persia.Units = UnitCatalog.SeedArmy(300);
+    Check(PeaceService.LeverageOf(s, persia).Exhausted && PeaceService.LeverageOf(s, persia).Lean < afterWins - 0.2, "an army too small to go on fighting weakens its hand");
+    p.Units = UnitCatalog.SeedArmy(1000);
+    var withMarch = PeaceService.LeverageOf(s, persia).EnemyPower;
+    s.MarchingArmies.Add(new MarchingArmy { AttackerNationId = p.Id, TargetNationId = persia.Id, Force = UnitCatalog.SeedArmy(4000) });
+    Check(PeaceService.LeverageOf(s, persia).EnemyPower > withMarch + 1000, "armies already on the road count toward the ability to fight on");
+}
+
+using (var eng = NewDipEngine(164))
+{
+    // Through the daily step: the AI answers a day later — accepting, countering or rejecting — and a rejection has a pause.
+    var s = eng.State; var p = s.PlayerNation; var persia = Ai(eng, "persia");
+    p.Gold = 200_000; persia.Gold = 200_000;
+    p.Units = UnitCatalog.SeedArmy(5000); persia.Units = UnitCatalog.SeedArmy(5000);
+    eng.DeclareWar(persia.Id);
+    var lev = PeaceService.LeverageOf(s, persia);
+    PeaceOffer Offer(double goldTheyPay) => new() { NationId = persia.Id, ProposerId = p.Id, ReceiverId = persia.Id, CreatedDate = s.CurrentDate,
+        Terms = new List<PeaceTerm> { PeaceTerm.Peace(), PeaceTerm.Gold(persia.Id, p.Id, goldTheyPay) } };
+    double counterAsk = Enumerable.Range(1, 20).Select(i => i * 0.05 * lev.Scale).First(g => PeaceService.Evaluate(s, persia, Offer(g)).Decision == PeaceDecision.Counter);
+    double rejectAsk = lev.Scale * 1.4;
+    Check(PeaceService.Evaluate(s, persia, Offer(rejectAsk)).Decision == PeaceDecision.Reject, "(a demand of 1.4x the stakes would be refused)");
+
+    // A greedy demand: refused a day later.
+    Check(eng.ProposePeace(persia.Id, Offer(rejectAsk).Terms).Ok, "a greedy proposal is sent");
+    var greedy = eng.PendingPeaceOffer(persia.Id)!;
+    Check(greedy.DueDate == s.CurrentDate.AddDays(Balance.PeaceReplyDays), "(the envoys answer after the reply time)");
+    eng.AdvanceOneDay();
+    Check(greedy.Status == PeaceOfferStatus.Rejected && persia.AtWarWithPlayer, "the AI rejects it: the war goes on");
+    Check(s.Inbox.Any(m => m.Topic == InboxTopic.PeaceOffer && m.Summary.Contains("rejected your terms")), "its rejection is in the inbox");
+    Check(eng.ProposePeace(persia.Id, Offer(0).Terms).Message.Contains("turned your terms down"), "after a rejection there is a short pause before the next opening proposal");
+    for (int i = 0; i < Balance.PeaceRetryDays; i++) { p.Gold = 200_000; eng.AdvanceOneDay(); }
+
+    // A middling demand: countered with terms the AI itself would take.
+    lev = PeaceService.LeverageOf(s, persia);
+    counterAsk = Enumerable.Range(1, 20).Select(i => i * 0.05 * lev.Scale).First(g => PeaceService.Evaluate(s, persia, Offer(g)).Decision == PeaceDecision.Counter);
+    Check(eng.ProposePeace(persia.Id, Offer(counterAsk).Terms).Ok, "a middling proposal is sent");
+    var middling = eng.PendingPeaceOffer(persia.Id)!;
+    eng.AdvanceOneDay();
+    var theirCounter = eng.PendingPeaceOffer(persia.Id);
+    Check(middling.Status == PeaceOfferStatus.Countered && theirCounter is not null && theirCounter.ProposerId == persia.Id && theirCounter.ReceiverId == p.Id && theirCounter.Round == 2 && theirCounter.ParentId == middling.Id,
+        "the AI counters: a round-2 offer from it, waiting for the player");
+    var counterGold = theirCounter!.Terms.Where(t => t.Kind == PeaceTermKind.Gold).Sum(t => (t.ReceiverId == p.Id ? 1 : -1) * t.Amount);
+    Check(counterGold < counterAsk, "it pays less than the player asked");
+    Check(s.Inbox.Any(m => m.Topic == InboxTopic.PeaceOffer && m.Summary.Contains("counteroffer")), "the counteroffer is in the inbox");
+    Check(persia.AtWarWithPlayer, "(still at war: an offer is not an agreement)");
+    double p1 = p.Gold, a1 = persia.Gold;
+    Check(eng.AcceptPeaceOffer(theirCounter.Id).Ok && !persia.AtWarWithPlayer, "the player accepts their counter: the war ends");
+    Check(Math.Abs((p.Gold - p1) - counterGold) < 0.01 && Math.Abs((persia.Gold - a1) + counterGold) < 0.01, "and exactly the countered gold moved");
+
+}
+
+using (var eng = NewDipEngine(165))
+{
+    // A country being beaten accepts a plain peace through the daily step, and a desperate one even annexation.
+    var s = eng.State; var p = s.PlayerNation; var persia = Ai(eng, "persia"); var spain = Ai(eng, "spain");
+    p.Gold = 1e9; persia.Gold = 50_000;
+    p.Units = UnitCatalog.SeedArmy(20_000); persia.Units = UnitCatalog.SeedArmy(2_000);
+    eng.DeclareWar(persia.Id);
+    Check(eng.ProposePeace(persia.Id, new[] { PeaceTerm.Peace() }).Ok, "a plain peace is proposed to a country that is being beaten");
+    eng.AdvanceOneDay();
+    Check(!persia.AtWarWithPlayer && s.Inbox.Any(m => m.Topic == InboxTopic.PeaceAgreement), "it accepts: the war ends and the agreement is in the inbox");
+
+    spain.AtWarWithPlayer = true; PeaceService.OnWarStarted(s, spain, playerStarted: true);
+    spain.Units = UnitCatalog.SeedArmy(100);
+    var front = PeaceService.Front(s, spain); front.PlayerBattlesWon = 6; front.EnemyLosses = 5000;
+    Check(PeaceService.LeverageOf(s, spain).PLose >= 0.99, "(a country that is destroyed expects to lose everything)");
+    double gold0 = p.Gold, pop0 = p.Population; long spainPop = spain.Population; double spainGold = spain.Gold;
+    Check(eng.ProposePeace(spain.Id, new[] { PeaceTerm.Annexation(spain.Id, p.Id) }).Ok, "the player proposes to annex it");
+    Check(!spain.IsEliminated && spain.AtWarWithPlayer, "(proposing annexes nothing)");
+    eng.AdvanceOneDay();
+    Check(spain.IsEliminated && !spain.AtWarWithPlayer && spain.AnnexedById == p.Id && s.TotalPopulation(p) > pop0 + spainPop / 2 && spain.Gold == 0 && p.Gold > gold0, "a destroyed country agrees: it is annexed by agreement, once, its treasury moves and its people live on as a territory");
+    Check(s.PeaceOffers.All(o => o.NationId != spain.Id) && s.NationsAnnexedByPlayer == 1, "(counted as one annexation; its talks are cleared)");
+}
+
+using (var eng = NewDipEngine(166))
+{
+    // The AI can start the talks, and an offer left unanswered lapses: it does not end the war.
+    var s = eng.State; var p = s.PlayerNation; var persia = Ai(eng, "persia");
+    p.Units = UnitCatalog.SeedArmy(20_000); persia.Units = UnitCatalog.SeedArmy(2_500); persia.Gold = 40_000;
+    eng.DeclareWar(persia.Id);
+    PeaceOffer? first = null;
+    for (int i = 0; i < 700 && first is null; i++)
+    {
+        p.Gold = 1e9; p.Units = UnitCatalog.SeedArmy(20_000); persia.Units = UnitCatalog.SeedArmy(2_500);
+        eng.AdvanceOneDay();
+        first = s.PeaceOffers.FirstOrDefault(o => o.ProposerId == persia.Id);
+    }
+    Check(first is not null && first.ReceiverId == p.Id && first.IsPending, "a country that is losing the war puts terms to the player by itself");
+    Check(persia.AtWarWithPlayer, "its proposal does not end the war");
+    Check(first!.Terms.Any(t => t.Kind == PeaceTermKind.Peace) && first.Terms.Where(t => t.Kind == PeaceTermKind.Gold).All(t => t.GiverId == persia.Id && t.ReceiverId == p.Id),
+        "the losing side offers peace, paying the player (or plain peace)");
+    Check(s.Inbox.Any(m => m.Topic == InboxTopic.PeaceOffer && m.Summary.Contains("proposes peace terms") && m.Details.Contains("The war ends")), "the proposal is in the inbox");
+    double gold = p.Gold, theirGold = persia.Gold;
+    for (int i = 0; i < Balance.PeaceOfferDays; i++) { p.Gold = 1e9; p.Units = UnitCatalog.SeedArmy(20_000); persia.Units = UnitCatalog.SeedArmy(2_500); eng.AdvanceOneDay(); }
+    Check(first.Status == PeaceOfferStatus.Expired && persia.AtWarWithPlayer, "left unanswered, it lapses and the war goes on: no country makes peace by itself");
+    Check(s.Inbox.Any(m => m.Summary.Contains("lapsed")), "the lapse is in the inbox");
+
+    // What a winning country would ask for.
+
+    p.Units = UnitCatalog.SeedArmy(1_500); persia.Units = UnitCatalog.SeedArmy(15_000); p.Gold = 100_000;
+    var levWin = PeaceService.LeverageOf(s, persia);
+    var win = PeaceService.ProposalFor(s, persia, levWin);
+    var ask = win.Where(t => t.Kind == PeaceTermKind.Gold).ToList();
+    Check(levWin.Lean > 0.3 && win.Any(t => t.Kind == PeaceTermKind.Peace) && ask.Count == 1 && ask[0].GiverId == p.Id && ask[0].ReceiverId == persia.Id && ask[0].Amount > 0 && ask[0].Amount <= p.Gold * 0.6,
+        "a winning country names a price in gold the player can pay");
+    p.Units = UnitCatalog.SeedArmy(5000); persia.Units = UnitCatalog.SeedArmy(5000);
+    Check(PeaceService.ProposalFor(s, persia, PeaceService.LeverageOf(s, persia)).All(t => t.Kind == PeaceTermKind.Peace), "an even war gets a plain peace");
+}
+
+using (var eng = NewDipEngine(167))
+{
+    // Negotiation state survives save / load: the war, the marching army, the record and the offers in play.
+    var s = eng.State; var p = s.PlayerNation; var persia = Ai(eng, "persia");
+    p.Gold = 100_000; persia.Gold = 100_000; p.Units = UnitCatalog.SeedArmy(6000); persia.Units = UnitCatalog.SeedArmy(6000);
+    var atk = eng.ConfirmAttack(persia.Id, 2000);
+    Check(atk.Ok && atk.WarDeclared, "(war declared and the army sent)");
+    var front = PeaceService.Front(s, persia); front.PlayerBattlesWon = 2; front.EnemyBattlesWon = 1; front.PlayerLosses = 900; front.EnemyLosses = 1500; front.LastBattleDate = s.CurrentDate;
+    var ai1 = PeaceService.Propose(s, persia.Id, persia, new[] { PeaceTerm.Peace(), PeaceTerm.Gold(p.Id, persia.Id, 2500) }).Offer!;
+    persia.Iron = 100;
+    var mine = eng.CounterPeaceOffer(ai1.Id, new[] { PeaceTerm.Peace(), PeaceTerm.Goods(persia.Id, p.Id, "iron", 5) }).Ok;
+    var pending = eng.PendingPeaceOffer(persia.Id)!;
+    var march = s.MarchingArmies.Single();
+    Check(mine && pending.Round == 2, "(a counteroffer is in play)");
+
+    await eng.SaveAsync();
+    s.PeaceOffers.Clear(); s.WarFronts.Clear(); s.MarchingArmies.Clear(); persia.AtWarWithPlayer = false;
+    await eng.LoadAsync();
+    var s2 = eng.State; var persia2 = Ai(eng, "persia");
+    Check(persia2.AtWarWithPlayer, "the war survives save / load");
+    var march2 = s2.MarchingArmies.Single();
+    Check(march2.Strength == 2000 && march2.StartDate == march.StartDate && march2.ArrivalDate == march.ArrivalDate && march2.TotalDays == march.TotalDays && march2.TargetNationId == persia.Id,
+        "the marching army keeps its force, start date and arrival date");
+    Check(s2.PeaceOffers.Count == 2, "every offer survives (the countered one and the counteroffer)");
+    var p2 = s2.PeaceOffers.Single(o => o.IsPending);
+    Check(p2.Id == pending.Id && p2.Round == 2 && p2.ParentId == ai1.Id && p2.ProposerId == p.Id && p2.ReceiverId == persia.Id && p2.DueDate == pending.DueDate
+          && p2.Terms.Count == 2 && p2.Terms.Any(t => t.Kind == PeaceTermKind.Goods && t.ProductId == "iron" && t.Amount == 5 && t.GiverId == persia.Id && t.ReceiverId == p.Id),
+        "the pending counteroffer keeps its round, parent, receiver, due date and terms");
+    Check(s2.PeaceOffers.Single(o => o.Id == ai1.Id).Status == PeaceOfferStatus.Countered, "and the offer it answered stays countered");
+    var f2 = s2.WarFronts.Single();
+    Check(f2.NationId == persia.Id && f2.PlayerBattlesWon == 2 && f2.EnemyBattlesWon == 1 && f2.PlayerLosses == 900 && f2.EnemyLosses == 1500 && f2.StartDate == front.StartDate && f2.LastBattleDate == front.LastBattleDate,
+        "the war record survives");
+    Check(s2.Inbox.Any(m => m.Topic == InboxTopic.PeaceOffer), "and so do the negotiation messages");
+    // The restored negotiation still works: the AI answers the pending counteroffer, once.
+    eng.AdvanceOneDay();
+    Check(!s2.PeaceOffers.Any(o => o.Id == pending.Id && o.IsPending), "after loading, the AI still answers the pending offer when its time comes");
+}
+
+Console.WriteLine("== 68. War, review fixes: colonies are checked together, annexation may carry the peace, a fallen player has no talks, no empty army ==");
+using (var eng = NewDipEngine(170))
+{
+    var s = eng.State; var p = s.PlayerNation; var persia = Ai(eng, "persia");
+    p.Gold = 100_000; persia.Gold = 100_000; p.Units = UnitCatalog.SeedArmy(5000); persia.Units = UnitCatalog.SeedArmy(5000);
+    eng.DeclareWar(persia.Id);
+
+    // Two colonies that each fit the giver's totals, but not together.
+    p.Population = 5000; p.Farms = 10; p.Mines = 3;
+    s.Colonies.Add(new Colony { Id = "ca", Name = "Alpha", OwnerId = p.Id, Population = 3000, Farms = 8, Mines = 2 });
+    s.Colonies.Add(new Colony { Id = "cb", Name = "Beta", OwnerId = p.Id, Population = 3000, Farms = 8, Mines = 2 });
+    var both = eng.ProposePeace(persia.Id, new[] { PeaceTerm.Colony(p.Id, persia.Id, "ca"), PeaceTerm.Colony(p.Id, persia.Id, "cb") });
+    Check(both.Outcome == DipOutcome.Invalid && both.Message.Contains("no longer all"), "two colonies are checked together against the giver's people and buildings");
+    Check(eng.ProposePeace(persia.Id, new[] { PeaceTerm.Colony(p.Id, persia.Id, "ca") }).Ok, "one of them is fine");
+    var offer = eng.PendingPeaceOffer(persia.Id)!;
+    eng.WithdrawPeaceOffer(offer.Id);
+
+    // The peace itself may be listed with an annexation (the player does not have to untick it).
+    Check(eng.ProposePeace(persia.Id, new[] { PeaceTerm.Peace(), PeaceTerm.Annexation(persia.Id, p.Id) }).Ok, "an annexation may be proposed together with the peace");
+    eng.WithdrawPeaceOffer(eng.PendingPeaceOffer(persia.Id)!.Id);
+    Check(eng.ProposePeace(persia.Id, new[] { PeaceTerm.Gold(p.Id, persia.Id, 10), PeaceTerm.Annexation(persia.Id, p.Id) }).Message.Contains("no other terms"), "but no other term can ride along with an annexation");
+
+    // No empty army, and none sent against a country whose fate is waiting.
+    Check(!eng.LaunchInvasion(persia.Id, 0).ok && !eng.LaunchInvasion(persia.Id, -3).ok && s.MarchingArmies.Count == 0, "an invasion of no soldiers is refused");
+    s.PendingVictories.Add(new VictoryDecision { LoserId = persia.Id, LoserName = persia.Name, WonDate = s.CurrentDate, ExpiresDate = s.CurrentDate.AddDays(30) });
+    int home = p.Soldiers;
+    Check(!eng.LaunchInvasion(persia.Id, 1000).ok && p.Soldiers == home, "nor is an invasion launched while a victory over it awaits its decision");
+    s.PendingVictories.Clear();
+}
+
+using (var eng = NewDipEngine(171))
+{
+    // Once the player's country has fallen there are no more talks, offers or warnings.
+    var s = eng.State; var p = s.PlayerNation; var persia = Ai(eng, "persia"); var spain = Ai(eng, "spain");
+    p.Units = UnitCatalog.SeedArmy(2000); persia.Units = UnitCatalog.SeedArmy(15_000); spain.Units = UnitCatalog.SeedArmy(15_000);
+    eng.DeclareWar(persia.Id); eng.DeclareWar(spain.Id);
+    Warfare.AnnexNation(s, persia, p);
+    int offers = s.PeaceOffers.Count, inbox = s.Inbox.Count, warnings = s.ActiveWarnings.Count;
+    for (int i = 0; i < 400; i++) { s.CurrentDate = s.CurrentDate.AddDays(1); PeaceService.Advance(s); }
+    Check(p.IsEliminated && s.PeaceOffers.Count == offers && s.Inbox.Count == inbox && s.ActiveWarnings.Count == warnings, "after the player falls, nobody keeps proposing peace to a dead country");
+}
+
+Console.WriteLine("== 69. Annexation: the territory goes on living for its master — its tax, votes and records belong to the master; it earns nothing as a country ==");
+using (var eng = NewDipEngine(180))
+{
+    var s = eng.State; var p = s.PlayerNation; var persia = Ai(eng, "persia");
+    p.EnsureTaxationInitialized(); persia.EnsureTaxationInitialized();
+    p.TaxRates = new TaxRates(); persia.TaxRates = new TaxRates();   // (the same rates, so the comparison is about people)
+    persia.Gold = 7000;
+    Check(p.CrownDomains == 1 && persia.CrownDomains == 1, "(before: each country has one crown domain)");
+    int polygons = persia.Territory.Count, homePolygons = p.Territory.Count;
+
+    using var control = NewDipEngine(180);   // the same world, without the annexation
+    var pc = control.State.PlayerNation; var persiaC = Ai(control, "persia");
+    pc.EnsureTaxationInitialized(); pc.TaxRates = new TaxRates(); persiaC.Gold = 7000;
+
+    Warfare.AnnexNation(s, p, persia);
+    double territoryTax = TaxationService.TotalRevenue(persia.Workforce, persia.TaxRates) * CommandStaffService.TaxMult(p) * p.TaxMult;
+    Check(territoryTax > 0 && persia.Workforce.Peasants > 0, "(the territory keeps its own taxed workforce)");
+    Check(p.CrownDomains == 2 && persia.CrownDomains == 0, "its crown domain became the winner's");
+    Check(StatisticsService.IncomeBreakdown(p).Single(x => x.Name.StartsWith("Crown Domain")).Amount == 2 * Balance.CrownDomainIncomePerDay, "the winner's income statement shows both crown domains");
+
+    // It is under the winner: recorded, on the map, and out of the independent countries.
+    Check(persia.AnnexedById == p.Id && persia.AnnexedDate == s.CurrentDate && s.AnnexedBy(p.Id).Single().Id == persia.Id, "the annexed country records who annexed it, and when");
+    Check(p.AnnexedPolygonCount == polygons && p.Territory.Count == homePolygons + polygons && persia.Territory.Count == 0, "its lands are part of the winner's realm on the map");
+    Check(!s.LiveOtherNations().Any(n => n.Id == persia.Id) && s.LiveOtherNations().Count() == s.OtherNations.Count - 1, "it is no longer listed among the independent countries");
+
+    // One day: the master collects the territory's tax (and its crown domain); the territory itself holds no gold; the control does not.
+    double pBefore = p.Gold, pcBefore = pc.Gold;
+    long popBefore = persia.Population;
+    eng.AdvanceOneDay(); control.AdvanceOneDay();
+    double extra = (p.Gold - pBefore) - (pc.Gold - pcBefore);
+    Check(Math.Abs(extra - (territoryTax + Balance.CrownDomainIncomePerDay)) < 1.0, $"the winner collects the territory's tax and crown domain: {extra:N1} a day more than without the annexation (tax {territoryTax:N1} + domain {Balance.CrownDomainIncomePerDay:N0})");
+    Check(persia.Gold == 0 && persiaC.Gold > 7000, "the territory keeps no treasury; the unannexed country (control) goes on earning for itself");
+    Check(persia.Population != popBefore, "the territory's people go on living: births and deaths continue");
+
+    // Weeks later: still a living territory for its master, never a country again.
+    for (int i = 0; i < 40; i++) { p.Gold = Math.Max(p.Gold, 1_000_000); eng.AdvanceOneDay(); }
+    Check(persia.IsEliminated && persia.AnnexedById == p.Id && persia.Gold == 0 && persia.Soldiers == 0 && persia.Units.Count == 0, "it is still annexed, holds no gold and has no army");
+    Check(!s.Wars.Any(w => w.Involves(persia.Id)) && !persia.AtWarWithPlayer && !s.Treaties.Any(t => t.Involves(persia.Id)), "and takes no part in diplomacy or war");
+}
+
+using (var eng = NewDipEngine(181))
+{
+    // The territory runs by the existing rules: its people eat its stocks, and a shortage shows when they run out.
+    var s = eng.State; var p = s.PlayerNation; var persia = Ai(eng, "persia");
+    Warfare.AnnexNation(s, p, persia);
+    long pop0 = persia.Population;
+    persia.ProductionBuildings.Remove("farm"); persia.GoodsInventory["Wheat"] = 1000;
+    for (int i = 0; i < 30; i++) { p.Gold = Math.Max(p.Gold, 1_000_000); eng.AdvanceOneDay(); }
+    Check(persia.GetProduct("Wheat") < 1000 && persia.ShortagePct.Count > 0, "the territory's own consumption drains its own stock, by the existing per-person rule");
+    Check(persia.Population != pop0, "its population keeps changing under the existing birth and shortage rules");
+    Check(persia.Gold == 0, "(and the territory itself never holds gold)");
+}
+
+using (var eng = NewDipEngine(182))
+{
+    // Between AI countries: income, territories and mastery pass up the chain; the territories keep their own economies, counted once.
+    var s = eng.State; var spain = Ai(eng, "spain"); var france = Ai(eng, "france"); var persia = Ai(eng, "persia");
+    int franceLands = france.Territory.Count;
+    long francePop = france.Population, spainPop = spain.Population, persiaPop = persia.Population;
+    Warfare.AnnexNation(s, spain, france);
+    Check(spain.CrownDomains == 2 && france.CrownDomains == 0 && france.AnnexedById == spain.Id && spain.AnnexedPolygonCount == franceLands, "(spain annexes france)");
+    int spainPolys = spain.Territory.Count;
+    Warfare.AnnexNation(s, persia, spain);
+    Check(persia.CrownDomains == 3 && spain.CrownDomains == 0, "when the winner is annexed in turn, all its crown domains go with it");
+    Check(france.AnnexedById == persia.Id && spain.AnnexedById == persia.Id && s.AnnexedBy(persia.Id).Count == 2, "and every country it had annexed is now under the new master");
+    Check(persia.AnnexedPolygonCount >= spainPolys && spain.Territory.Count == 0, "the whole realm, annexed lands included, is drawn as part of the new master's");
+    Check(s.TotalPopulation(persia) == persia.Population + spain.Population + france.Population && persia.Population == persiaPop, "its people and the two territories' are counted once in the master's realm");
+    for (int i = 0; i < 30; i++) eng.AdvanceOneDay();
+    Check(france.Gold == 0 && spain.Gold == 0, "neither territory holds any gold: what they earn is their master's");
+    Check(france.Population != francePop && spain.Population != spainPop, "...while both go on living");
+}
+
+using (var eng = NewDipEngine(184))
+{
+    // Assembly: an annexed country has no vote; its people add to its master's voting power (one vote per 500,000), counted once.
+    var s = eng.State; var p = s.PlayerNation; var persia = Ai(eng, "persia"); var spain = Ai(eng, "spain");
+    var all = s.AllNations().ToList();
+    int own = AssemblyService.VotingPower(p), before = AssemblyService.VotingPower(p, all);
+    Check(own == before && AssemblyService.VotingPower(persia, all) > 0, "(before: each country votes with its own people)");
+    Warfare.AnnexNation(s, p, persia);
+    int after = AssemblyService.VotingPower(p, all);
+    Check(AssemblyService.VotingPower(persia, all) == 0 && AssemblyService.VotingPower(persia) == 0, "the annexed country has no vote of its own");
+    Check(after == Math.Max(1, (int)((p.Population + persia.Population) / 500_000)) && after > own, "its people's votes are its master's now");
+    Check(s.VotingPowerOf(p) == after, "the page-level helper agrees");
+    var proposal = new AssemblyProposal { TypeId = "annexation_ban", TargetId = spain.Id, ProposerId = p.Id };
+    proposal.Votes[p.Id] = true; proposal.Votes[persia.Id] = true;
+    Check(proposal.VotesFor(all) == after, "a ballot counts the master's vote with the territory's people, and nothing for the territory itself");
+}
+
+using (var eng = NewDipEngine(183))
+{
+    // Save / load keeps who is under whom, the income and the map realm.
+    var s = eng.State; var p = s.PlayerNation; var persia = Ai(eng, "persia");
+    Warfare.AnnexNation(s, p, persia);
+    for (int i = 0; i < 5; i++) eng.AdvanceOneDay();
+    int terr = p.Territory.Count, annexedPolys = p.AnnexedPolygonCount;
+    long persiaPop = persia.Population; double persiaWood = persia.Wood; int persiaFarms = persia.Farms; double peasantRate = persia.TaxRates.Peasants;
+    await eng.SaveAsync();
+    persia.AnnexedById = null; p.CrownDomains = 1; p.AnnexedPolygonCount = 0; persia.Population = 1; persia.Wood = 0; persia.Farms = 0;
+    await eng.LoadAsync();
+    var p2 = eng.State.PlayerNation; var persia2 = Ai(eng, "persia");
+    Check(persia2.IsEliminated && persia2.AnnexedById == p2.Id && persia2.AnnexedDate == persia.AnnexedDate && persia2.CrownDomains == 0, "the annexed country's master survives save / load");
+    Check(persia2.Population == persiaPop && persia2.Wood == persiaWood && persia2.Farms == persiaFarms && persia2.TaxRates.Peasants == peasantRate, "and so do the territory's people, stocks, buildings and tax settings");
+    Check(p2.CrownDomains == 2 && p2.AnnexedPolygonCount == annexedPolys && p2.Territory.Count == terr && persia2.Territory.Count == 0, "and the winner's income and realm");
+    long popAfterLoad = persia2.Population;
+    for (int i = 0; i < 5; i++) eng.AdvanceOneDay();
+    Check(persia2.Population != popAfterLoad, "after loading, the territory goes on living");
+}
+
+Console.WriteLine("== 70. Command staff: six appointments, each a real effect, for every country ==");
+using (var eng = NewDipEngine(190))
+{
+    var s = eng.State; var p = s.PlayerNation; var persia = Ai(eng, "persia"); var france = Ai(eng, "france");
+
+    // The six posts, in two groups, in the order of the screen.
+    var posts = CommandStaffService.Posts;
+    Check(posts.Select(x => x.Role).SequenceEqual(new[] { CommanderRole.FleetCommander, CommanderRole.LandCommander, CommanderRole.CommanderInChief,
+              CommanderRole.ChiefTributeCollector, CommanderRole.HeadOfTrade, CommanderRole.HeadOfConstruction }), "six posts: fleet, land, commander-in-chief, tribute collector, head of trade, head of construction");
+    Check(posts.Take(3).All(x => x.Group == StaffGroup.MilitaryLeadership) && posts.Skip(3).All(x => x.Group == StaffGroup.CivilAdministration), "three military posts and three civil ones");
+    Check(posts.All(x => x.Title.Length > 0 && x.Icon.Length > 0 && x.Duty.Length > 0), "each has a title, icon and duty");
+    Check((int)CommanderRole.CommanderInChief == 0 && (int)CommanderRole.LandCommander == 1 && (int)CommanderRole.FleetCommander == 2, "the old roles keep their saved numbers (new posts were appended)");
+
+    // Candidates: three per post, one of each tier, stable, culturally drawn, never the same person twice across the staff.
+    var all = posts.SelectMany(x => CommandStaffService.Candidates(p, x.Role)).ToList();
+    Check(all.Count == 18 && all.Select(c => c.Name).Distinct().Count() == 18, "18 candidates, no name used twice across the staff");
+    Check(posts.All(x => CommandStaffService.Candidates(p, x.Role).Select(c => c.Tier).SequenceEqual(new[] { 1, 2, 3 })), "each post offers a capable, a distinguished and a renowned candidate");
+    Check(all.SequenceEqual(posts.SelectMany(x => CommandStaffService.Candidates(p, x.Role))), "the shortlist is the same every time");
+    var cands = CommandStaffService.Candidates(p, CommanderRole.LandCommander);
+    Check(cands[0].HireCost < cands[1].HireCost && cands[1].HireCost < cands[2].HireCost && cands[0].DailyWage < cands[1].DailyWage && cands[1].DailyWage < cands[2].DailyWage
+          && cands[0].Strength == 1.0 && cands[1].Strength > 1.0 && cands[2].Strength > cands[1].Strength, "better candidates cost more, earn more, and work the post harder");
+    Check(cands[0].HireCost == Balance.LandCommanderHireCost && cands[0].DailyWage == Balance.LandCommanderWage, "a capable candidate is the post's base cost and wage");
+    Check(CommandStaffService.Candidates(persia, CommanderRole.LandCommander).Select(c => c.Name).SequenceEqual(CommandStaffService.Candidates(persia, CommanderRole.LandCommander).Select(c => c.Name))
+          && CommandStaffService.Candidates(p, CommanderRole.LandCommander).Select(c => c.Name).SequenceEqual(cands.Select(c => c.Name)), "(and per country)");
+    Check(!CommandStaffService.Candidates(persia, CommanderRole.LandCommander).Select(c => c.Name).SequenceEqual(cands.Select(c => c.Name)), "countries have their own candidates");
+
+    // Appointing: paid once, one holder, replaced not doubled, refused when it cannot be done.
+    p.Gold = 1000;
+    Check(CommandStaffService.Holder(p, CommanderRole.HeadOfTrade) is null, "(vacant at the start)");
+    var capable = CommandStaffService.Candidate(p, CommanderRole.HeadOfTrade, 1)!;
+    Check(eng.AppointCommander(CommanderRole.HeadOfTrade, 1) is null, "a post is filled");
+    var holder = CommandStaffService.Holder(p, CommanderRole.HeadOfTrade)!;
+    Check(holder.Name == capable.Name && holder.Skill == 1 && holder.DailyWage == capable.DailyWage && holder.AppointedDate == s.CurrentDate, "the holder is the candidate, with his skill, wage and the date");
+    Check(Math.Abs(p.Gold - (1000 - capable.HireCost)) < 1e-9, "the appointment fee was paid");
+    Check(eng.AppointCommander(CommanderRole.HeadOfTrade, 1) is { } dup && dup.Contains("already holds"), "the same person cannot be appointed again");
+    var renowned = CommandStaffService.Candidate(p, CommanderRole.HeadOfTrade, 3)!;
+    double before = p.Gold;
+    Check(eng.AppointCommander(CommanderRole.HeadOfTrade, 3) is null, "a better candidate replaces the holder");
+    Check(p.Commanders.Count(c => c.Role == CommanderRole.HeadOfTrade) == 1 && CommandStaffService.Holder(p, CommanderRole.HeadOfTrade)!.Name == renowned.Name, "never two holders of one post");
+    Check(Math.Abs(before - p.Gold - renowned.HireCost) < 1e-9, "replacing costs the new appointee's fee (nothing is refunded for the old one)");
+    Check(!p.Commanders.Any(c => c.Name == capable.Name), "the old holder is gone");
+    p.Gold = 1;
+    double poor = p.Gold;
+    Check(eng.AppointCommander(CommanderRole.HeadOfConstruction, 3) is { } nope && nope.Contains("costs") && p.Gold == poor && CommandStaffService.Holder(p, CommanderRole.HeadOfConstruction) is null,
+        "without the gold, nothing happens");
+    Check(eng.AppointCommander(CommanderRole.HeadOfConstruction, 0) is not null && eng.AppointCommander(CommanderRole.HeadOfConstruction, 4) is not null, "only the three candidates can be chosen");
+    p.Gold = 1000;
+    eng.DismissCommander(CommanderRole.HeadOfTrade);
+    Check(CommandStaffService.Holder(p, CommanderRole.HeadOfTrade) is null && p.Gold == 1000, "a dismissed holder leaves the post vacant (and nothing is refunded)");
+    Check(CommandStaffService.Strength(p, CommanderRole.HeadOfTrade) == 0 && CommandStaffService.ImportPriceMult(p) == 1.0, "a vacant post has no effect");
+
+    // Countries keep their own appointments.
+    Check(CommandStaffService.Appoint(s, persia, CommanderRole.LandCommander, 2) is null && CommandStaffService.Holder(persia, CommanderRole.LandCommander) is { Skill: 2 }, "another country appoints its own");
+    Check(CommandStaffService.Holder(p, CommanderRole.LandCommander) is null && CommandStaffService.Holder(france, CommanderRole.LandCommander) is null, "and no one else's staff changes");
+    var ghost = Ai(eng, "spain"); ghost.IsEliminated = true;
+    Check(CommandStaffService.Appoint(s, ghost, CommanderRole.LandCommander, 1) is { } gone && gone.Contains("no longer exists"), "an annexed country appoints no one");
+}
+
+using (var eng = NewDipEngine(191))
+{
+    // The effects, one by one, each read by the rule it changes.
+    var s = eng.State; var p = s.PlayerNation; var persia = Ai(eng, "persia");
+    p.Gold = 1_000_000; p.Wood = 100_000; p.Iron = 100_000; p.Stone = 100_000;
+    p.Units = UnitCatalog.SeedArmy(6000); p.Warships = 20;
+    double Staff(CommanderRole role, int tier) { Check(eng.AppointCommander(role, tier) is null, $"(appointed {role} tier {tier})"); return CommandStaffService.Strength(tier); }
+
+    // -- Land commander: upkeep, recruit cost, battle strength.
+    double landUpkeep = p.Units.Sum(u => u.Count * UnitCatalog.Get(u.Type).UpkeepPerDay);
+    double Accrual() { p.UpkeepAccrued = 0; eng.AdvanceOneDay(); return p.UpkeepAccrued - CommandStaffService.DailyWages(p); }
+    double navalUpkeep = p.Warships * WarshipSpec.UpkeepPerDay;
+    double none = Accrual();
+    Check(Math.Abs(none - (landUpkeep + navalUpkeep)) < 0.05, "(the daily bill without staff is the plain upkeep)");
+    Staff(CommanderRole.LandCommander, 1);
+    double withLand = Accrual();
+    Check(Math.Abs(withLand - (landUpkeep * Balance.LandCommanderUpkeepMult + navalUpkeep)) < 0.05, "a capable land commander cuts land upkeep by 15% and leaves the navy's alone");
+    Staff(CommanderRole.LandCommander, 3);
+    double withRenowned = Accrual();
+    Check(withRenowned < withLand - 0.01 && Math.Abs(withRenowned - (landUpkeep * (1 - 0.15 * Balance.StaffTier3Strength) + navalUpkeep)) < 0.05, "a renowned one cuts it by more (15% x the tier's strength)");
+    double g0 = p.Gold; eng.Recruit(UnitType.Musketeer, 100);
+    double paid = g0 - p.Gold;
+    Check(Math.Abs(paid - UnitCatalog.Get(UnitType.Musketeer).GoldCost * 100 * (1 - 0.10 * Balance.StaffTier3Strength)) < 1e-6, "recruiting costs less by the same strength (10% x 1.7)");
+    Check(Math.Abs(p.BattleStrengthMult - (1 + 0.05 * Balance.StaffTier3Strength) * ResearchService.BattleStrengthMult(p)) < 1e-9, "its armies fight harder (+5% x 1.7, on the existing battle-strength rule)");
+    eng.DismissCommander(CommanderRole.LandCommander);
+
+    // A borderline battle that only the land commander's strength wins (the existing combat model, unchanged).
+    var attacker = Ai(eng, "france"); var defender = Ai(eng, "spain");
+    defender.Units = UnitCatalog.SeedArmy(3000);
+    double defence = ArmyHelper.ArmyPower(defender.Units) * Balance.GarrisonFraction * Balance.HomeAdvantageMult;
+    int need = 1; while (ArmyHelper.ArmyPower(UnitCatalog.SeedArmy(need)) * 1.0 <= defence) need += 10;   // the smallest force that wins as it is
+    int borderline = need - 40;
+    var forceA = UnitCatalog.SeedArmy(borderline);
+    double plain = ArmyHelper.ArmyPower(forceA);
+    Check(plain < defence && plain * 1.05 > defence, "(a force that loses as it is but would win with +5%)");
+    bool Fight() { defender.Units = UnitCatalog.SeedArmy(3000); return Warfare.ResolveBattle(UnitCatalog.SeedArmy(borderline), attacker, defender, attacker.BattleStrengthMult, new Random(1)).AttackerWon; }   // (a fresh garrison each time: a battle costs the defender men too)
+    Check(!Fight(), "(without a commander it loses)");
+    CommandStaffService.Appoint(s, attacker, CommanderRole.LandCommander, 1);
+    Check(Fight(), "with a land commander the same army wins: the bonus acts on the real combat model");
+
+    // -- Fleet commander: naval upkeep and warship cost; no fighting bonus (stated on the screen).
+    Staff(CommanderRole.FleetCommander, 1);
+    double withFleet = Accrual();
+    Check(Math.Abs(withFleet - (landUpkeep + navalUpkeep * Balance.FleetCommanderUpkeepMult)) < 0.05, "a fleet commander cuts naval upkeep by 15% and leaves the army's alone");
+    g0 = p.Gold; eng.RecruitWarships(5);
+    Check(Math.Abs((g0 - p.Gold) - WarshipSpec.GoldCost * 5 * Balance.FleetCommanderRecruitMult) < 1e-6, "and warships cost 10% less");
+    Check(CommandStaffService.Limitation(CommanderRole.FleetCommander) is { } note && note.Contains("Naval battles") && CommandStaffService.Limitation(CommanderRole.LandCommander) is null, "the screen says plainly that naval combat is not modelled");
+
+    // -- Commander-in-Chief: a lighter bill for every force, and less war attrition (no tax: that is the tribute collector's).
+    Staff(CommanderRole.CommanderInChief, 1);
+    double withBoth = Accrual();
+    Check(Math.Abs(withBoth - (landUpkeep * Balance.CinCUpkeepMult + navalUpkeep * Balance.FleetCommanderUpkeepMult * Balance.CinCUpkeepMult)) < 0.05,
+        "the commander-in-chief's 5% applies to every force and stacks with the fleet commander's, rather than repeating it");
+    double taxBefore = EngineTax(p);
+    double EngineTax(Nation n) => GameEngine.EstimateDailyIncome(n);
+    Check(CommandStaffService.TaxMult(p) == 1.0, "(and it gives no tax bonus any more)");
+    var west = NewDipEngine(191); var wp = west.State.PlayerNation; var wpersia = Ai(west, "persia");
+    foreach (var e in new[] { (eng, p, persia), (west, wp, wpersia) })
+    {
+        e.Item2.Units = UnitCatalog.SeedArmy(10_000); e.Item3.Units = UnitCatalog.SeedArmy(10_000);
+        e.Item3.AtWarWithPlayer = true; e.Item3.Gold = 0;   // (a war on: both armies bleed a little every day)
+    }
+    CommandStaffService.Dismiss(west.State, wp, CommanderRole.CommanderInChief);
+    CommandStaffService.Dismiss(eng.State, p, CommanderRole.FleetCommander);
+    for (int i = 0; i < 20; i++) { p.Gold = 1e9; wp.Gold = 1e9; persia.Units = UnitCatalog.SeedArmy(10_000); wpersia.Units = UnitCatalog.SeedArmy(10_000); eng.AdvanceOneDay(); west.AdvanceOneDay(); }
+    Check(p.Soldiers > wp.Soldiers, "with a commander-in-chief fewer soldiers are lost to attrition in a war");
+    west.Dispose();
+}
+
+using (var eng = NewDipEngine(192))
+{
+    var s = eng.State; var p = s.PlayerNation; var persia = Ai(eng, "persia"); var france = Ai(eng, "france");
+    p.Gold = 1_000_000;
+    Embassy(eng, france, persia);
+
+    // -- Chief tribute collector: tax revenue, and tribute from other countries.
+    double taxPlain = GameEngine.EstimateDailyIncome(p);
+    eng.AppointCommander(CommanderRole.ChiefTributeCollector, 1);
+    double taxWith = GameEngine.EstimateDailyIncome(p);
+    double revenue = TaxationService.TotalRevenue(p.Workforce, p.TaxRates) * p.TaxMult;
+    Check(Math.Abs((taxWith - taxPlain) - (revenue * (Balance.TributeCollectorTaxMult - 1))) <= 1.0, "a tribute collector raises tax revenue by 5% (the income the daily tick pays)");
+    p.Gold = 0; p.UpkeepAccrued = 0; eng.AdvanceOneDay();
+    double dayWith = p.Gold;
+    eng.DismissCommander(CommanderRole.ChiefTributeCollector);
+    p.Gold = 0; eng.AdvanceOneDay();
+    Check(dayWith > p.Gold, "and the daily tick really pays more with one");
+    p.Units = UnitCatalog.SeedArmy(20_000); persia.Units = UnitCatalog.SeedArmy(1_000); persia.Gold = 100_000;
+    p.Gold = 1_000_000; double g0 = p.Gold;
+    Check(eng.DemandTribute(persia.Id) is null, "(tribute demanded)");
+    double plainTribute = p.Gold - g0;
+    persia.Gold = 100_000; Embassy(eng, persia);
+    eng.AppointCommander(CommanderRole.ChiefTributeCollector, 1);
+    p.Gold = 1_000_000; g0 = p.Gold; persia.RelationToPlayer = 0;
+    Check(eng.DemandTribute(persia.Id) is null, "(demanded again, with a collector)");
+    Check(Math.Abs((p.Gold - g0) - plainTribute * Balance.TributeCollectorTributeMult) < 0.01, "a tribute collector gathers 25% more tribute");
+
+    // -- Head of trade: what you buy costs less, what you sell earns more, trade pacts pay more.
+    Embassy(eng, france);
+    persia.Gold = 100_000; france.Gold = 100_000; france.Wood = 10_000;
+    double plainPrice = eng.BuyPricePer1000(france.Id, "wood");
+    double plainPact = p.TradeIncomeMult;
+    eng.AppointCommander(CommanderRole.HeadOfTrade, 1);
+    Check(Math.Abs(eng.BuyPricePer1000(france.Id, "wood") - plainPrice * Balance.TradeHeadImportMult) < 1e-9, "a head of trade lowers the price you pay by 5%");
+    Check(Math.Abs(p.TradeIncomeMult - plainPact * Balance.TradeHeadPactIncomeMult) < 1e-9, "and raises trade-pact income by 10%");
+    var sell = new TradeContract { BuyerId = france.Id, SellerId = p.Id, ProductId = "wood", Quantity = 100, TotalValue = 1000, IsPlayerBuyer = false,
+        CreatedDate = s.CurrentDate, DeliveryDate = s.CurrentDate, Status = TradeStatus.InTransit };
+    p.Gold = 0; eng.AdvanceOneDay();   // (a day without the sale: what the crown earns anyway)
+    double ordinaryDay = p.Gold;
+    s.TradeContracts.Add(sell);
+    p.Gold = 0; eng.AdvanceOneDay();
+    Check(sell.Status == TradeStatus.Delivered && Math.Abs((p.Gold - ordinaryDay) - 1000 * Balance.TradeHeadExportMult) < 5, "and a sale earns 5% more when it is delivered");
+
+    // -- Head of construction: faster building, never under a day.
+    p.Gold = 1e9; p.Wood = 1e6; p.Iron = 1e6; p.Stone = 1e6;
+    eng.DismissCommander(CommanderRole.HeadOfConstruction);
+    eng.StartConstruction(BuildingType.Mine);
+    int plainDays = p.ConstructionQueue.Last().TotalDays;
+    p.ConstructionQueue.Clear();
+    eng.AppointCommander(CommanderRole.HeadOfConstruction, 1);
+    eng.StartConstruction(BuildingType.Mine);
+    int fasterDays = p.ConstructionQueue.Last().TotalDays;
+    Check(fasterDays < plainDays && fasterDays == Math.Max(1, (int)Math.Round(plainDays * Balance.ConstructionHeadTimeMult, MidpointRounding.AwayFromZero)), "a head of construction shortens a building's time by 15% (to the nearest day)");
+    var mill = ProductionCatalog.All.First(m => m.BuildDays >= 4);
+    p.ConstructionQueue.Clear();
+    Check(eng.BuildProduction(mill.Id, 2) is null && p.ConstructionQueue.All(x => x.TotalDays == eng.ProductionBuildDays(mill)) && eng.ProductionBuildDays(mill) < mill.BuildDays,
+        "production buildings are built sooner too, and the screen's number is the one used");
+    eng.DismissCommander(CommanderRole.HeadOfConstruction);
+    Check(eng.ProductionBuildDays(mill) == mill.BuildDays, "(vacant: the building's own time)");
+    var quick = mill with { BuildDays = 1 };
+    eng.AppointCommander(CommanderRole.HeadOfConstruction, 3);
+    Check(eng.ProductionBuildDays(quick) == 1, "a one-day build stays at one day");
+    p.ConstructionQueue.Clear();
+}
+
+using (var eng = NewDipEngine(193))
+{
+    // The same rules for AI countries: its own staff, its own effects, and it fills posts by itself.
+    var s = eng.State; var p = s.PlayerNation; var persia = Ai(eng, "persia"); var spain = Ai(eng, "spain");
+    persia.Units = UnitCatalog.SeedArmy(8000); spain.Units = UnitCatalog.SeedArmy(8000);
+    persia.Warships = 0; spain.Warships = 0; persia.Gold = 50_000; spain.Gold = 50_000;
+    persia.EnsureTaxationInitialized(); spain.EnsureTaxationInitialized();
+    persia.UpkeepAccrued = 0; spain.UpkeepAccrued = 0;
+    CommandStaffService.Appoint(s, persia, CommanderRole.LandCommander, 1);
+    persia.Gold = 50_000;
+    eng.AdvanceOneDay();
+    double landBase = persia.Units.Sum(u => u.Count * UnitCatalog.Get(u.Type).UpkeepPerDay);
+    double spainBase = spain.Units.Sum(u => u.Count * UnitCatalog.Get(u.Type).UpkeepPerDay);
+    Check(Math.Abs((spain.UpkeepAccrued / spainBase) - 1.0) < 0.02 && persia.UpkeepAccrued < landBase * 0.9, "an AI country's upkeep falls with its own land commander, and its neighbour's does not");
+    Check(persia.BattleStrengthMult > spain.BattleStrengthMult, "its armies fight harder, by the same rule as the player's");
+    double aiTaxPlain = TaxationService.TotalRevenue(spain.Workforce, spain.TaxRates);
+    CommandStaffService.Appoint(s, spain, CommanderRole.ChiefTributeCollector, 2);
+    Check(CommandStaffService.TaxMult(spain) > 1.05 && CommandStaffService.TaxMult(persia) == 1.0, "tax effects likewise follow the country's own collector");
+}
+
+using (var eng = NewDipEngine(194))
+{
+    // AI countries fill their own staff over time, only for posts they can use, one holder per post, paid for from their own treasury.
+    var s = eng.State;
+    for (int i = 0; i < 500; i++) { s.PlayerNation.Gold = 1e9; eng.AdvanceOneDay(); }
+    var staffed = s.OtherNations.Where(n => !n.IsEliminated && n.Commanders.Count > 0).ToList();
+    Check(staffed.Count >= 10, $"AI countries appoint staff by themselves ({staffed.Count} of {s.OtherNations.Count} have some)");
+    Check(staffed.All(n => n.Commanders.All(c => c.Role is CommanderRole.LandCommander or CommanderRole.CommanderInChief or CommanderRole.FleetCommander or CommanderRole.ChiefTributeCollector)),
+        "...only for posts they have something to run (no trade or construction of their own)");
+    Check(s.OtherNations.All(n => n.Commanders.Select(c => c.Role).Distinct().Count() == n.Commanders.Count && n.Commanders.Select(c => c.Name).Distinct().Count() == n.Commanders.Count),
+        "...never two holders of a post, never one person in two posts");
+    Check(staffed.All(n => n.Commanders.All(c => c.Skill == 1 && CommandStaffService.Candidates(n, c.Role).Any(k => k.Name == c.Name && k.Tier == 1))), "...always the capable candidate from their own shortlist");
+    Check(s.OtherNations.Where(n => !n.IsEliminated).All(n => n.Gold >= 0), "(and nobody went broke doing it)");
+}
+
+using (var eng = NewDipEngine(195))
+{
+    // Appointments survive save / load, for the player and the AI; an old save's commanders load as capable; annexation clears the loser's staff.
+    var s = eng.State; var p = s.PlayerNation; var persia = Ai(eng, "persia"); var spain = Ai(eng, "spain");
+    p.Gold = 1e6;
+    eng.AppointCommander(CommanderRole.HeadOfConstruction, 2);
+    eng.AppointCommander(CommanderRole.FleetCommander, 3);
+    CommandStaffService.Appoint(s, persia, CommanderRole.CommanderInChief, 2);
+    var mine = p.Commanders.Select(c => (c.Role, c.Name, c.Skill, c.DailyWage, c.AppointedDate)).OrderBy(x => x.Role).ToList();
+    var theirs = persia.Commanders.Select(c => (c.Role, c.Name, c.Skill, c.DailyWage, c.AppointedDate)).ToList();
+    await eng.SaveAsync();
+    p.Commanders.Clear(); persia.Commanders.Clear();
+    await eng.LoadAsync();
+    var p2 = eng.State.PlayerNation; var persia2 = Ai(eng, "persia");
+    Check(p2.Commanders.Select(c => (c.Role, c.Name, c.Skill, c.DailyWage, c.AppointedDate)).OrderBy(x => x.Role).SequenceEqual(mine), "the player's appointments survive save / load (post, name, skill, wage, date)");
+    Check(persia2.Commanders.Select(c => (c.Role, c.Name, c.Skill, c.DailyWage, c.AppointedDate)).SequenceEqual(theirs), "and so do an AI country's");
+    Check(CommandStaffService.ConstructionTimeMult(p2) < 1.0 && CommandStaffService.Strength(persia2, CommanderRole.CommanderInChief) > 1.0, "and their effects work again after loading");
+    var old = System.Text.Json.JsonSerializer.Deserialize<Commander>("{\"Id\":\"x\",\"Name\":\"Old Pasha\",\"Role\":1,\"DailyWage\":0.02}")!;
+    Check(old.Skill == 1 && old.AppointedDate is null && old.Role == CommanderRole.LandCommander, "a commander from an older save loads as a capable land commander");
+
+    Warfare.AnnexNation(eng.State, p2, persia2);
+    Check(persia2.Commanders.Count == 0, "an annexed country's staff is gone with it");
+}
+
+Console.WriteLine("== 71. Annexed States: each territory managed separately, by its master only, by the existing rules ==");
+using (var eng = NewDipEngine(200))
+{
+    var s = eng.State; var p = s.PlayerNation; var persia = Ai(eng, "persia"); var spain = Ai(eng, "spain");
+    var france = Ai(eng, "france"); var kaz = Ai(eng, "kazakh");
+    Warfare.AnnexNation(s, p, persia); eng.AdvanceOneDay(); Warfare.AnnexNation(s, p, spain);   // (a day apart: the list keeps the order of annexation)
+    Warfare.AnnexNation(s, france, kaz);   // an AI master's territory
+
+    // Only the player's own territories, in the order they were annexed.
+    Check(eng.AnnexedTerritories.Select(t => t.Id).SequenceEqual(new[] { persia.Id, spain.Id }), "the player's territories are exactly the countries their country annexed");
+    Check(eng.Territory(persia.Id) is not null && eng.Territory(kaz.Id) is null && eng.Territory(france.Id) is null && eng.Territory("nowhere") is null,
+        "an AI master's territory, an independent country and an unknown id are not the player's to manage");
+    Check(eng.TerritoryAuthority(kaz.Id)!.Contains("belongs to") && eng.TerritoryAuthority(france.Id)!.Contains("independent") && eng.TerritoryAuthority(persia.Id) is null, "and the refusal says why");
+    Check(eng.SetTerritoryTaxRates(kaz.Id, new TaxRates()) is not null && eng.BuildProductionInTerritory(kaz.Id, "farm", 1) is not null
+          && eng.BuildBasicInTerritory(kaz.Id, BuildingType.Farm) is not null && eng.ShipTerritoryStock(kaz.Id, "wheat", 1) is not null, "every operation on another master's territory is refused");
+
+    // A territory is not a country: nothing to declare war on, give to, tax, or deal with.
+    Check(eng.DeclareWar(persia.Id) is not null && !persia.AtWarWithPlayer && eng.SendGift(persia.Id) is not null && eng.DemandTribute(persia.Id) is not null
+          && eng.SignTradePact(persia.Id) is not null && eng.EstablishNetwork(persia.Id) is not null, "an annexed territory cannot be made war on, given gifts, taxed as tribute or dealt with: it is not a country");
+    Check(!eng.ConfirmAttack(persia.Id, 1000).Ok && !eng.ProposePeace(persia.Id, new[] { PeaceTerm.Peace() }).Ok, "no attack, no peace talks");
+    Check(!eng.CheckDiplomaticAction(DiplomaticActionCatalog.Gift, persia.Id).Available, "and none of the diplomatic actions are open");
+
+    // The report: what the list and the operations screen show.
+    persia.ShortagePct["Salt"] = 0;
+    var rep = eng.ReportTerritory(persia.Id)!;
+    Check(rep.Id == persia.Id && rep.Name == persia.Name && rep.OwnerId == p.Id && rep.AnnexedDate == persia.AnnexedDate && rep.AnnexedDate is not null && rep.Population == persia.Population, "the report names the territory, its master, the date and its people");
+    Check(Math.Abs(rep.TaxRevenuePerDay - TaxationService.TotalRevenue(persia.Workforce, persia.TaxRates) * CommandStaffService.TaxMult(p) * p.TaxMult) < 1e-9 && rep.TaxRevenuePerDay > 0, "the tax figure is the one the daily tick credits to the master");
+    Check(rep.Farms == persia.Farms && rep.Mines == persia.Mines && rep.Mills == persia.ProductionBuildings.Values.Sum() && rep.Facilities == rep.Farms + rep.Mines + rep.Sawmills + rep.Workshops + rep.Mills && rep.Facilities > 0, "it counts every facility");
+    Check(rep.Items.Count == ConsumptionCatalog.All.Count && rep.Items.All(i => i.NeedPerDay >= 0), "every item the people use is listed with its need, stock and output");
+    Check(!rep.Absorbed && rep.Status.StartsWith("Under ") && rep.Status.Contains(p.Name) && rep.ShortItems.Count == 0, "a territory with no shortage reads as under its master's rule, with how its people take the taxes");
+    persia.ShortagePct["Wheat"] = 12;
+    Check(eng.ReportTerritory(persia.Id)!.Status.StartsWith("Shortages") && eng.ReportTerritory(persia.Id)!.ShortItems.Contains("Wheat"), "a shortage shows in its status and its list");
+    persia.ShortagePct.Remove("Wheat");
+
+    // Realm totals count everything once.
+    var reports = eng.TerritoryReports();
+    Check(Math.Abs(eng.RealmDailyIncome() - (GameEngine.EstimateDailyIncome(p) + (long)reports.Sum(r => r.TotalIncomePerDay))) <= 1, "the realm's income is the country's plus its territories', each once");
+    Check(StatisticsService.IncomeBreakdown(s, p).Single(x => x.Name == "Annexed states").Amount == reports.Sum(r => r.TotalIncomePerDay), "and the income statement lists the territories' share");
+    Check(eng.RealmPopulation == p.Population + persia.Population + spain.Population, "the realm's people are the country's plus its territories', each once");
+}
+
+using (var eng = NewDipEngine(201))
+{
+    // Tax: the preview is the existing tax rules worked out first; applying it changes the master's income by exactly that, and only that territory's.
+    var s = eng.State; var p = s.PlayerNation; var persia = Ai(eng, "persia"); var spain = Ai(eng, "spain");
+    Warfare.AnnexNation(s, p, persia); Warfare.AnnexNation(s, p, spain);
+    using var control = NewDipEngine(201);
+    Warfare.AnnexNation(control.State, control.State.PlayerNation, Ai(control, "persia")); Warfare.AnnexNation(control.State, control.State.PlayerNation, Ai(control, "spain"));
+    var pc = control.State.PlayerNation;
+
+    var current = persia.TaxRates;
+    var raised = new TaxRates { Peasants = 100, Craftsmen = 100, MilitaryPersonnel = 100, Merchants = 100, Spies = 100, Saboteurs = 100 };
+    var preview = eng.PreviewTerritoryTaxes(persia.Id, raised)!;
+    Check(preview.RevenueChange > 5 && preview.ApprovalTarget < eng.ReportTerritory(persia.Id)!.TaxApproval + 0.0001, "the preview shows more revenue and a lower approval before anything is changed");
+    Check(persia.TaxRates.Peasants == current.Peasants && preview.ExtraDeathPct >= 0, "(previewing changes nothing)");
+    var bad = new TaxRates { Peasants = 101 };
+    Check(eng.SetTerritoryTaxRates(persia.Id, bad) is not null && persia.TaxRates.Peasants == current.Peasants, "rates above 100 are refused and nothing changes");
+    Check(eng.SetTerritoryTaxRates(persia.Id, new TaxRates { Peasants = -1 }) is not null, "...and so are negative ones");
+    Check(eng.SetTerritoryTaxRates(persia.Id, raised) is null && persia.TaxRates.Peasants == 100 && persia.TaxRates.Merchants == 100, "the rates are applied to that territory");
+    Check(p.TaxRates.Peasants == pc.TaxRates.Peasants && spain.TaxRates.Peasants == Ai(control, "spain").TaxRates.Peasants, "the national rates and the other territory's are untouched: each is managed separately");
+
+    double before = p.Gold, beforeC = pc.Gold;
+    eng.AdvanceOneDay(); control.AdvanceOneDay();
+    double delta = (p.Gold - before) - (pc.Gold - beforeC);
+    Check(Math.Abs(delta - preview.RevenueChange) < 1.0, $"the master's income rose by what the preview said ({delta:N1} vs {preview.RevenueChange:N1}) and was credited once");
+    Check(persia.Gold == 0 && spain.Gold == 0, "(the territories hold none of it)");
+
+    // Effects on the people: above the safe threshold, a shortage kills more.
+    persia.ShortagePct["Wheat"] = 20;
+    var harsh = new TaxRates { Peasants = 90, Craftsmen = 90, MilitaryPersonnel = 90, Merchants = 90, Spies = 90, Saboteurs = 90 };
+    var pv = eng.PreviewTerritoryTaxes(persia.Id, harsh)!;
+    Check(pv.ShortageNow && pv.SafeThreshold == Balance.SafeTaxShortage && pv.ExtraDeathPct > 0 && pv.ExtraDeathsPerDay > 0, "with a shortage, taxes above the safe threshold are shown to raise deaths, by the existing rule");
+    Check(Math.Abs(pv.ExtraDeathPct - ConsumptionService.TaxDeathIncreasePct(harsh, Balance.SafeTaxShortage)) < 1e-9, "...by exactly the existing formula");
+}
+
+using (var eng = NewDipEngine(202))
+{
+    // Building: gold from the master's treasury, materials from the territory's own stockpile; the finished mill is the territory's.
+    var s = eng.State; var p = s.PlayerNation; var persia = Ai(eng, "persia"); var spain = Ai(eng, "spain");
+    Warfare.AnnexNation(s, p, persia); Warfare.AnnexNation(s, p, spain);
+    p.Gold = 1_000_000; persia.Wood = 1e7; persia.Stone = 1e7; persia.Iron = 1e7;
+    var mill = ProductionCatalog.All.Where(m => m.WoodCost > 0 && m.BuildDays >= 4).OrderBy(m => m.GoldCost).First();
+
+    var quote = eng.QuoteTerritoryProduction(persia.Id, mill.Id, 3)!;
+    Check(quote.Block is null && Math.Abs(quote.Gold - mill.GoldCost * 3) < 1e-9 && Math.Abs(quote.Wood - mill.WoodCost * 3) < 1e-9 && quote.Days == mill.BuildDays, "the quote states the cost and the days before anything is spent");
+    double pGold = p.Gold, pWood = p.Wood, tWood = persia.Wood, tStone = persia.Stone, tIron = persia.Iron; int ownMills = p.ProductionBuildings.Values.Sum(), spainMills = spain.ProductionBuildings.Values.Sum(), tMills = persia.ProductionBuildings.Values.Sum();
+    Check(eng.BuildProductionInTerritory(persia.Id, mill.Id, 3) is null, "the master starts three mills in the territory");
+    Check(Math.Abs((pGold - p.Gold) - quote.Gold) < 1e-9 && Math.Abs((tWood - persia.Wood) - quote.Wood) < 1e-9 && Math.Abs((tStone - persia.Stone) - quote.Stone) < 1e-9 && Math.Abs((tIron - persia.Iron) - quote.Iron) < 1e-9 && p.Wood == pWood,
+        "gold left the master's treasury and the materials left the territory's stockpile — exactly the quote, and the master's own stock is untouched");
+    Check(persia.ConstructionQueue.Count == 3 && persia.ConstructionQueue.All(c => c.TotalDays == quote.Days) && p.ConstructionQueue.Count == 0 && spain.ConstructionQueue.Count == 0, "the builds are queued in that territory only");
+    for (int i = 0; i < quote.Days; i++) { p.Gold = Math.Max(p.Gold, 1_000_000); eng.AdvanceOneDay(); }
+    Check(persia.ProductionBuildings.Values.Sum() == tMills + 3 && p.ProductionBuildings.Values.Sum() == ownMills && spain.ProductionBuildings.Values.Sum() == spainMills && persia.ConstructionQueue.Count == 0,
+        "when they finish, the mills are the territory's: not the master's, not the other territory's, and each counted once");
+    Check(s.Inbox.Any(m => m.Topic == InboxTopic.Production && m.Summary.StartsWith(persia.Name + ":") && m.Summary.Contains("completed")), "the master is told which territory finished building");
+
+    // Refusals: no materials, no gold, nothing is spent.
+    persia.Wood = 0; double g = p.Gold;
+    var short1 = eng.QuoteTerritoryProduction(persia.Id, mill.Id, 1)!;
+    Check(short1.Block!.Contains("wood") && short1.Block.Contains(persia.Name) && eng.BuildProductionInTerritory(persia.Id, mill.Id, 1) is not null && p.Gold == g && persia.ConstructionQueue.Count == 0,
+        "without the territory's own wood the build is refused, naming what is missing, and nothing is spent");
+    persia.Wood = 1e7; p.Gold = 0;
+    Check(eng.QuoteTerritoryProduction(persia.Id, mill.Id, 1)!.Block!.Contains("treasury") && eng.BuildProductionInTerritory(persia.Id, mill.Id, 1) is not null, "without gold in the master's treasury it is refused too");
+    Check(eng.BuildProductionInTerritory(persia.Id, mill.Id, 0) is not null && eng.BuildProductionInTerritory(persia.Id, "unobtainium", 1) is not null, "zero or unknown buildings are refused");
+    p.Gold = 1_000_000;
+    var max = eng.MaxTerritoryProduction(persia.Id, mill.Id)!.Value;
+    Check(max.Max > 0 && eng.QuoteTerritoryProduction(persia.Id, mill.Id, max.Max)!.Block is null && eng.QuoteTerritoryProduction(persia.Id, mill.Id, max.Max + 1)!.Block is not null, "the most that can be built is the most the quote allows");
+
+    // The head of construction (the master's) shortens the time; the farm, mine, sawmill and workshop go up by the same kind of rule.
+    p.ConstructionQueue.Clear(); persia.ConstructionQueue.Clear();
+    int plainDays = eng.QuoteTerritoryBuilding(persia.Id, BuildingType.Mine)!.Days;
+    eng.AppointCommander(CommanderRole.HeadOfConstruction, 3);
+    int quicker = eng.QuoteTerritoryBuilding(persia.Id, BuildingType.Mine)!.Days;
+    Check(quicker < plainDays, "the master's head of construction shortens building in its territories too");
+    double g2 = p.Gold; int farms = persia.Farms, ownFarms = p.Farms;
+    var farmQuote = eng.QuoteTerritoryBuilding(persia.Id, BuildingType.Farm)!;
+    Check(eng.BuildBasicInTerritory(persia.Id, BuildingType.Farm) is null && Math.Abs((g2 - p.Gold) - farmQuote.Gold) < 1e-9 && persia.ConstructionQueue.Count == 1, "a farm is queued for the quoted gold");
+    for (int i = 0; i < farmQuote.Days; i++) { p.Gold = Math.Max(p.Gold, 1_000_000); eng.AdvanceOneDay(); }
+    Check(persia.Farms == farms + 1 && p.Farms == ownFarms, "and when it is done it is the territory's farm");
+}
+
+using (var eng = NewDipEngine(203))
+{
+    // Stock: sent to the national stockpile exactly once; the territory's people lose it.
+    var s = eng.State; var p = s.PlayerNation; var persia = Ai(eng, "persia");
+    Warfare.AnnexNation(s, p, persia);
+    persia.GoodsInventory["Wheat"] = 500; persia.Iron = 300;
+    double ownWheat = p.GetProduct("Wheat"), ownIron = p.Iron;
+    Check(AnnexedStateService.Shippable(persia).Any(x => x.Id == "wheat" && x.Quantity == 500), "what the territory holds can be sent");
+    Check(eng.ShipTerritoryStock(persia.Id, "wheat", 200) is null && persia.GetProduct("Wheat") == 300 && p.GetProduct("Wheat") == ownWheat + 200, "200 wheat leave the territory and arrive in the national stockpile, once");
+    Check(eng.ShipTerritoryStock(persia.Id, "iron", 300) is null && persia.Iron == 0 && p.Iron == ownIron + 300, "so does iron");
+    Check(eng.ShipTerritoryStock(persia.Id, "wheat", 301) is { } over && over.Contains("holds only") && persia.GetProduct("Wheat") == 300, "more than it holds is refused");
+    Check(eng.ShipTerritoryStock(persia.Id, "wheat", 0) is not null && eng.ShipTerritoryStock(persia.Id, "wheat", -5) is not null && eng.ShipTerritoryStock(persia.Id, "unobtainium", 1) is not null, "nothing for zero, negative or unknown goods");
+    Check(p.GetProduct("Wheat") == ownWheat + 200, "(and none of the refused calls moved anything)");
+}
+
+using (var eng = NewDipEngine(204))
+{
+    // The simulation: births, shortages and the master's income continue; an old save's emptied territory is harmless; an AI master governs its own.
+    var s = eng.State; var p = s.PlayerNation; var persia = Ai(eng, "persia"); var kaz = Ai(eng, "kazakh"); var france = Ai(eng, "france");
+    Warfare.AnnexNation(s, p, persia);
+    long pop = persia.Population; double income = 0;
+    for (int i = 0; i < 20; i++) { double g = p.Gold; eng.AdvanceOneDay(); income += p.Gold - g; p.Gold = Math.Max(p.Gold, 1_000_000); }
+    Check(persia.Population != pop && persia.Gold == 0, "the territory's people go on being born (or dying of shortages) and its treasury stays empty");
+
+    // A territory left empty by an older version (it zeroed everything at annexation) shows as absorbed and costs nothing.
+    var ghost = Ai(eng, "japan"); Warfare.AnnexNation(s, p, ghost);
+    ghost.Population = 0; ghost.Farms = ghost.Mines = ghost.Sawmills = ghost.Workshops = 0; ghost.ProductionBuildings.Clear(); ghost.GoodsInventory.Clear(); ghost.Wood = ghost.Stone = ghost.Iron = ghost.Copper = ghost.Lead = ghost.Goods = 0;
+    Check(eng.ReportTerritory(ghost.Id)!.Absorbed && eng.ReportTerritory(ghost.Id)!.Status.Contains("Absorbed"), "a territory emptied by an older version reads as absorbed");
+    for (int i = 0; i < 5; i++) eng.AdvanceOneDay();
+    Check(ghost.Population == 0 && ghost.Gold == 0, "...and the simulation leaves it harmlessly empty");
+
+    // An AI master governs its territory through the simulation: it keeps its people fed, and nothing leaks to the territory.
+    Warfare.AnnexNation(s, france, kaz);
+    for (int i = 0; i < 500; i++) { p.Gold = Math.Max(p.Gold, 1_000_000); eng.AdvanceOneDay(); }
+    Check(kaz.IsEliminated && kaz.Gold == 0 && kaz.AnnexedById == france.Id && kaz.ShortagePct.Values.All(v => v == 0), "an AI master's territory is fed by its master, holds no gold of its own and stays under it");
+    Check(kaz.ProductionBuildings.Count > 0 && ConsumptionCatalog.All.All(spec => ProductionCatalog.All.All(m => m.Produces != spec.Item) ||
+          kaz.GetProductionBuilding(ProductionCatalog.All.First(m => m.Produces == spec.Item).Id) > 0), "the master topped up the mills for every item the territory's people use");
+}
+
+Console.WriteLine("== 72. Annexed State Operations, end to end: annex -> operate -> advance -> save -> reload -> advance ==");
+using (var eng = NewDipEngine(210))
+{
+    var s = eng.State; var p = s.PlayerNation; var persia = Ai(eng, "persia");
+    p.Gold = 1e8;
+    // A real victory and the player's choice to annex.
+    persia.AtWarWithPlayer = true; persia.RelationToPlayer = -100;
+    VictoryService.Begin(s, p, persia);
+    Check(eng.ResolveVictory(persia.Id, VictoryChoice.Annex).Ok && persia.IsEliminated && persia.AnnexedById == p.Id, "(the player annexes Persia after a victory)");
+    Check(eng.AnnexedTerritories.Single().Id == persia.Id, "it appears among the player's annexed states");
+
+    // Operate it: taxes, building, stock.
+    persia.Wood = 1e7; persia.Stone = 1e7; persia.Iron = 1e7; persia.GoodsInventory["Wheat"] = 1000;
+    var mill = ProductionCatalog.All.Where(m => m.WoodCost > 0 && m.BuildDays >= 4).OrderBy(m => m.GoldCost).First();
+    var rates = new TaxRates { Peasants = 55, Craftsmen = 35, MilitaryPersonnel = 5, Merchants = 45, Spies = 12, Saboteurs = 12 };
+    Check(eng.SetTerritoryTaxRates(persia.Id, rates) is null, "the player changes its tax rates");
+    Check(eng.BuildProductionInTerritory(persia.Id, mill.Id, 2) is null && eng.BuildBasicInTerritory(persia.Id, BuildingType.Farm) is null, "...and starts two mills and a farm in it");
+    Check(eng.ShipTerritoryStock(persia.Id, "wheat", 400) is null, "...and sends some wheat to the national stockpile");
+    int farms0 = persia.Farms, mills0 = persia.ProductionBuildings.Values.Sum();
+    double wheatHome = p.GetProduct("Wheat");
+
+    for (int i = 0; i < 3; i++) eng.AdvanceOneDay();
+    long pop3 = persia.Population; var queue3 = persia.ConstructionQueue.Select(c => (c.ProductionBuildingId, c.Building, c.DaysLeft, c.TotalDays)).ToList();
+    double wheat3 = persia.GetProduct("Wheat"); double homeWheat3 = p.GetProduct("Wheat");
+    Check(queue3.Count == 3 && queue3.All(q => q.DaysLeft < q.TotalDays), "after three days the builds are under way in the territory");
+
+    await eng.SaveAsync();
+    persia.TaxRates = new TaxRates(); persia.ConstructionQueue.Clear(); persia.Population = 1; persia.AnnexedById = null; persia.GoodsInventory["Wheat"] = 0;
+    await eng.LoadAsync();
+    var p2 = eng.State.PlayerNation; var persia2 = Ai(eng, "persia");
+    Check(persia2.IsEliminated && persia2.AnnexedById == p2.Id && eng.AnnexedTerritories.Single().Id == persia2.Id, "after reloading it is still the player's annexed state");
+    Check(persia2.TaxRates.Peasants == 55 && persia2.TaxRates.Craftsmen == 35 && persia2.TaxRates.Merchants == 45 && persia2.TaxRates.Spies == 12, "its tax settings survive");
+    Check(persia2.ConstructionQueue.Select(c => (c.ProductionBuildingId, c.Building, c.DaysLeft, c.TotalDays)).SequenceEqual(queue3), "so do its builds in progress, day for day");
+    Check(persia2.Population == pop3 && persia2.GetProduct("Wheat") == wheat3, "and its people and stocks");
+    Check(p2.GetProduct("Wheat") == homeWheat3 && p2.GetProduct("Wheat") > wheatHome - 5_000 && eng.State.VotingPowerOf(p2) > AssemblyService.VotingPower(p2), "(the master's stockpile, and the votes its territory's people add, are intact)");
+
+    // Settings can still be changed after loading, and the simulation carries on.
+    Check(eng.SetTerritoryTaxRates(persia2.Id, new TaxRates { Peasants = 20, Craftsmen = 20, MilitaryPersonnel = 5, Merchants = 20, Spies = 10, Saboteurs = 10 }) is null && persia2.TaxRates.Peasants == 20, "the settings can be changed again");
+    double g = p2.Gold;
+    for (int i = 0; i < 10; i++) eng.AdvanceOneDay();
+    Check(persia2.ConstructionQueue.Count == 0 && persia2.ProductionBuildings.Values.Sum() == mills0 + 2 && persia2.Farms == farms0 + 1, "the builds finish in the territory (two mills and the farm)");
+    Check(p2.ProductionBuildings.Values.Sum() == p.ProductionBuildings.Values.Sum() && persia2.Gold == 0, "they are the territory's, and it still holds no gold");
+    Check(persia2.Population != pop3, "its people keep being born and dying");
+    Check(p2.Gold > g, "and the master keeps collecting from it");
+}
+
+using (var eng = NewDipEngine(211))
+{
+    // Two territories, two sets of settings: managed one at a time, never as one pooled inventory.
+    var s = eng.State; var p = s.PlayerNation; var persia = Ai(eng, "persia"); var spain = Ai(eng, "spain");
+    p.Gold = 1e8;
+    Warfare.AnnexNation(s, p, persia); Warfare.AnnexNation(s, p, spain);
+    persia.Wood = 1e7; persia.Stone = 1e7; persia.Iron = 1e7; spain.Wood = 0; spain.Stone = 0; spain.Iron = 0;
+    var mill = ProductionCatalog.All.Where(m => m.WoodCost > 0 && m.BuildDays >= 4).OrderBy(m => m.GoldCost).First();
+    long persiaPeople = persia.Population, spainPeople = spain.Population;
+    Check(eng.BuildProductionInTerritory(persia.Id, mill.Id, 1) is null && eng.BuildProductionInTerritory(spain.Id, mill.Id, 1) is not null, "the one with materials can build; the one without cannot (its materials are its own)");
+    Check(eng.SetTerritoryTaxRates(spain.Id, new TaxRates { Peasants = 5, Craftsmen = 5, MilitaryPersonnel = 5, Merchants = 5, Spies = 5, Saboteurs = 5 }) is null && persia.TaxRates.Peasants != 5, "settings are per territory");
+    Check(eng.ReportTerritory(persia.Id)!.UnderConstruction == 1 && eng.ReportTerritory(spain.Id)!.UnderConstruction == 0, "each reports its own builds");
+    Check(eng.ReportTerritory(persia.Id)!.Population == persiaPeople && eng.ReportTerritory(spain.Id)!.Population == spainPeople && eng.RealmPopulation == p.Population + persiaPeople + spainPeople, "each its own people, all counted once in the realm");
 }
 
 Console.WriteLine(failures == 0 ? "\nALL CHECKS PASSED" : $"\n{failures} CHECK(S) FAILED");

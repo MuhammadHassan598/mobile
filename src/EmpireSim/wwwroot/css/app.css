@@ -323,6 +323,7 @@ main.map-full .province-card {
 
 /* ---- invasion ---- */
 .invade-box { margin-top: 10px; }
+.annexed-note { margin-top: 8px; padding: 6px 8px; border-radius: 6px; background: rgba(255,253,245,.12); font-size: 0.8rem; font-style: italic; }
 .invade-title { font-size: 0.95rem; margin-bottom: 8px; }
 .invade-sizes { display: flex; gap: 6px; margin-bottom: 8px; }
 .invade-sizes button {

@@ -223,8 +223,8 @@ public sealed partial class GameEngine
     }
 
     /// <summary>
-    /// Guarantees a country's independence for two years. Nobody may annex it (the same shield as an Assembly ban) and
-    /// you may not attack it; it warms to you and trusts you more.
+    /// Guarantees a country's independence for two years: you may not attack your ward while it lasts, and it warms to you
+    /// and trusts you more. It does not stop you annexing a country you have beaten in war (that is the winner's explicit choice).
     /// </summary>
     public DipResult ProposeSovereigntyGuarantee(string nationId)
     {
@@ -232,7 +232,7 @@ public sealed partial class GameEngine
         if (WhySovereignty(t) is { } why) return DipResult.Invalid(why);
         return Propose(t!, "sovereignty", TreatyType.SovereigntyGuarantee, Balance.SovereigntyCost, Balance.SovereigntyAcceptScore,
             Balance.SovereigntyDays,
-            $"You now guarantee {t!.Name}'s sovereignty for {Balance.SovereigntyDays} days: nobody may annex it, and you may not attack it.");
+            $"You now guarantee {t!.Name}'s sovereignty for {Balance.SovereigntyDays} days: you may not attack it.");
     }
 
     public DipResult ProposeTradeAgreement(string nationId)
@@ -518,13 +518,7 @@ public sealed partial class GameEngine
         if (player.Population < colony.Population || player.Farms < colony.Farms || player.Mines < colony.Mines)
             return DipResult.Invalid($"{colony.Name}'s people and buildings are no longer all yours to give.");
 
-        player.Population -= colony.Population;
-        player.Farms -= colony.Farms;
-        player.Mines -= colony.Mines;
-        t!.Population += colony.Population;
-        t.Farms += colony.Farms;
-        t.Mines += colony.Mines;
-        colony.OwnerId = t.Id;
+        TreatyService.TransferColony(colony, player, t!);
 
         DiplomacyService.AddRating(t, Balance.ColonyGiftRatingGain);
         State.LogMovement(MovementKind.Colony, MovementStatus.Completed, player, t,
@@ -611,7 +605,7 @@ public sealed partial class GameEngine
 
     /// <summary>
     /// Decides what to do with a country the player has beaten. Three choices, each with its own flow:
-    /// <see cref="VictoryChoice.Annex"/> absorbs the whole country (refused while the Assembly or a guarantee protects it),
+    /// <see cref="VictoryChoice.Annex"/> absorbs the whole country (refused while the Assembly has banned annexing it),
     /// <see cref="VictoryChoice.Resources"/> takes a share of its treasury and stocks and leaves it standing, resentful,
     /// <see cref="VictoryChoice.Nothing"/> takes nothing and makes a white peace.
     /// </summary>

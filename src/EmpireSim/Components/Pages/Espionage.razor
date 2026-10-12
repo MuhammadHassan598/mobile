@@ -14,7 +14,7 @@
 
     <p class="page-hint">Networks grow +1 strength per day. Operations spend strength — and risk discovery.</p>
 
-    @foreach (var n in Engine.State.OtherNations)
+    @foreach (var n in Engine.State.LiveOtherNations())
     {
         var net = Engine.GetNetwork(n.Id);
         <div class="dip-card">

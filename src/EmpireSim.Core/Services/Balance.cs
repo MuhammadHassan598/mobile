@@ -60,13 +60,33 @@ public static class Balance
     public const double MaxRecruitDays = 30;
     public const double MobilizeCostPerSoldier = 0.1;
 
-    // ---- Commanders ----
-    public const double LandCommanderUpkeepMult = 0.85;   // -15% land upkeep
-    public const double LandCommanderRecruitMult = 0.90;  // -10% land recruit cost
-    public const double FleetCommanderUpkeepMult = 0.85;  // -15% naval upkeep
-    public const double FleetCommanderRecruitMult = 0.90; // -10% warship recruit cost
-    public const double CinCUpkeepMult = 0.95;            // -5% all upkeep
-    public const double CinCTaxMult = 1.05;              // +5% taxes
+    // ---- Command staff (see CommandStaffService). Each is the effect of a CAPABLE holder; distinguished / renowned holders scale it. ----
+    public const double LandCommanderUpkeepMult = 0.85;   // Land Commander: -15% land upkeep
+    public const double LandCommanderRecruitMult = 0.90;  //   -10% land recruit cost
+    public const double LandCommanderBattleMult = 1.05;   //   +5% battle strength of its armies (the existing BattleStrengthMult hook)
+    public const double FleetCommanderUpkeepMult = 0.85;  // Fleet Commander: -15% naval upkeep
+    public const double FleetCommanderRecruitMult = 0.90; //   -10% warship cost (naval battles are not modelled, so no fighting bonus)
+    public const double CinCUpkeepMult = 0.95;            // Commander-in-Chief: -5% upkeep of all forces
+    public const double CinCAttritionMult = 0.75;         //   -25% soldiers lost to attrition while at war
+    public const double TributeCollectorTaxMult = 1.05;   // Chief Tribute Collector: +5% tax revenue
+    public const double TributeCollectorTributeMult = 1.25; //   +25% on tribute demanded from other countries
+    public const double TradeHeadImportMult = 0.95;       // Head of Trade: -5% on the price of what you buy
+    public const double TradeHeadExportMult = 1.05;       //   +5% on what your sales earn
+    public const double TradeHeadPactIncomeMult = 1.10;   //   +10% on trade-pact income
+    public const double ConstructionHeadTimeMult = 0.85;  // Head of Construction: -15% construction time
+    public const double StaffMinMult = 0.50;              // no combination of staff cuts a cost or time below half
+
+    public const double StaffTier2Strength = 1.35;        // a distinguished holder's effect, relative to a capable one
+    public const double StaffTier3Strength = 1.70;        //   and a renowned one's
+    public const double StaffTier2HireCost = 2.0;         // hire cost multiplier of the tiers (capable = the post's base cost)
+    public const double StaffTier3HireCost = 4.0;
+    public const double StaffTier2Wage = 1.6;             // wage multiplier of the tiers
+    public const double StaffTier3Wage = 2.5;
+    public const double CommanderInChiefHireCost = 20, CommanderInChiefWage = 0.03;
+    public const double LandCommanderHireCost = 12, LandCommanderWage = 0.02;
+    public const double FleetCommanderHireCost = 12, FleetCommanderWage = 0.02;
+    public const double CivilPostHireCost = 15, CivilPostWage = 0.02;   // tribute collector, head of trade, head of construction
+    public const double AiStaffReserve = 10;              // an AI country appoints only with this many times the hire cost in its treasury
 
     // ---- Diplomacy ----
     public const double GiftCost = 5;
@@ -75,14 +95,32 @@ public static class Balance
     public const double TradePactDailyIncome = 0.5;
     public const double TradePactRelationPerDay = 0.5;
     public const double RelationDriftPerDay = 0.2;   // toward 0 when at peace
-    public const double PeaceTributeCost = 10;
     public const double TributeArmyRatio = 1.5;      // need 1.5x their army
     public const double TributeFraction = 0.10;      // they pay 10% of treasury
     public const double TributeRefusalWarChance = 0.20;
     public const double AiWarRelationThreshold = -80;
     public const double AiDeclareWarChancePerDay = 0.02;
-    public const double AiSueForPeaceChancePerDay = 0.05;
     public const double WarAttritionPerDay = 0.002;   // 0.2% of soldiers/day each side
+
+    // ---- Peace negotiations (see PeaceService). There is no fee for opening talks: what is offered is the whole price. ----
+    public const int PeaceReplyDays = 1;              // an AI country's envoys answer the day after they are given terms
+    public const int PeaceOfferDays = 30;             // a proposal left unanswered lapses after this long
+    public const int PeaceMaxRounds = 4;              // the opening proposal plus counteroffers; the last round is accept or reject
+    public const int PeaceRetryDays = 5;              // after the player's proposal is rejected, the pause before the next opening proposal
+    public const int PeaceWearyDays = 360;            // a war this old has worn a country down completely
+    public const double PeaceMinScale = 3000;         // the stakes of a war are never worth less than this much gold
+    public const double PeaceStakeFraction = 0.5;     // ...otherwise half the two countries' average liquid wealth
+    public const double PeaceValuePerPerson = 0.025;  // gold a person is worth when a country or a colony changes hands
+    public const double PeaceValuePerBuilding = 500;  // gold a farm or a mine is worth in a colony
+    public const double PeaceGiveLandMult = 1.5;      // giving land away hurts more than its price: a country resists the loss
+    public const double PeaceCounterBand = 0.6;       // an AI counters when the gap is under this share of the stakes; otherwise it rejects
+    public const double PeaceNoise = 0.15;            // share of the stakes by which one ruler's mood moves its price (deterministic per offer)
+    public const int AiPeaceMinWarDays = 20;          // an AI country does not put terms to the player before the war has run this long
+    public const double AiPeaceProposalChancePerDay = 0.06;   // times how much it wants peace
+    public const int AiPeaceProposalGapDays = 45;     // between two proposals of the same AI country
+    public const int PeaceAgreementRating = 35;       // how a country regards the player after a fair negotiated peace (0-100 scale)
+    public const int PeaceHumbledRating = 22;         // ...after paying the player
+    public const int PeaceSatisfiedRating = 42;       // ...after being paid
 
     // ---- Diplomatic actions ----
     // Ratings and relation gains use the 0-100 display scale (the stored RelationToPlayer
@@ -254,9 +292,8 @@ public static class Balance
     public const double GarrisonFraction = 0.4;    // share of defender's army that fights
     public const double HomeAdvantageMult = 1.25;  // defender battle-power multiplier
     public const int MinInvasionForce = 500;
-    public const int MarchBaseDays = 4;            // minimum march time between nations
-    public const int MarchDaysPerDistance = 40;    // map px per extra march day
-    public const int MarchMaxDays = 30;
+    public const double MarchSpeedPerDay = 30;     // the one movement speed: map units an army covers in a day (days = capital-to-capital distance / this, at least 1)
+    public const int MarchFallbackDays = 20;       // march time when a capital has no coordinates and no territory to estimate from (see MapGeography)
     public const double AttackerWinCasualtyMin = 0.10;
     public const double AttackerWinCasualtyMax = 0.20;
     public const double AttackerLossCasualtyMin = 0.50;

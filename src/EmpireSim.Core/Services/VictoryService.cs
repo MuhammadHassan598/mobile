@@ -50,7 +50,7 @@ public static class VictoryService
         switch (choice)
         {
             case VictoryChoice.Annex:
-                // Flow 1: the whole country becomes the winner's. Refused if the Assembly or a guarantee protects it.
+                // Flow 1: the whole country becomes the winner's. Refused only if the Assembly has banned its annexation (a guarantee does not stop a victor).
                 if (TreatyService.AnnexationBlock(state, loser.Id) is { } block) return DipResult.Invalid(block);
                 state.PendingVictories.Remove(decision);
                 Warfare.AnnexNation(state, winner, loser, byBattle: false);
@@ -61,7 +61,7 @@ public static class VictoryService
                 // Flow 2: take a share of its wealth; the country survives, at peace but resentful.
                 state.PendingVictories.Remove(decision);
                 var (gold, goods) = TakeSpoils(state, winner, loser);
-                EndWar(loser, Balance.VictorySpoilsMaxRating);
+                EndWar(state, loser, Balance.VictorySpoilsMaxRating);
                 state.LogMovement(MovementKind.War, MovementStatus.Completed, winner, loser,
                     $"You made peace with {loser.Name} after taking its resources.");
                 return DipResult.Done(
@@ -71,7 +71,7 @@ public static class VictoryService
             default:
                 // Flow 3: nothing taken — a white peace, and the country is grateful.
                 state.PendingVictories.Remove(decision);
-                EndWar(loser, Balance.VictoryMercyRating);
+                EndWar(state, loser, Balance.VictoryMercyRating);
                 state.LogMovement(MovementKind.War, MovementStatus.Completed, winner, loser,
                     expired ? $"No decision was made: {loser.Name} was let go with nothing taken."
                             : $"You let {loser.Name} go: a white peace, nothing taken.");
@@ -92,7 +92,7 @@ public static class VictoryService
     /// for (<see cref="WarAim"/>), with nothing about the two countries' relative power, how lately it last won, or how many
     /// annexations the world has seen. Independent wars end in independent outcomes.
     /// <list type="bullet">
-    /// <item><b>Conquest</b>: the country is annexed — unless the Assembly or a sovereignty guarantee forbids it (a real game rule),
+    /// <item><b>Conquest</b>: the country is annexed — unless the Assembly has banned it (a real game rule),
     /// in which case the battle is won but the war goes on; nothing is taken instead.</item>
     /// <item><b>Humiliation</b>: the winner takes a share of the loser's wealth and the war ends.</item>
     /// <item><b>Containment</b>: the threat is beaten back; a white peace.</item>
@@ -175,10 +175,11 @@ public static class VictoryService
     }
 
     /// <summary>Ends the war with a beaten country and sets how it regards the player afterwards (0-100 scale).</summary>
-    private static void EndWar(Nation loser, int rating)
+    private static void EndWar(GameState state, Nation loser, int rating)
     {
         loser.AtWarWithPlayer = false;
         loser.HasTradePactWithPlayer = false;
         loser.RelationToPlayer = DiplomacyService.FromDisplayRating(rating);
+        PeaceService.OnWarEnded(state, loser);
     }
 }

@@ -1,0 +1,450 @@
+@page "/annexed/{Id}"
+@using EmpireSim.Core.Models
+@using EmpireSim.Core.Services
+@inject GameEngine Engine
+@inject NavigationManager Nav
+@implements IDisposable
+
+@* Annexed State Operations: the player manages one annexed territory — its taxes, people, production and building — under their own
+   rule. Only the countries the player's realm annexed open here. Every control is a real rule of the game, and each says what it costs
+   before it is used. The territory is not a country: it makes no decisions of its own; its tax is paid into the player's treasury. *@
+@{
+    var t = Engine.Territory(Id);
+}
+<div class="ao-wrap">
+    <button class="ao-back" @onclick='() => Nav.NavigateTo("/annexed")'>‹ Annexed States</button>
+
+    @if (t is null)
+    {
+        <div class="ao-denied">
+            <b>🚫 This territory is not yours to manage.</b>
+            <p>@(Engine.TerritoryAuthority(Id) ?? "It cannot be found.")</p>
+        </div>
+    }
+    else
+    {
+        var r = Engine.ReportTerritory(Id)!;
+        var master = Engine.State.PlayerNation;
+        <div class="ao-header">
+            <span class="ao-flag">@t.Emblem</span>
+            <div class="ao-headtext">
+                <div class="ao-title">@t.Name</div>
+                <div class="ao-sub">Annexed state of @master.Name@(r.AnnexedDate is { } d ? $" since {d:dd-MM-yyyy}" : "") · capital @t.CapitalName</div>
+            </div>
+        </div>
+        <div class="ao-status @(r.ShortItems.Count > 0 ? "bad" : "")">@r.Status</div>
+        <div class="ao-strip">
+            <div><span>People</span><b>@r.Population.ToString("N0")</b></div>
+            <div><span>Income / day</span><b>@r.TotalIncomePerDay.ToString("N1") 🪙</b></div>
+            <div><span>Buildings</span><b>@r.Facilities.ToString("N0")</b></div>
+        </div>
+        <div class="ao-law">Not an independent country: it has no diplomacy, war or decisions of its own. @master.Name rules it, and everything it earns is @master.Name's.</div>
+
+        @if (!string.IsNullOrEmpty(_error)) { <div class="ao-error">⚠ @_error</div> }
+        @if (!string.IsNullOrEmpty(_msg)) { <div class="ao-msg">@_msg</div> }
+
+        <div class="ao-tabs">
+            <button class="@(_tab == 0 ? "active" : "")" @onclick="() => Tab(0)">💰 Economy<br />& Tax</button>
+            <button class="@(_tab == 1 ? "active" : "")" @onclick="() => Tab(1)">👥 Population</button>
+            <button class="@(_tab == 2 ? "active" : "")" @onclick="() => Tab(2)">🏭 Production</button>
+            <button class="@(_tab == 3 ? "active" : "")" @onclick="() => Tab(3)">🏗️ Administration</button>
+        </div>
+
+        @if (_tab == 0)
+        {
+            var preview = Engine.PreviewTerritoryTaxes(Id, _draft)!;
+            bool changed = !SameRates(_draft, t.TaxRates);
+            <h3>TAX AND ECONOMY</h3>
+            <div class="ao-box">
+                <div class="ao-row"><span>Tax revenue / day</span><b>@r.TaxRevenuePerDay.ToString("N1") 🪙 <small>(paid to @master.Name)</small></b></div>
+                <div class="ao-row"><span>Other income / day</span><b>@r.OtherIncomePerDay.ToString("N1") 🪙 <small>(its gold mines)</small></b></div>
+                <div class="ao-row"><span>Income per 1,000 people</span><b>@(r.Population > 0 ? (r.TotalIncomePerDay / r.Population * 1000).ToString("N2") : "0") 🪙</b></div>
+                <div class="ao-row"><span>Tax approval</span><b>@r.TaxApproval.ToString("N0") / 100 (@r.ApprovalLabel)</b></div>
+                <div class="ao-row"><span>Safe tax threshold</span><b>@r.SafeTaxThreshold.ToString("N0")%</b></div>
+                <div class="ao-row"><span>Extra deaths from high taxes</span><b class="@(r.TaxDeathIncreasePct > 0 ? "bad" : "")">+@r.TaxDeathIncreasePct.ToString("N2")%</b></div>
+            </div>
+
+            <h3>TAX RATES</h3>
+            @foreach (var g in Groups)
+            {
+                long count = Count(t, g.Key);
+                double rate = GetDraft(g.Key);
+                <div class="ao-card">
+                    <div class="ao-cardhead"><span>@g.Icon @g.Name</span><b>@rate.ToString("N0")%</b></div>
+                    <input type="range" min="0" max="100" step="1" class="ao-slider" value="@rate"
+                           @oninput="e => SetDraft(g.Key, Convert.ToDouble(e.Value))" />
+                    <div class="ao-cardfoot"><span>@count.ToString("N0") people</span><span>@GroupRevenue(g.Key, count, rate).ToString("N1") 🪙 / day at this rate</span></div>
+                </div>
+            }
+            <div class="ao-preview">
+                <b>If you apply these rates</b>
+                <div>Revenue: <b>@preview.RevenuePerDay.ToString("N1") 🪙 / day</b> (<span class="@(preview.RevenueChange < 0 ? "bad" : "ok")">@(preview.RevenueChange >= 0 ? "+" : "−")@Math.Abs(preview.RevenueChange).ToString("N1")</span>)</div>
+                <div>Approval would settle near <b>@preview.ApprovalTarget.ToString("N0")</b> (@preview.ApprovalLabel).</div>
+                <div>Safe threshold is <b>@preview.SafeThreshold.ToString("N0")%</b>@(preview.ShortageNow ? " (an item is short now)" : ""). Rates above it raise shortage deaths by <b>+@preview.ExtraDeathPct.ToString("N2")%</b>
+                    @(preview.ExtraDeathsPerDay > 0 ? $"— about {preview.ExtraDeathsPerDay:N1} more people a day" : "— only while a shortage lasts").</div>
+                <div class="ao-hint">Changing taxes costs nothing. The tax is paid into your treasury; only this territory's rates change, not yours or any other state's.</div>
+            </div>
+            <div class="ao-actions">
+                <button class="ao-btn" disabled="@(!changed)" @onclick="ApplyTaxes">APPLY TAX RATES</button>
+                <button class="ao-btn alt" disabled="@(!changed)" @onclick="ResetTaxes">RESET</button>
+            </div>
+        }
+        else if (_tab == 1)
+        {
+            long total = r.Population;
+            int power = Engine.State.VotingPowerOf(master) - AssemblyService.VotingPower(master);
+            <h3>PEOPLE OF @t.Name.ToUpperInvariant()</h3>
+            <div class="ao-box">
+                <div class="ao-row"><span>Population</span><b>@total.ToString("N0")</b></div>
+                <div class="ao-row"><span>Births / day</span><b class="ok">+@r.BirthsPerDay.ToString("N0")</b></div>
+                <div class="ao-row"><span>Deaths / day (shortage)</span><b class="@(r.DeathsPerDay > 0 ? "bad" : "")">−@r.DeathsPerDay.ToString("N0")</b></div>
+                <div class="ao-row"><span>Net change / day</span><b class="@(r.NetPerDay < 0 ? "bad" : "")">@(r.NetPerDay >= 0 ? "+" : "−")@Math.Abs(r.NetPerDay).ToString("N0") (@((total > 0 ? r.NetPerDay / total * 100 : 0).ToString("+0.0000;−0.0000"))%)</b></div>
+            </div>
+            <div class="ao-hint">The existing rules apply to its people: no births while any item is short, and shortages cause deaths (more when taxes are above the safe threshold).</div>
+            <h3>WHO THEY ARE</h3>
+            <div class="ao-box">
+                <div class="ao-row"><span>Children</span><b>@t.Demographics.Children.ToString("N0")</b></div>
+                <div class="ao-row"><span>Adult men</span><b>@t.Demographics.AdultMen.ToString("N0")</b></div>
+                <div class="ao-row"><span>Adult women</span><b>@t.Demographics.AdultWomen.ToString("N0")</b></div>
+                <div class="ao-row"><span>Elderly</span><b>@t.Demographics.Elderly.ToString("N0")</b></div>
+                @foreach (var g in Groups.Where(g => g.Key != "military"))
+                {
+                    <div class="ao-row"><span>@g.Icon @g.Name (taxed)</span><b>@Count(t, g.Key).ToString("N0")</b></div>
+                }
+            </div>
+            <h3>IN THE REALM</h3>
+            <div class="ao-box">
+                <div class="ao-row"><span>Counted in</span><b>@master.Name's realm, once</b></div>
+                <div class="ao-row"><span>Realm population</span><b>@Engine.RealmPopulation.ToString("N0")</b></div>
+                <div class="ao-row"><span>Assembly votes it adds to you</span><b>+@power</b></div>
+            </div>
+            <div class="ao-hint">The territory has no vote of its own: one vote per 500,000 of its people goes to @master.Name's Assembly power, by the usual rule.</div>
+        }
+        else if (_tab == 2)
+        {
+            <h3>BUILDINGS</h3>
+            <div class="ao-box">
+                <div class="ao-row"><span>🌾 Farms</span><b>@r.Farms.ToString("N0")</b></div>
+                <div class="ao-row"><span>⛏️ Mines</span><b>@r.Mines.ToString("N0") <small>(+@((r.Mines * Balance.IronPerMinePerDay).ToString("N0")) iron / day)</small></b></div>
+                <div class="ao-row"><span>🪵 Sawmills</span><b>@r.Sawmills.ToString("N0") <small>(+@((r.Sawmills * Balance.WoodPerSawmillPerDay).ToString("N0")) wood / day)</small></b></div>
+                <div class="ao-row"><span>🔨 Workshops</span><b>@r.Workshops.ToString("N0") <small>(wood + iron → goods)</small></b></div>
+                <div class="ao-row"><span>Goods in store</span><b>@t.Goods.ToString("N0")</b></div>
+            </div>
+            <h3>MILLS AND THEIR OUTPUT</h3>
+            @if (r.MillList.Count == 0)
+            {
+                <div class="ao-hint">No production buildings yet: build some under Administration.</div>
+            }
+            else
+            {
+                <div class="ao-box">
+                    @foreach (var m in r.MillList)
+                    {
+                        <div class="ao-row"><span>@m.Icon @m.Name × @m.Count</span><b>+@m.OutputPerDay.ToString("N1") @m.Produces / day</b></div>
+                    }
+                </div>
+            }
+            <h3>WHAT ITS PEOPLE USE</h3>
+            @foreach (var i in r.Items.Where(i => i.NeedPerDay > 0 || i.Stock > 0))
+            {
+                double cover = i.NeedPerDay > 0 ? i.OutputPerDay / i.NeedPerDay * 100 : 0;
+                <div class="ao-item @(i.UnmetPct > 0 ? "short" : "")">
+                    <div class="ao-itemhead"><span>@i.Icon @i.Item</span><b>@(i.UnmetPct > 0 ? $"⚠ {i.UnmetPct:N0}% short" : "supplied")</b></div>
+                    <div class="ao-itemgrid">
+                        <span>Need / day <b>@i.NeedPerDay.ToString("N1")</b></span>
+                        <span>Makes / day <b>@i.OutputPerDay.ToString("N1")</b></span>
+                        <span>In store <b>@i.Stock.ToString("N0")</b></span>
+                        <span>Covers <b>@cover.ToString("N0")%</b></span>
+                    </div>
+                </div>
+            }
+        }
+        else
+        {
+            <h3>BUILD A PRODUCTION BUILDING</h3>
+            <div class="ao-box">
+                <select class="ao-input" @bind="_millId">
+                    @foreach (var m in ProductionCatalog.All)
+                    {
+                        <option value="@m.Id">@m.Icon @m.Name — makes @m.Produces</option>
+                    }
+                </select>
+                <div class="ao-qty">
+                    <button @onclick="() => _millCount = Math.Max(1, _millCount - 1)">−</button>
+                    <input type="number" min="1" class="ao-num" @bind="_millCount" />
+                    <button @onclick="() => _millCount++">+</button>
+                    <button class="small" @onclick="MaxMills">MAX</button>
+                </div>
+                @{
+                    var quote = Engine.QuoteTerritoryProduction(Id, EffectiveMill, Math.Max(1, _millCount))!;
+                }
+                <div class="ao-quote">
+                    <div>🪙 <b>@quote.Gold.ToString("N0") gold</b> from @master.Name's treasury (it holds @master.Gold.ToString("N0"))</div>
+                    @if (quote.Wood > 0) { <div>🪵 <b>@quote.Wood.ToString("N0") wood</b> from @t.Name's stockpile (it holds @t.Wood.ToString("N0"))</div> }
+                    @if (quote.Stone > 0) { <div>🪨 <b>@quote.Stone.ToString("N0") stone</b> from @t.Name's stockpile (it holds @t.Stone.ToString("N0"))</div> }
+                    @if (quote.Iron > 0) { <div>⛓️ <b>@quote.Iron.ToString("N0") iron</b> from @t.Name's stockpile (it holds @t.Iron.ToString("N0"))</div> }
+                    <div>⏱️ <b>@quote.Days days</b> each@(master.Commanders.Any(c => c.Role == CommanderRole.HeadOfConstruction) ? " (shortened by your head of construction)" : "")</div>
+                    @if (quote.Block is { } why) { <div class="bad">🔒 @why</div> }
+                </div>
+                <button class="ao-btn" disabled="@(quote.Block is not null)" @onclick="BuildMills">BUILD @Math.Max(1, _millCount) IN @t.Name.ToUpperInvariant()</button>
+            </div>
+
+            <h3>BUILD A FARM, MINE, SAWMILL OR WORKSHOP</h3>
+            @foreach (var spec in BuildingCatalog.All)
+            {
+                var bq = Engine.QuoteTerritoryBuilding(Id, spec.Type)!;
+                <div class="ao-card">
+                    <div class="ao-cardhead"><span>@spec.Name</span><b>@bq.Days days</b></div>
+                    <div class="ao-hint">@spec.Description</div>
+                    <div class="ao-cardfoot"><span>@bq.Gold.ToString("N1") gold@(bq.Wood > 0 ? $" + {bq.Wood:N0} wood" : "")@(bq.Iron > 0 ? $" + {bq.Iron:N0} iron" : "")</span>
+                        <button class="ao-btn small" disabled="@(bq.Block is not null)" @onclick="() => BuildBasic(spec.Type)">BUILD</button></div>
+                    @if (bq.Block is { } bwhy) { <div class="bad small">🔒 @bwhy</div> }
+                </div>
+            }
+
+            <h3>BEING BUILT</h3>
+            @if (t.ConstructionQueue.Count == 0)
+            {
+                <div class="ao-hint">Nothing is being built in @t.Name.</div>
+            }
+            else
+            {
+                @foreach (var group in t.ConstructionQueue.GroupBy(c => c.ProductionBuildingId ?? c.Building.ToString()))
+                {
+                    var first = group.First();
+                    string name = first.ProductionBuildingId is not null ? ProductionCatalog.Get(first.ProductionBuildingId).Name : BuildingCatalog.Get(first.Building).Name;
+                    <div class="ao-item">
+                        <div class="ao-itemhead"><span>@name × @group.Count()</span><b>@group.Min(c => c.DaysLeft) days left</b></div>
+                        <div class="ao-prog"><div class="ao-progfill" style="width:@((group.Average(c => 1 - (double)c.DaysLeft / Math.Max(1, c.TotalDays)) * 100).ToString("N0"))%"></div></div>
+                    </div>
+                }
+            }
+
+            <h3>SEND STOCK TO THE NATIONAL STOCKPILE</h3>
+            <div class="ao-box">
+                @{
+                    var shippable = AnnexedStateService.Shippable(t);
+                }
+                @if (shippable.Count == 0)
+                {
+                    <div class="ao-hint">@t.Name holds nothing to send.</div>
+                }
+                else
+                {
+                    <select class="ao-input" @bind="_shipId">
+                        @foreach (var s in shippable)
+                        {
+                            <option value="@s.Id">@s.Icon @s.Name — @s.Quantity.ToString("N0") in store</option>
+                        }
+                    </select>
+                    <div class="ao-qty">
+                        <input type="number" min="1" class="ao-num wide" @bind="_shipQty" />
+                        <button class="small" @onclick="MaxShip">MAX</button>
+                    </div>
+                    <div class="ao-quote">It leaves @t.Name's stockpile and arrives in yours at once, once. Its people can no longer use it, so keep enough for their needs.</div>
+                    <button class="ao-btn" disabled="@(!(_shipQty > 0))" @onclick="Ship">SEND TO THE NATIONAL STOCKPILE</button>
+                }
+            </div>
+        }
+    }
+</div>
+
+@code {
+    [Parameter] public string Id { get; set; } = "";
+
+    private int _tab;
+    private string? _error;
+    private string? _msg;
+    private string? _loaded;
+    private TaxRates _draft = new();
+    private string _millId = "";
+    private int _millCount = 1;
+    private string _shipId = "";
+    private double _shipQty = 100;
+
+    private record TaxGroup(string Key, string Name, string Icon);
+    private static readonly List<TaxGroup> Groups = new()
+    {
+        new("peasants", "Peasants", "🌾"),
+        new("craftsmen", "Craftsmen", "🔨"),
+        new("merchants", "Merchants", "💼"),
+        new("spies", "Spies", "🕵️"),
+        new("saboteurs", "Saboteurs", "💣"),
+        new("military", "Military personnel", "⚔️"),
+    };
+
+    protected override void OnInitialized() => Engine.StateChanged += OnStateChanged;
+    private void OnStateChanged() => InvokeAsync(StateHasChanged);
+    public void Dispose() => Engine.StateChanged -= OnStateChanged;
+
+    protected override void OnParametersSet()
+    {
+        if (_loaded == Id) return;
+        _loaded = Id;
+        _tab = 0; _error = null; _msg = null;
+        if (Engine.Territory(Id) is { } t) ResetDraft(t);
+        _millId = ProductionCatalog.All.First().Id;
+    }
+
+    private string EffectiveMill => ProductionCatalog.All.Any(m => m.Id == _millId) ? _millId : ProductionCatalog.All.First().Id;
+
+    private void Tab(int tab) { _tab = tab; _error = null; _msg = null; }
+
+    // ---- taxes ----
+    private void ResetDraft(Nation t) => _draft = new TaxRates
+    {
+        Peasants = t.TaxRates.Peasants, Craftsmen = t.TaxRates.Craftsmen, MilitaryPersonnel = t.TaxRates.MilitaryPersonnel,
+        Merchants = t.TaxRates.Merchants, Spies = t.TaxRates.Spies, Saboteurs = t.TaxRates.Saboteurs,
+    };
+
+    private static bool SameRates(TaxRates a, TaxRates b) =>
+        a.Peasants == b.Peasants && a.Craftsmen == b.Craftsmen && a.MilitaryPersonnel == b.MilitaryPersonnel
+        && a.Merchants == b.Merchants && a.Spies == b.Spies && a.Saboteurs == b.Saboteurs;
+
+    private double GetDraft(string key) => key switch
+    {
+        "peasants" => _draft.Peasants, "craftsmen" => _draft.Craftsmen, "military" => _draft.MilitaryPersonnel,
+        "merchants" => _draft.Merchants, "spies" => _draft.Spies, "saboteurs" => _draft.Saboteurs, _ => 0,
+    };
+
+    private void SetDraft(string key, double value)
+    {
+        value = Math.Clamp(value, 0, 100);
+        switch (key)
+        {
+            case "peasants": _draft.Peasants = value; break;
+            case "craftsmen": _draft.Craftsmen = value; break;
+            case "military": _draft.MilitaryPersonnel = value; break;
+            case "merchants": _draft.Merchants = value; break;
+            case "spies": _draft.Spies = value; break;
+            case "saboteurs": _draft.Saboteurs = value; break;
+        }
+    }
+
+    private static long Count(Nation t, string key) => key switch
+    {
+        "peasants" => t.Workforce.Peasants, "craftsmen" => t.Workforce.Craftsmen, "military" => t.Workforce.MilitaryPersonnel,
+        "merchants" => t.Workforce.Merchants, "spies" => t.Workforce.Spies, "saboteurs" => t.Workforce.Saboteurs, _ => 0,
+    };
+
+    private double GroupRevenue(string key, long count, double rate)
+    {
+        double income = key switch
+        {
+            "peasants" => TaxationService.PeasantIncome, "craftsmen" => TaxationService.CraftsmanIncome, "military" => TaxationService.MilitaryIncome,
+            "merchants" => TaxationService.MerchantIncome, "spies" => TaxationService.SpyIncome, "saboteurs" => TaxationService.SaboteurIncome, _ => 0,
+        };
+        var owner = Engine.State.PlayerNation;
+        return TaxationService.GroupRevenue(count, income, rate) * CommandStaffService.TaxMult(owner) * owner.TaxMult;
+    }
+
+    private void ApplyTaxes()
+    {
+        _msg = null;
+        _error = Engine.SetTerritoryTaxRates(Id, _draft);
+        if (_error is null) _msg = "The new tax rates are in force. They apply from the next day.";
+    }
+
+    private void ResetTaxes() { if (Engine.Territory(Id) is { } t) ResetDraft(t); _error = null; _msg = null; }
+
+    // ---- building ----
+    private void MaxMills()
+    {
+        if (Engine.MaxTerritoryProduction(Id, EffectiveMill) is { } m) _millCount = Math.Max(1, m.Max);
+    }
+
+    private void BuildMills()
+    {
+        _msg = null;
+        int count = Math.Max(1, _millCount);
+        _error = Engine.BuildProductionInTerritory(Id, EffectiveMill, count);
+        if (_error is null) _msg = $"{count} × {ProductionCatalog.Get(EffectiveMill).Name} started in {Engine.Territory(Id)?.Name}.";
+    }
+
+    private void BuildBasic(BuildingType type)
+    {
+        _msg = null;
+        _error = Engine.BuildBasicInTerritory(Id, type);
+        if (_error is null) _msg = $"A {BuildingCatalog.Get(type).Name} was started in {Engine.Territory(Id)?.Name}.";
+    }
+
+    // ---- stock ----
+    private string EffectiveShip(Nation t)
+    {
+        var list = AnnexedStateService.Shippable(t);
+        return list.Any(s => s.Id == _shipId) ? _shipId : list.FirstOrDefault().Id ?? "";
+    }
+
+    private void MaxShip()
+    {
+        if (Engine.Territory(Id) is not { } t) return;
+        var list = AnnexedStateService.Shippable(t);
+        var pick = list.FirstOrDefault(s => s.Id == EffectiveShip(t));
+        if (pick.Id is not null) _shipQty = pick.Quantity;
+    }
+
+    private void Ship()
+    {
+        _msg = null;
+        if (Engine.Territory(Id) is not { } t) return;
+        string id = EffectiveShip(t);
+        _error = Engine.ShipTerritoryStock(Id, id, _shipQty);
+        if (_error is null) _msg = $"{_shipQty:N0} {TradeCatalog.Get(id)?.Name} sent to the national stockpile.";
+    }
+}
+
+<style>
+.ao-wrap { background: linear-gradient(#f0e0b0, #e8d090); min-height: 100vh; padding: 10px 8px 90px; font-family: Georgia, serif; color: #3d2b1f; box-sizing: border-box; max-width: 100%; overflow-x: hidden; }
+.ao-back { background: none; border: none; color: #5a3a1a; font-family: inherit; font-size: 0.9rem; font-weight: bold; padding: 4px 2px; cursor: pointer; }
+.ao-denied { background: #f8d7da; color: #721c24; border: 1px solid #8B0000; border-radius: 8px; padding: 12px; margin-top: 8px; }
+.ao-header { display: flex; align-items: center; gap: 10px; margin: 4px 0 6px; }
+.ao-flag { font-size: 2.4rem; }
+.ao-title { font-size: 1.2rem; font-weight: bold; letter-spacing: 1px; }
+.ao-sub { font-size: 0.78rem; color: #5a4a2a; }
+.ao-status { font-size: 0.82rem; font-style: italic; margin-bottom: 6px; color: #5a3a1a; }
+.ao-status.bad { color: #b03a2e; font-weight: bold; }
+.ao-strip { display: flex; gap: 6px; margin-bottom: 6px; }
+.ao-strip div { flex: 1; min-width: 0; text-align: center; background: rgba(255,255,255,.4); border: 1px solid #8b6914; border-radius: 8px; padding: 6px 4px; }
+.ao-strip span { display: block; font-size: 0.68rem; text-transform: uppercase; color: #8b6914; }
+.ao-law { font-size: 0.76rem; color: #5a4a2a; background: rgba(255,253,245,.55); border: 1px dashed #b79a55; border-radius: 6px; padding: 6px 8px; margin-bottom: 8px; }
+.ao-error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; border-radius: 6px; padding: 8px; margin-bottom: 8px; font-size: 0.88rem; }
+.ao-msg { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; border-radius: 6px; padding: 8px; margin-bottom: 8px; font-size: 0.88rem; }
+.ao-tabs { display: flex; gap: 4px; margin-bottom: 8px; }
+.ao-tabs button { flex: 1; padding: 8px 2px; background: linear-gradient(#d4b896, #b89868); border: 2px solid #8b6914; border-radius: 6px; cursor: pointer; font-family: inherit; font-size: 0.7rem; font-weight: bold; color: #3d2b1f; line-height: 1.2; }
+.ao-tabs button.active { background: linear-gradient(#7a5230, #4a2e14); color: #f5e6c4; }
+.ao-wrap h3 { color: #5a3a1a; font-size: 0.9rem; letter-spacing: 1px; margin: 12px 0 6px; border-bottom: 2px solid #8b6914; padding-bottom: 4px; }
+.ao-box { background: rgba(255,255,255,.35); border: 2px solid #8b6914; border-radius: 8px; padding: 8px 10px; margin-bottom: 8px; }
+.ao-row { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 8px; font-size: 0.88rem; padding: 3px 0; border-bottom: 1px solid #c9b98a; }
+.ao-row:last-child { border-bottom: none; }
+.ao-row b { text-align: right; min-width: 0; overflow-wrap: anywhere; }
+.ao-row small { font-weight: normal; color: #5a4a2a; }
+.ao-card { background: rgba(255,255,255,.35); border: 2px solid #8b6914; border-radius: 8px; padding: 8px 10px; margin-bottom: 8px; }
+.ao-cardhead { display: flex; justify-content: space-between; font-size: 0.95rem; margin-bottom: 4px; }
+.ao-cardfoot { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; font-size: 0.78rem; color: #5a4a2a; }
+.ao-slider { width: 100%; height: 8px; -webkit-appearance: none; background: linear-gradient(to right, #4caf50, #ffeb3b, #f44336); border-radius: 4px; outline: none; margin: 8px 0; }
+.ao-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 26px; height: 26px; border-radius: 50%; background: #7a5230; border: 2px solid #2e1c0c; cursor: pointer; }
+.ao-slider::-moz-range-thumb { width: 26px; height: 26px; border-radius: 50%; background: #7a5230; border: 2px solid #2e1c0c; cursor: pointer; }
+.ao-preview { background: #fff3cd; color: #664d03; border: 1px solid #c9a227; border-radius: 8px; padding: 8px 10px; font-size: 0.84rem; line-height: 1.4; margin-bottom: 8px; }
+.ao-hint { font-size: 0.78rem; color: #5a4a2a; margin: 4px 0; line-height: 1.3; }
+.ao-actions { display: flex; gap: 8px; }
+.ao-btn { flex: 1; background: linear-gradient(#7a5230, #4a2e14); color: #f5e6c4; border: 2px solid #2e1c0c; border-radius: 6px; padding: 10px 12px; cursor: pointer; font-family: inherit; font-weight: bold; font-size: 0.85rem; }
+.ao-btn.alt { background: linear-gradient(#8a8a8a, #5a5a5a); color: #fff; }
+.ao-btn.small { flex: none; padding: 5px 12px; font-size: 0.75rem; }
+.ao-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.ao-input { width: 100%; padding: 8px; border: 2px solid #8b6914; border-radius: 6px; background: #fffdf5; font-family: inherit; margin-bottom: 6px; }
+.ao-qty { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+.ao-qty button { width: 38px; height: 38px; border-radius: 6px; border: 2px solid #8b6914; background: linear-gradient(#f7ead0, #d9bd85); font-weight: bold; cursor: pointer; font-family: inherit; }
+.ao-qty button.small { width: auto; padding: 0 10px; font-size: 0.75rem; }
+.ao-num { width: 110px; padding: 8px; border: 2px solid #8b6914; border-radius: 6px; background: #fffdf5; font-family: inherit; text-align: center; }
+.ao-num.wide { flex: 1; }
+.ao-quote { font-size: 0.82rem; background: rgba(255,253,245,.75); border: 1px solid #b79a55; border-radius: 6px; padding: 6px 8px; margin-bottom: 8px; line-height: 1.4; }
+.ao-item { background: rgba(255,255,255,.35); border: 1px solid #c9b98a; border-radius: 6px; padding: 6px 8px; margin-bottom: 4px; }
+.ao-item.short { border-color: #b03a2e; background: rgba(248,215,218,.5); }
+.ao-itemhead { display: flex; justify-content: space-between; font-size: 0.88rem; }
+.ao-itemgrid { display: grid; min-width: 0; grid-template-columns: repeat(2, 1fr); gap: 2px 8px; font-size: 0.75rem; color: #5a4a2a; margin-top: 3px; }
+.ao-prog { height: 8px; background: #d4b896; border-radius: 4px; overflow: hidden; margin-top: 4px; }
+.ao-progfill { height: 100%; background: linear-gradient(#4caf50, #2e7d32); }
+.ao-wrap .bad { color: #b03a2e; }
+.ao-wrap .ok { color: #2e7d32; }
+.ao-wrap .small { font-size: 0.75rem; }
+</style>

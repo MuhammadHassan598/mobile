@@ -1,0 +1,182 @@
+@page "/commandstaff"
+@using EmpireSim.Core.Models
+@using EmpireSim.Core.Services
+@inject GameEngine Engine
+@implements IDisposable
+
+@* Command Staff: the six appointments of the country — military leadership and civil administration. Army Management (/military) keeps
+   the soldiers, recruitment, equipment, fleet and upkeep; this screen only holds who runs what. *@
+<div class="cs-wrap">
+    <div class="cs-header">
+        <span class="cs-emblem">@_nation.Emblem</span>
+        <div>
+            <div class="cs-title">Command Staff</div>
+            <div class="cs-nation">@_nation.Name</div>
+        </div>
+    </div>
+
+    <div class="cs-summary">
+        <div class="cs-row"><span>Treasury</span><b>@Currency.Cost(_nation.Gold) 🪙</b></div>
+        <div class="cs-row"><span>Posts filled</span><b>@CommandStaffService.Posts.Count(p => CommandStaffService.Holder(_nation, p.Role) is not null) of @CommandStaffService.Posts.Count</b></div>
+        <div class="cs-row"><span>Wages of the staff / day</span><b>@Engine.StaffWagesPerDay.ToString("0.000") 🪙</b></div>
+    </div>
+    <div class="cs-note">Wages are added to the army's maintenance bill, paid at each payday. An appointment is paid once, when it is made.</div>
+
+    @if (!string.IsNullOrEmpty(_error))
+    {
+        <div class="cs-error">⚠ @_error</div>
+    }
+    @if (!string.IsNullOrEmpty(_msg))
+    {
+        <div class="cs-msg">@_msg</div>
+    }
+
+    @foreach (var group in new[] { StaffGroup.MilitaryLeadership, StaffGroup.CivilAdministration })
+    {
+        <h3>@(group == StaffGroup.MilitaryLeadership ? "MILITARY LEADERSHIP" : "CIVIL ADMINISTRATION")</h3>
+        @foreach (var post in CommandStaffService.Posts.Where(p => p.Group == group))
+        {
+            var holder = CommandStaffService.Holder(_nation, post.Role);
+            var candidates = CommandStaffService.Candidates(_nation, post.Role);
+            string? limit = CommandStaffService.Limitation(post.Role);
+            <div class="cs-card @(holder is null ? "vacant" : "")">
+                <div class="cs-head">
+                    <span class="cs-ico">@post.Icon</span>
+                    <div class="cs-headtext">
+                        <div class="cs-name">@post.Title</div>
+                        <div class="cs-duty">@post.Duty</div>
+                    </div>
+                </div>
+
+                @if (holder is not null)
+                {
+                    <div class="cs-holder">
+                        <div class="cs-holder-line">
+                            <span class="cs-person">👤 <b>@holder.Name</b></span>
+                            <span class="cs-tier t@(holder.Skill)">@CommandStaffService.TierName(holder.Skill)</span>
+                        </div>
+                        <div class="cs-sub">Wage @holder.DailyWage.ToString("0.###") 🪙 a day@(holder.AppointedDate is { } since ? $" · serving since {since:dd-MM-yyyy}" : "")</div>
+                        <div class="cs-effects">
+                            @foreach (var line in CommandStaffService.EffectLines(post.Role, CommandStaffService.Strength(holder.Skill)))
+                            {
+                                <div class="cs-effect">✔ @line</div>
+                            }
+                        </div>
+                        <button class="cs-btn dismiss @(_armed == post.Role ? "armed" : "")" @onclick="() => Dismiss(post.Role)">
+                            @(_armed == post.Role ? "Tap again to dismiss" : "Dismiss")
+                        </button>
+                    </div>
+                }
+                else
+                {
+                    <div class="cs-vacant">Vacant — the post has no effect until someone is appointed.</div>
+                }
+
+                @if (limit is not null)
+                {
+                    <div class="cs-limit">ℹ @limit</div>
+                }
+
+                <div class="cs-label">@(holder is null ? "Candidates" : "Replace with")</div>
+                @foreach (var c in candidates)
+                {
+                    bool serving = holder is not null && holder.Name == c.Name;
+                    bool affordable = _nation.CanPay(c.HireCost);
+                    <div class="cs-cand @(serving ? "serving" : "")">
+                        <div class="cs-cand-main">
+                            <div class="cs-cand-line"><b>@c.Name</b> <span class="cs-tier t@(c.Tier)">@c.TierName</span></div>
+                            <div class="cs-cand-fx">@string.Join(" · ", CommandStaffService.EffectLines(post.Role, c.Strength))</div>
+                            <div class="cs-sub">Appointment @Currency.Cost(c.HireCost) · wage @c.DailyWage.ToString("0.###") a day</div>
+                        </div>
+                        @if (serving)
+                        {
+                            <span class="cs-serving">Serving</span>
+                        }
+                        else
+                        {
+                            <button class="cs-btn" disabled="@(!affordable)" title="@(affordable ? "" : "Not enough gold")" @onclick="() => Appoint(post.Role, c.Tier)">
+                                @(holder is null ? "Appoint" : "Replace")
+                            </button>
+                        }
+                    </div>
+                }
+            </div>
+        }
+    }
+</div>
+
+@code {
+    private Nation _nation => Engine.State.PlayerNation;
+    private string? _error;
+    private string? _msg;
+    private CommanderRole? _armed;
+
+    protected override void OnInitialized() => Engine.StateChanged += OnStateChanged;
+    private void OnStateChanged() => InvokeAsync(StateHasChanged);
+    public void Dispose() => Engine.StateChanged -= OnStateChanged;
+
+    private void Appoint(CommanderRole role, int tier)
+    {
+        _armed = null;
+        _msg = null;
+        var c = CommandStaffService.Candidate(_nation, role, tier);
+        bool replacing = CommandStaffService.Holder(_nation, role) is not null;
+        _error = Engine.AppointCommander(role, tier);
+        if (_error is null && c is not null)
+            _msg = $"{c.Name} {(replacing ? "replaces the old holder as" : "is appointed")} {CommandStaffService.Post(role).Title} for {Currency.Cost(c.HireCost)}.";
+    }
+
+    private void Dismiss(CommanderRole role)
+    {
+        _error = null;
+        _msg = null;
+        // Dismissing is a loss (the appointment fee is gone): it needs a second tap.
+        if (_armed != role) { _armed = role; return; }
+        _armed = null;
+        var holder = CommandStaffService.Holder(_nation, role);
+        Engine.DismissCommander(role);
+        if (holder is not null) _msg = $"{holder.Name} is dismissed as {CommandStaffService.Post(role).Title}.";
+    }
+}
+
+<style>
+.cs-wrap { background: linear-gradient(#f0e0b0, #e8d090); min-height: 100vh; padding: 10px 8px 90px; font-family: Georgia, serif; color: #3d2b1f; }
+.cs-header { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.cs-emblem { font-size: 2.5rem; }
+.cs-title { font-size: 1.2rem; font-weight: bold; letter-spacing: 1px; }
+.cs-nation { color: #5a4a2a; font-size: 0.9rem; }
+.cs-summary { background: rgba(255,255,255,.35); border: 2px solid #8b6914; border-radius: 8px; padding: 8px 10px; margin-bottom: 6px; }
+.cs-row { display: flex; justify-content: space-between; font-size: 0.92rem; padding: 2px 0; border-bottom: 1px solid #c9b98a; }
+.cs-row:last-child { border-bottom: none; }
+.cs-note { font-size: 0.78rem; color: #5a4a2a; margin-bottom: 8px; }
+.cs-error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; border-radius: 6px; padding: 8px; margin-bottom: 8px; font-size: 0.9rem; }
+.cs-msg { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; border-radius: 6px; padding: 8px; margin-bottom: 8px; font-size: 0.9rem; }
+.cs-wrap h3 { color: #5a3a1a; font-size: 0.95rem; letter-spacing: 1px; margin: 14px 0 6px; border-bottom: 2px solid #8b6914; padding-bottom: 4px; }
+.cs-card { background: rgba(255,255,255,.35); border: 2px solid #8b6914; border-radius: 8px; padding: 10px; margin-bottom: 10px; }
+.cs-card.vacant { border-style: dashed; }
+.cs-head { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+.cs-ico { font-size: 1.9rem; width: 40px; text-align: center; }
+.cs-name { font-weight: bold; font-size: 1.02rem; }
+.cs-duty { font-size: 0.82rem; color: #5a4a2a; }
+.cs-holder { background: rgba(255,253,245,.7); border: 1px solid #b79a55; border-radius: 6px; padding: 8px; margin-bottom: 6px; }
+.cs-holder-line { display: flex; justify-content: space-between; align-items: center; gap: 6px; }
+.cs-sub { font-size: 0.78rem; color: #5a4a2a; margin-top: 2px; }
+.cs-effects { margin: 6px 0; }
+.cs-effect { font-size: 0.86rem; color: #2e5a2e; }
+.cs-vacant { font-size: 0.86rem; font-style: italic; color: #7a5a2a; margin-bottom: 4px; }
+.cs-limit { font-size: 0.8rem; color: #664d03; background: #fff3cd; border: 1px solid #c9a227; border-radius: 6px; padding: 5px 8px; margin: 4px 0; }
+.cs-label { font-size: 0.76rem; font-weight: bold; color: #8b6914; text-transform: uppercase; margin: 8px 0 4px; }
+.cs-cand { display: flex; align-items: center; gap: 8px; background: rgba(255,255,255,.4); border: 1px solid #c9b98a; border-radius: 6px; padding: 7px 8px; margin-bottom: 4px; }
+.cs-cand.serving { background: rgba(212,237,218,.55); border-color: #2e7d32; }
+.cs-cand-main { flex: 1; min-width: 0; }
+.cs-cand-line { font-size: 0.92rem; }
+.cs-cand-fx { font-size: 0.78rem; color: #2e5a2e; margin-top: 2px; }
+.cs-tier { display: inline-block; font-size: 0.68rem; font-weight: bold; padding: 1px 6px; border-radius: 8px; color: #fff; background: #7a7a7a; vertical-align: middle; }
+.cs-tier.t2 { background: #2f6f9f; }
+.cs-tier.t3 { background: #8b6914; }
+.cs-serving { font-size: 0.8rem; font-weight: bold; color: #2e7d32; }
+.cs-btn { background: linear-gradient(#7a5230, #4a2e14); color: #f5e6c4; border: 2px solid #2e1c0c; border-radius: 6px; padding: 7px 12px; cursor: pointer; font-family: inherit; font-weight: bold; font-size: 0.82rem; }
+.cs-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.cs-btn.dismiss { background: linear-gradient(#8a8a8a, #5a5a5a); color: #fff; margin-top: 4px; }
+.cs-btn.dismiss.armed { background: linear-gradient(#a33, #6b1a1a); }
+</style>

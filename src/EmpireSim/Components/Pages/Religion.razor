@@ -27,7 +27,7 @@
     {
         <!-- Country religion list -->
         <div class="rel-list-head"><span>STATE</span><span>RELIGION</span></div>
-        @foreach (var n in Engine.State.AllNations().OrderBy(n => n.Name))
+        @foreach (var n in Engine.State.AllNations().Where(n => !n.IsEliminated).OrderBy(n => n.Name))
         {
             var rel = ReligionCatalog.GetByName(n.Religion);
             <div class="rel-row">

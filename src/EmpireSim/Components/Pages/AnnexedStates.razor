@@ -1,0 +1,111 @@
+@page "/annexed"
+@using EmpireSim.Core.Models
+@using EmpireSim.Core.Services
+@inject GameEngine Engine
+@inject NavigationManager Nav
+@implements IDisposable
+
+@* Annexed States: every territory the player's country has annexed. Each is a living part of the realm — its people, tax, mills and
+   stocks go on — governed by the player and managed one at a time (tap one to open its operations). *@
+<div class="as-wrap">
+    <button class="as-back" @onclick='() => Nav.NavigateTo("/command")'>‹ Command Control</button>
+    <div class="as-title">🏳️ Annexed States</div>
+    <div class="as-sub">Countries your realm has annexed. They are no longer independent: they live and work under your rule, pay their tax into your treasury, and are managed one by one.</div>
+
+    @if (_reports.Count == 0)
+    {
+        <div class="as-empty">
+            <div class="as-empty-ico">🏳️</div>
+            <b>No annexed states yet.</b>
+            <p>When you win a battle and choose to annex a country, it appears here with its own people, taxes, buildings and stocks for you to manage.</p>
+        </div>
+    }
+    else
+    {
+        <div class="as-total">
+            <div><span>States</span><b>@_reports.Count</b></div>
+            <div><span>People</span><b>@_reports.Sum(r => r.Population).ToString("N0")</b></div>
+            <div><span>Income / day</span><b>@_reports.Sum(r => r.TotalIncomePerDay).ToString("N0") 🪙</b></div>
+        </div>
+
+        @foreach (var r in _reports)
+        {
+            <button class="as-card @(r.ShortItems.Count > 0 ? "short" : "")" @onclick="() => Open(r.Id)">
+                <div class="as-head">
+                    <span class="as-flag">@r.Emblem</span>
+                    <div class="as-name">
+                        <b>@r.Name</b>
+                        <small>capital @r.CapitalName@(r.AnnexedDate is { } d ? $" · annexed {d:dd-MM-yyyy}" : "")</small>
+                    </div>
+                    <span class="as-go">›</span>
+                </div>
+                <div class="as-status">@r.Status</div>
+                <div class="as-grid">
+                    <div><span>Population</span><b>@r.Population.ToString("N0")</b></div>
+                    <div><span>Tax / day</span><b>@r.TaxRevenuePerDay.ToString("N1") 🪙</b></div>
+                    <div><span>Other income</span><b>@r.OtherIncomePerDay.ToString("N1") 🪙</b></div>
+                    <div><span>Buildings</span><b>@r.Facilities.ToString("N0")</b></div>
+                </div>
+                <div class="as-line"><span>Production</span>
+                    <b>@(r.Mills > 0 ? $"{r.Mills:N0} mills working" : "no mills")@(r.UnderConstruction > 0 ? $" · {r.UnderConstruction} being built" : "")</b></div>
+                <div class="as-line"><span>Stocks</span>
+                    <b>@string.Join(" · ", StockLine(r))</b></div>
+                <div class="as-line"><span>Shortages</span>
+                    @if (r.ShortItems.Count == 0) { <b class="ok">none</b> }
+                    else { <b class="bad">⚠ @string.Join(", ", r.ShortItems)</b> }
+                </div>
+            </button>
+        }
+    }
+</div>
+
+@code {
+    private List<TerritoryReport> _reports = new();
+
+    protected override void OnInitialized() { Load(); Engine.StateChanged += OnStateChanged; }
+    private void OnStateChanged() { Load(); InvokeAsync(StateHasChanged); }
+    public void Dispose() => Engine.StateChanged -= OnStateChanged;
+    private void Load() => _reports = Engine.TerritoryReports();
+
+    private void Open(string id) => Nav.NavigateTo($"/annexed/{id}");
+
+    /// <summary>The stocks that matter at a glance: food, wood and iron in store.</summary>
+    private static IEnumerable<string> StockLine(TerritoryReport r) =>
+        new[] { "Wheat", "Bread", "Wood", "Iron" }
+            .Select(name => r.Items.FirstOrDefault(i => i.Item == name))
+            .Where(i => i is not null)
+            .Select(i => $"{i!.Icon} {i.Item} {i.Stock:N0}");
+}
+
+<style>
+.as-wrap { background: linear-gradient(#f0e0b0, #e8d090); min-height: 100vh; padding: 10px 8px 90px; font-family: Georgia, serif; color: #3d2b1f; box-sizing: border-box; max-width: 100%; overflow-x: hidden; }
+.as-back { background: none; border: none; color: #5a3a1a; font-family: inherit; font-size: 0.9rem; font-weight: bold; padding: 4px 2px; cursor: pointer; }
+.as-title { font-size: 1.2rem; font-weight: bold; letter-spacing: 1px; margin: 4px 0; }
+.as-sub { font-size: 0.82rem; color: #5a4a2a; margin-bottom: 10px; line-height: 1.3; }
+.as-empty { text-align: center; background: rgba(255,255,255,.35); border: 2px dashed #8b6914; border-radius: 10px; padding: 24px 14px; }
+.as-empty-ico { font-size: 3rem; }
+.as-empty p { font-size: 0.86rem; color: #5a4a2a; margin: 6px 0 0; }
+.as-total { display: flex; gap: 6px; margin-bottom: 10px; }
+.as-total div { flex: 1; min-width: 0; text-align: center; background: rgba(255,255,255,.4); border: 1px solid #8b6914; border-radius: 8px; padding: 6px 4px; }
+.as-total span { display: block; font-size: 0.7rem; text-transform: uppercase; color: #8b6914; }
+.as-total b { font-size: 0.95rem; }
+.as-card { display: block; width: 100%; box-sizing: border-box; white-space: normal; overflow: hidden; text-align: left; background: rgba(255,255,255,.4); border: 2px solid #8b6914; border-radius: 10px; padding: 10px; margin-bottom: 10px; cursor: pointer; font-family: inherit; color: inherit; }
+.as-card.short { border-color: #b03a2e; }
+.as-card:active { transform: translateY(1px); }
+.as-head { display: flex; align-items: center; gap: 10px; }
+.as-flag { font-size: 2rem; width: 42px; text-align: center; }
+.as-name { flex: 1; display: flex; flex-direction: column; }
+.as-name b { font-size: 1.05rem; }
+.as-name small { font-size: 0.74rem; color: #5a4a2a; }
+.as-go { font-size: 1.6rem; color: #8b6914; }
+.as-status { font-size: 0.8rem; font-style: italic; color: #5a3a1a; margin: 4px 0 6px; }
+.as-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px 8px; margin-bottom: 6px; }
+.as-grid div { min-width: 0; background: rgba(255,253,245,.7); border: 1px solid #c9b98a; border-radius: 6px; padding: 4px 6px; display: flex; flex-direction: column; }
+.as-grid span { font-size: 0.68rem; text-transform: uppercase; color: #8b6914; }
+.as-grid b { font-size: 0.92rem; }
+.as-line { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 8px; font-size: 0.8rem; padding: 2px 0; border-top: 1px dotted #c9b98a; }
+.as-line span { color: #5a4a2a; }
+.as-line b { text-align: right; min-width: 0; overflow-wrap: anywhere; }
+.as-line b.ok { color: #2e7d32; }
+.as-line b.bad { color: #b03a2e; }
+</style>

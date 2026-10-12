@@ -1,10 +1,13 @@
 @page "/map"
 @inject GameEngine Engine
 @inject IJSRuntime JS
+@inject NavigationManager Nav
 @implements IAsyncDisposable
 
 <div class="map-page">
     <canvas id="gameMap" class="map-canvas"></canvas>
+    <AttackDialog TargetId="@_attackId" OnClose="AttackClosed" OnSent="AttackSent" />
+    <PeaceDialog NationId="@_peaceId" OnClose="() => _peaceId = null" />
 
     @if (_selectedNation is not null || _selectedFrontier is not null || _selectedNeutral is not null)
     {
@@ -54,18 +57,27 @@
                     <div class="card"><div class="label">Farms</div><div class="value">@_selectedNation.Farms</div></div>
                     <div class="card"><div class="label">Mines</div><div class="value">@_selectedNation.Mines</div></div>
                 </div>
-                @if (!_selectedNation.IsPlayer && !_selectedNation.IsEliminated && _selectedNation.AtWarWithPlayer)
+                @if (Engine.State.AnnexedBy(_selectedNation.Id) is { Count: > 0 } annexed)
+                {
+                    <div class="annexed-note">🏳 Includes annexed @(annexed.Count == 1 ? "country" : "countries"): @string.Join(", ", annexed.Select(a => $"{a.Name} ({a.AnnexedDate:dd-MM-yyyy})"))</div>
+                    @if (_selectedNation.IsPlayer)
+                    {
+                        <button class="inline-btn" @onclick='() => Nav.NavigateTo("/annexed")'>🏳️ Manage annexed states…</button>
+                    }
+                }
+                @if (_selectedNation.IsEliminated && _selectedNation.AnnexedById is { } masterId)
+                {
+                    <div class="annexed-note">🏳 Annexed by @(Engine.State.AllNations().FirstOrDefault(n => n.Id == masterId)?.Name ?? "another country") on @_selectedNation.AnnexedDate?.ToString("dd-MM-yyyy")</div>
+                }
+                @if (!_selectedNation.IsPlayer && !_selectedNation.IsEliminated)
                 {
                     <div class="invade-box">
-                        <div class="invade-title">⚔ Invade @_selectedNation.Name — win, then annex it, take its resources, or let it go</div>
-                        <div class="invade-sizes">
-                            @foreach (var size in new[] { 500, 2000, 5000 })
-                            {
-                                <button class="@(_commitSize == size ? "active" : "")" @onclick="() => _commitSize = size">@size.ToString("N0")</button>
-                            }
-                            <button class="@(_commitSize == -1 ? "active" : "")" @onclick="() => _commitSize = -1">All</button>
-                        </div>
-                        <button class="inline-btn" @onclick="() => Invade(_selectedNation.Id)">Launch invasion (@(_commitSize == -1 ? "all" : _commitSize.ToString("N0")) soldiers)</button>
+                        <div class="invade-title">⚔ @(_selectedNation.AtWarWithPlayer ? "Invade" : "Attack") @_selectedNation.Name — win, then annex it, take its resources, or let it go</div>
+                        <button class="inline-btn" @onclick="() => _attackId = _selectedNation.Id">⚔ Attack @_selectedNation.Name…</button>
+                        @if (_selectedNation.AtWarWithPlayer)
+                        {
+                            <button class="inline-btn" @onclick="() => _peaceId = _selectedNation.Id">🕊️ Peace talks…</button>
+                        }
                     </div>
                 }
             }
@@ -113,21 +125,22 @@
     private NeutralTerritory? _selectedNeutral;
     private string? _error;
     private string? _battleReport;
-    private int _commitSize = 2000;
+    private string? _attackId;
+    private string? _peaceId;
 
     private string SelectedName =>
         _selectedNation?.Name ?? _selectedFrontier?.Name ?? _selectedNeutral?.Name ?? "";
     private string? SelectedId =>
         _selectedNation?.Id ?? _selectedFrontier?.Id ?? _selectedNeutral?.Id;
 
-    private void Invade(string nationId)
+    // The Attack popup asks how many soldiers to send; confirming declares war (if none is on) and starts the march together.
+    private void AttackClosed() => _attackId = null;
+
+    private void AttackSent(AttackResult result)
     {
+        _attackId = null;
         _error = null;
-        _battleReport = null;
-        int commit = _commitSize == -1 ? Engine.State.PlayerNation.Soldiers : _commitSize;
-        var (ok, message) = Engine.LaunchInvasion(nationId, commit);
-        if (ok) _battleReport = message;
-        else _error = message;
+        _battleReport = result.Message;
     }
 
     private void Colonize(string regionId)
@@ -161,8 +174,13 @@
                 polygons = n.Territory,
                 labelX = n.MapX,
                 labelY = n.MapY,
+                // The old capitals of the countries this one has annexed: their lands are drawn as part of this realm.
+                annexedCities = Engine.State.AnnexedBy(n.Id)
+                    .Select(a => new { name = a.CapitalName, country = a.Name, x = a.MapX, y = a.MapY })
+                    .ToList(),
             })
             .ToList();
+        _mapSignature = MapSignature();
 
         var frontier = Engine.State.FrontierRegions.Select(r => new
         {
@@ -216,8 +234,28 @@
         StateHasChanged();
     }
 
+    // The map follows the world: when a country is annexed (by the player or by an AI country) while this page is open, its lands are
+    // redrawn as part of the winner's realm at once, instead of waiting for the next tap.
+    private string _mapSignature = "";
+
+    private string MapSignature() => string.Join(";", Engine.State.AllNations()
+        .Select(n => $"{n.Id}:{n.IsEliminated}:{n.Territory.Count}:{n.AnnexedPolygonCount}:{n.ColorHex}"));
+
+    protected override void OnInitialized() => Engine.StateChanged += OnStateChanged;
+
+    private void OnStateChanged() => InvokeAsync(async () =>
+    {
+        if (_dotNetRef is null || MapSignature() == _mapSignature) return;
+        // The selected country may just have been annexed: its lands now belong to the winner, so select the winner.
+        if (_selectedNation is { IsEliminated: true, AnnexedById: { } masterId })
+            _selectedNation = Engine.State.AllNations().FirstOrDefault(n => n.Id == masterId) ?? _selectedNation;
+        await RenderMapAsync();
+        StateHasChanged();
+    });
+
     public async ValueTask DisposeAsync()
     {
+        Engine.StateChanged -= OnStateChanged;
         _dotNetRef?.Dispose();
         await Task.CompletedTask;
     }

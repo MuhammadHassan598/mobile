@@ -42,6 +42,19 @@ public sealed class GameState
         foreach (var n in OtherNations) yield return n;
     }
 
+    /// <summary>The other countries that still exist: an annexed country is part of the one that annexed it, not a state of its own.</summary>
+    public IEnumerable<Nation> LiveOtherNations() => OtherNations.Where(n => !n.IsEliminated);
+
+    /// <summary>Everyone under a country's rule, counted once: its own people and those of the territories it has annexed.</summary>
+    public long TotalPopulation(Nation n) => n.Population + AnnexedBy(n.Id).Sum(t => t.Population);
+
+    /// <summary>A country's Assembly voting power, counting the people of its territories (an annexed territory itself has none).</summary>
+    public int VotingPowerOf(Nation n) => AssemblyService.VotingPower(n, AllNations().ToList());
+
+    /// <summary>The countries that were annexed by <paramref name="nationId"/> (and now belong to it), oldest first.</summary>
+    public List<Nation> AnnexedBy(string nationId) =>
+        AllNations().Where(n => n.AnnexedById == nationId).OrderBy(n => n.AnnexedDate).ThenBy(n => n.Name).ToList();
+
     /// <summary>
     /// Player-facing warnings, rebuilt every tick. Only critical warnings
     /// (army maintenance, starvation, bankruptcy, war, revolt) may pop up;
@@ -80,6 +93,15 @@ public sealed class GameState
 
     /// <summary>Countries the player has beaten and not yet dealt with: annex, take resources, or let go.</summary>
     public List<VictoryDecision> PendingVictories { get; set; } = new();
+
+    /// <summary>
+    /// Peace negotiations in the player's wars: every proposal and counteroffer, pending or settled, until the war they belong to ends
+    /// (see <see cref="PeaceService"/>). Saved with the game.
+    /// </summary>
+    public List<PeaceOffer> PeaceOffers { get; set; } = new();
+
+    /// <summary>How each of the player's wars has gone (battles, losses, age), one per enemy at war with the player. Saved with the game.</summary>
+    public List<WarFront> WarFronts { get; set; } = new();
 
     /// <summary>The player's inbox: what happened, filed by the type of event (see <see cref="InboxService"/>). Saved with the game.</summary>
     public List<InboxMessage> Inbox { get; set; } = new();
@@ -190,7 +212,7 @@ public sealed class GameState
     /// the 16 great powers plus 6 minor states — plus neutral territories
     /// and uncharted frontier regions.
     /// </summary>
-    public static GameState NewGame(string playerNationId = "ottoman")
+    public static GameState NewGame(string playerNationId = "ottoman", bool historicalDiplomacy = true)
     {
         var state = new GameState();
         var nations = new List<Nation>
@@ -976,6 +998,9 @@ public sealed class GameState
             nation.BaseSoldiers = nation.Soldiers;
             nation.BasePopulation = nation.Population;
         }
+
+        // The diplomatic web of 1600: embassies, friendships and quarrels of the chosen country.
+        if (historicalDiplomacy) HistoricalDiplomacy.Apply(state);
 
         state.Log($"The campaign begins. Long live {player.Name}!");
         return state;

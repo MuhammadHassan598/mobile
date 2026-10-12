@@ -1,0 +1,78 @@
+@page "/command"
+@using EmpireSim.Core.Models
+@using EmpireSim.Core.Services
+@inject GameEngine Engine
+@inject NavigationManager Nav
+@implements IDisposable
+
+@* Command Control: where the ruler's administration is reached from. Command Staff (the six appointments) and Annexed States (the
+   territories the country has annexed) are separate screens; Army Management (soldiers, recruitment, fleet, upkeep) is separate too. *@
+<div class="cc-wrap">
+    <div class="cc-header">
+        <span class="cc-emblem">@_nation.Emblem</span>
+        <div>
+            <div class="cc-title">Command Control</div>
+            <div class="cc-sub">@_nation.Name</div>
+        </div>
+    </div>
+
+    <button class="cc-card" @onclick='() => Nav.NavigateTo("/commandstaff")'>
+        <span class="cc-ico">🎖️</span>
+        <span class="cc-body">
+            <b>Command Staff</b>
+            <small>Fleet, land and supreme commanders, tribute collector, head of trade and head of construction. @(StaffFilled) of @CommandStaffService.Posts.Count posts filled.</small>
+        </span>
+        <span class="cc-go">›</span>
+    </button>
+
+    <button class="cc-card" @onclick='() => Nav.NavigateTo("/annexed")'>
+        <span class="cc-ico">🏳️</span>
+        <span class="cc-body">
+            <b>Annexed States @if (_territories > 0) {<span class="cc-badge">@_territories</span>}</b>
+            <small>
+                @if (_territories == 0) { <text>No annexed territories yet. Countries you annex live on under your rule and are managed here, one by one.</text> }
+                else { <text>@_territories annexed @(_territories == 1 ? "territory" : "territories"), @_people.ToString("N0") people, paying you about @_income.ToString("N0") gold a day.</text> }
+            </small>
+        </span>
+        <span class="cc-go">›</span>
+    </button>
+
+    <div class="cc-note">Soldiers, recruitment, equipment, the fleet and upkeep stay in <b>Army Management</b> (the Troops tile of the main menu).</div>
+</div>
+
+@code {
+    private Nation _nation => Engine.State.PlayerNation;
+    private int StaffFilled => CommandStaffService.Posts.Count(p => CommandStaffService.Holder(_nation, p.Role) is not null);
+    private int _territories;
+    private long _people;
+    private double _income;
+
+    protected override void OnInitialized() { Refresh(); Engine.StateChanged += OnStateChanged; }
+    private void OnStateChanged() { Refresh(); InvokeAsync(StateHasChanged); }
+    public void Dispose() => Engine.StateChanged -= OnStateChanged;
+
+    private void Refresh()
+    {
+        var reports = Engine.TerritoryReports();
+        _territories = reports.Count;
+        _people = reports.Sum(r => r.Population);
+        _income = reports.Sum(r => r.TotalIncomePerDay);
+    }
+}
+
+<style>
+.cc-wrap { background: linear-gradient(#f0e0b0, #e8d090); min-height: 100vh; padding: 10px 8px 90px; font-family: Georgia, serif; color: #3d2b1f; }
+.cc-header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.cc-emblem { font-size: 2.5rem; }
+.cc-title { font-size: 1.2rem; font-weight: bold; letter-spacing: 1px; }
+.cc-sub { color: #5a4a2a; font-size: 0.9rem; }
+.cc-card { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; background: rgba(255,255,255,.4); border: 2px solid #8b6914; border-radius: 10px; padding: 14px 12px; margin-bottom: 10px; cursor: pointer; font-family: inherit; color: inherit; }
+.cc-card:active { transform: translateY(1px); }
+.cc-ico { font-size: 2.2rem; width: 48px; text-align: center; }
+.cc-body { flex: 1; display: flex; flex-direction: column; gap: 3px; }
+.cc-body b { font-size: 1.05rem; }
+.cc-body small { font-size: 0.82rem; color: #5a4a2a; line-height: 1.3; }
+.cc-go { font-size: 1.8rem; color: #8b6914; }
+.cc-badge { display: inline-block; min-width: 22px; padding: 0 6px; border-radius: 11px; background: #8b1a1a; color: #fff; font-size: 0.8rem; text-align: center; margin-left: 6px; }
+.cc-note { font-size: 0.8rem; color: #5a4a2a; padding: 6px 4px; }
+</style>

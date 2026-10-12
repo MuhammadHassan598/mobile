@@ -36,20 +36,37 @@ public sealed class SimulationService
     {
         state.ActiveWarnings.Clear();
 
-        foreach (var nation in state.AllNations())
+        foreach (var nation in state.AllNations().ToList())
+        {
+            // A country that has been annexed is no longer a country: it has no treasury, army, diplomacy or decisions of its own.
+            // Its land and people go on living and working as a territory of its master, whose tax collectors and rules govern it.
+            if (nation.IsEliminated)
+            {
+                if (nation.AnnexedById is not null) AdvanceTerritory(state, nation);
+                continue;
+            }
             AdvanceNation(state, nation);
+        }
 
         AdvanceDiplomacy(state);
         AiWorldService.Advance(state, _aiRng);
         VictoryService.Advance(state);
+        PeaceService.Advance(state);
         ResearchService.Advance(state);
         AdvanceColonisation(state);
         AdvanceMarches(state);
         CheckDefeat(state);
     }
 
-    private void AdvanceNation(GameState state, Nation nation)
+    /// <summary>
+    /// One day of a country's local economy: raw materials, workshops, construction, births, tax, production, consumption and shortages.
+    /// <paramref name="owner"/> is who governs it: the country itself, or the country that annexed it (a territory). The owner collects the
+    /// tax (with its own tax multipliers) and is told of what is built and what runs short. Everything else is the same formulas for both.
+    /// </summary>
+    private void AdvanceEconomy(GameState state, Nation nation, Nation owner)
     {
+        // Messages about a territory carry its name, so the owner can tell its territories apart.
+        string About(string text) => owner == nation ? text : $"{nation.Name}: {text}";
         nation.MigrateGoodsInventory();
 
         // ---- Raw materials ----
@@ -81,7 +98,7 @@ public sealed class SimulationService
                     nation.ProductionBuildings[spec.Id] = 0;
                 nation.ProductionBuildings[spec.Id]++;
                 state.Log($"{nation.Name}: {spec.Name} completed.");
-                Report(state, nation, InboxTopic.Production, $"{spec.Name} completed.", $"{spec.Name} completed");
+                Report(state, owner, InboxTopic.Production, About($"{spec.Name} completed."), $"{spec.Name} completed");
             }
             else
             {
@@ -93,7 +110,7 @@ public sealed class SimulationService
                     case BuildingType.Workshop: nation.Workshops++; break;
                 }
                 state.Log($"{nation.Name}: {BuildingCatalog.Get(project.Building).Name} completed.");
-                Report(state, nation, InboxTopic.Production, $"{BuildingCatalog.Get(project.Building).Name} completed.", $"{BuildingCatalog.Get(project.Building).Name} completed");
+                Report(state, owner, InboxTopic.Production, About($"{BuildingCatalog.Get(project.Building).Name} completed."), $"{BuildingCatalog.Get(project.Building).Name} completed");
             }
             nation.ConstructionQueue.Remove(project);
         }
@@ -103,14 +120,15 @@ public sealed class SimulationService
 
         // ---- Treasury: taxation system ----
         nation.EnsureTaxationInitialized();
-        double taxMult = nation.HasCommander(CommanderRole.CommanderInChief) ? Balance.CinCTaxMult : 1.0;
+        double taxMult = CommandStaffService.TaxMult(owner);
 
         // Food no longer moves tax approval: neutral ratio until the item-based redesign.
         double foodRatio = TaxationService.NormalSupplyRatio;
 
         // Tax revenue
-        double taxRevenue = TaxationService.TotalRevenue(nation.Workforce, nation.TaxRates) * taxMult * nation.TaxMult;
-        nation.Gold += taxRevenue + Balance.CrownDomainIncomePerDay;
+        double taxRevenue = TaxationService.TotalRevenue(nation.Workforce, nation.TaxRates) * taxMult * owner.TaxMult;
+        // (a territory's tax is its owner's money; it has no crown domain of its own: those went to the owner when it was annexed)
+        owner.Gold += taxRevenue + Balance.CrownDomainIncomePerDay * nation.CrownDomains;
 
         // Approval update (gradual)
         double burden = TaxationService.WeightedBurden(nation.Workforce, nation.TaxRates);
@@ -140,23 +158,45 @@ public sealed class SimulationService
         var shortage = ConsumptionService.Apply(nation);
         ConsumptionService.ApplyShortageEffects(nation, shortage);
         if (shortage.ShortItems.Any())
-            Warn(state, nation, $"Shortage in {nation.Name}: {string.Join(", ", shortage.ShortItems)} — " +
+            Warn(state, owner, $"Shortage in {nation.Name}: {string.Join(", ", shortage.ShortItems)} — " +
                 $"{nation.LastShortageDeaths:N1} deaths/day, ruler rating -{nation.LastRatingDrop:0.######}/day.");
 
         // The inbox hears of a shortage when it begins or when the list of short items changes — not every day it goes on.
-        if (nation.IsPlayer)
+        if (owner.IsPlayer)
         {
+            string condition = owner == nation ? "shortage" : $"shortage:{nation.Id}";
             if (shortage.ShortItems.Any())
             {
                 string items = string.Join(", ", shortage.ShortItems);
-                InboxService.NotifyCondition(state, InboxTopic.Shortage, "shortage", items,
-                    $"Shortage of {items}.",
-                    title: shortage.ShortItems.Count() == 1 ? $"Shortage of {shortage.ShortItems.First()}" : "Product shortages",
-                    details: $"Your people lack: {items}.\nAt the time of this report the shortage costs {nation.LastShortageDeaths:N1} lives a day and lowers the ruler rating by {nation.LastRatingDrop:0.######} a day.");
+                string where = owner == nation ? "" : $" in {nation.Name}";
+                InboxService.NotifyCondition(state, InboxTopic.Shortage, condition, items,
+                    $"Shortage of {items}{where}.",
+                    title: owner != nation ? $"Shortage in {nation.Name}" : shortage.ShortItems.Count() == 1 ? $"Shortage of {shortage.ShortItems.First()}" : "Product shortages",
+                    details: $"{(owner == nation ? "Your people lack" : $"The people of {nation.Name} lack")}: {items}.\nAt the time of this report the shortage costs {nation.LastShortageDeaths:N1} lives a day and lowers the ruler rating by {nation.LastRatingDrop:0.######} a day.");
             }
             else
-                InboxService.ClearCondition(state, "shortage");
+                InboxService.ClearCondition(state, condition);
         }
+    }
+
+    /// <summary>
+    /// A territory (an annexed country) lives on: its mines, mills, builders, people, tax and shortages run by exactly the formulas of every
+    /// other economy, but it is not a country any more: its tax and any gold it digs belong to its master, which also hears of its shortages.
+    /// Nothing of a country's own life (army, diplomacy, decisions, upkeep, trade, Assembly) runs for it.
+    /// </summary>
+    private void AdvanceTerritory(GameState state, Nation territory)
+    {
+        if (territory.IsPlayer) return;   // (the player's own fall ends the game)
+        var owner = state.AllNations().FirstOrDefault(n => n.Id == territory.AnnexedById);
+        if (owner is null || owner.IsEliminated) return;
+
+        AdvanceEconomy(state, territory, owner);
+        if (territory.Gold != 0) { owner.Gold += territory.Gold; territory.Gold = 0; }   // (gold mines pay the owner directly)
+    }
+
+    private void AdvanceNation(GameState state, Nation nation)
+    {
+        AdvanceEconomy(state, nation, nation);
 
         // ---- Military crafting: progress projects, add 10 units on completion ----
         foreach (var proj in nation.MilitaryCraftQueue.ToList())
@@ -198,7 +238,7 @@ public sealed class SimulationService
                         // Trade agreement: partners pay more for what we export.
                         double agreementMult = TreatyService.Has(state, TreatyType.TradeAgreement, seller.Id, buyer.Id)
                             ? Balance.TradeAgreementExportMult : 1.0;
-                        seller.Gold += tc.TotalValue * LawService.ExportRevenueMult(seller) * agreementMult;
+                        seller.Gold += tc.TotalValue * LawService.ExportRevenueMult(seller) * CommandStaffService.ExportRevenueMult(seller) * agreementMult;
                     }
                 }
                 else
@@ -242,7 +282,7 @@ public sealed class SimulationService
             foreach (var n in allNations)
             {
                 if (prop.Votes.ContainsKey(n.Id)) continue;
-                if (n.Id == prop.TargetId) continue;
+                if (n.Id == prop.TargetId || n.IsEliminated) continue;   // the target does not vote, nor does an annexed country
                 // Simple AI: vote based on relation to proposer
                 int hash = (n.Id + prop.Id).GetHashCode();
                 bool voteFor = (Math.Abs(hash) % 100) < 50;
@@ -325,10 +365,8 @@ public sealed class SimulationService
             nation.RecruitmentQueue.Remove(rec);
         }
 
-        double landUpkeepMult = (nation.HasCommander(CommanderRole.LandCommander) ? Balance.LandCommanderUpkeepMult : 1.0)
-                              * (nation.HasCommander(CommanderRole.CommanderInChief) ? Balance.CinCUpkeepMult : 1.0);
-        double navalUpkeepMult = (nation.HasCommander(CommanderRole.FleetCommander) ? Balance.FleetCommanderUpkeepMult : 1.0)
-                               * (nation.HasCommander(CommanderRole.CommanderInChief) ? Balance.CinCUpkeepMult : 1.0);
+        double landUpkeepMult = CommandStaffService.LandUpkeepMult(nation);
+        double navalUpkeepMult = CommandStaffService.NavalUpkeepMult(nation);
 
         double landUpkeep = nation.Units.Sum(u => u.Count * UnitCatalog.Get(u.Type).UpkeepPerDay) * landUpkeepMult * nation.UpkeepMultExtra;
         double navalUpkeep = nation.Warships * WarshipSpec.UpkeepPerDay * navalUpkeepMult;
@@ -419,37 +457,30 @@ public sealed class SimulationService
                 if (VictoryService.Pending(state, other.Id) is not null) continue;
 
                 // Border skirmishes bleed both armies.
-                ArmyHelper.RemoveSoldiers(player, (int)(player.Soldiers * Balance.WarAttritionPerDay));
-                ArmyHelper.RemoveSoldiers(other, (int)(other.Soldiers * Balance.WarAttritionPerDay));
+                ArmyHelper.RemoveSoldiers(player, (int)(player.Soldiers * Balance.WarAttritionPerDay * CommandStaffService.AttritionMult(player)));
+                ArmyHelper.RemoveSoldiers(other, (int)(other.Soldiers * Balance.WarAttritionPerDay * CommandStaffService.AttritionMult(other)));
 
-                // A stronger AI presses the attack and invades.
+                // A stronger AI presses the attack: it sends half of its home army marching on the player's capital.
+                // The soldiers leave its home army at once (so they cannot be sent twice), they take as long as the distance
+                // takes, and the battle is fought when they arrive (AdvanceMarches) — never on the day it decides to attack.
                 if (!other.IsEliminated
                     && !player.IsEliminated
                     && other.Soldiers > player.Soldiers * Balance.AiInvasionArmyRatio
+                    && !TreatyService.HasMarchOn(state, other.Id, player.Id)
                     && RollChance(Balance.AiInvasionChancePerDay))
                 {
-                    var outcome = Warfare.Invade(other, player,
-                        other.Soldiers / 2, 1.0, _rng);
-                    ArmyHelper.MergeStacks(other, outcome.AttackerSurvivors);
-                    state.LogMovement(MovementKind.March, MovementStatus.Completed, other, player, $"{other.Name} invaded: {outcome.Summary}", inbox: InboxTopic.Invasion);
-                    state.ActiveWarnings.Add($"⚠ {other.Name} is invading!");
-                    if (outcome.AttackerWon)
+                    int commit = other.Soldiers / 2;
+                    var march = commit >= Balance.MinInvasionForce ? TreatyService.LaunchMarch(state, other, player, commit) : null;
+                    if (march is not null)
                     {
-                        Warfare.AnnexNation(state, other, player);
-                        state.LogMovement(MovementKind.War, MovementStatus.Completed, other, player, $"{player.Name} has fallen to {other.Name}!");
-                        state.ActiveWarnings.Add($"⚠ {player.Name} has fallen to {other.Name}!");
+                        state.LogMovement(MovementKind.March, MovementStatus.UnderWay, other, player,
+                            $"⚔ {other.Name} marches {march.Strength:N0} soldiers on {player.Name} — they arrive in {march.TotalDays} days ({march.ArrivalDate:dd-MM-yyyy})!",
+                            inbox: InboxTopic.Invasion);
+                        state.ActiveWarnings.Add($"⚠ {other.Name} is marching on you — arrival in {march.TotalDays} days!");
                     }
                 }
 
-                // A clearly beaten AI sues for peace.
-                if (other.Soldiers < player.Soldiers * 0.5
-                    && RollChance(Balance.AiSueForPeaceChancePerDay))
-                {
-                    other.AtWarWithPlayer = false;
-                    other.RelationToPlayer = -30;
-                    state.LogMovement(MovementKind.War, MovementStatus.Completed, other, player, $"{other.Name} sued for peace.", inbox: InboxTopic.Peace);
-                    state.ActiveWarnings.Add($"{other.Name} sued for peace — the war is over.");
-                }
+                // (A country that has had enough does not end the war by itself: it puts terms to the player, see PeaceService.)
                 continue;
             }
 
@@ -461,12 +492,14 @@ public sealed class SimulationService
             }
             else
             {
-                // Relations drift back toward indifference.
-                if (other.RelationToPlayer > 0)
-                    other.RelationToPlayer = Math.Max(0,
+                // Relations drift back toward where they began: indifference, or the country's historical friendship or
+                // quarrel with the player's country (BaselineRelation), which a year of peace does not make it forget.
+                double baseline = other.BaselineRelation;
+                if (other.RelationToPlayer > baseline)
+                    other.RelationToPlayer = Math.Max(baseline,
                         other.RelationToPlayer - Balance.RelationDriftPerDay);
-                else if (other.RelationToPlayer < 0)
-                    other.RelationToPlayer = Math.Min(0,
+                else if (other.RelationToPlayer < baseline)
+                    other.RelationToPlayer = Math.Min(baseline,
                         other.RelationToPlayer + Balance.RelationDriftPerDay);
                 // A tolerant court warms relations faster.
                 if (player.RelationDriftBonus > 0)
@@ -536,7 +569,9 @@ public sealed class SimulationService
     {
         foreach (var march in state.MarchingArmies.ToList())
         {
-            march.DaysLeft--;
+            // The arrival date decides (so a saved and loaded army arrives on the same day); a march from an old save has none.
+            if (march.HasDates) march.DaysLeft = march.ArrivalDate.DayNumber - state.CurrentDate.DayNumber;
+            else march.DaysLeft--;
             if (march.DaysLeft > 0) continue;
 
             state.MarchingArmies.Remove(march);
@@ -571,11 +606,21 @@ public sealed class SimulationService
                 ArmyHelper.MergeStacks(attacker, outcome.AttackerSurvivors);
 
             // The spoils of a won battle. The player chooses (annex, take resources, or nothing); an AI winner settles the war
-            // by what it was fought for (conquest, humiliation or containment).
+            // by what it was fought for (conquest, humiliation or containment). An enemy army that beats the player's home
+            // army takes the country (below).
+            bool homeAttacked = def.IsPlayer;
+
+            // How the player's war is going (what the other side weighs when it judges peace terms).
+            int attackerLost = outcome.AttackerCommitted - outcome.AttackerSurvivors.Sum(s => s.Count);
+            if (attacker.IsPlayer)
+                PeaceService.RecordBattle(state, def, playerWon: outcome.AttackerWon, playerLosses: attackerLost, enemyLosses: outcome.DefenderCasualties);
+            else if (homeAttacked)
+                PeaceService.RecordBattle(state, attacker, playerWon: !outcome.AttackerWon, playerLosses: outcome.DefenderCasualties, enemyLosses: attackerLost);
+
             if (outcome.AttackerWon)
             {
                 if (attacker.IsPlayer) VictoryService.Begin(state, attacker, def);
-                else VictoryService.ResolveForAi(state, attacker, def);
+                else if (!homeAttacked) VictoryService.ResolveForAi(state, attacker, def);
             }
 
             if (attacker.IsPlayer)
@@ -583,6 +628,23 @@ public sealed class SimulationService
                 state.LogMovement(MovementKind.March, MovementStatus.Completed, attacker, def, $"{def.Name}: {outcome.Summary}", inbox: InboxTopic.Battle);
                 state.ActiveWarnings.Add(
                     $"⚔ Battle for {def.Name}: {(outcome.AttackerWon ? "victory — choose its fate (annex, take resources, or nothing)" : "defeat")}!");
+            }
+            else if (homeAttacked)
+            {
+                // An enemy army has reached the player's country: the battle is fought against the troops actually at home now.
+                int fallen = outcome.AttackerCommitted - outcome.AttackerSurvivors.Sum(s => s.Count);
+                string report = outcome.AttackerWon
+                    ? $"⚠ {attacker.Name}'s army of {outcome.AttackerCommitted:N0} reached {def.Name} and broke the home army ({fallen:N0} of its men fell, the garrison lost {outcome.DefenderCasualties:N0})."
+                    : $"🛡 {def.Name} repelled {attacker.Name}'s army: {outcome.AttackerCommitted:N0} attacked, {fallen:N0} fell; the garrison lost {outcome.DefenderCasualties:N0}.";
+                state.LogMovement(MovementKind.March, MovementStatus.Completed, attacker, def, report, inbox: InboxTopic.Battle);
+                if (outcome.AttackerWon)
+                {
+                    Warfare.AnnexNation(state, attacker, def);
+                    state.LogMovement(MovementKind.War, MovementStatus.Completed, attacker, def, $"{def.Name} has fallen to {attacker.Name}!");
+                    state.ActiveWarnings.Add($"⚠ {def.Name} has fallen to {attacker.Name}!");
+                }
+                else
+                    state.ActiveWarnings.Add($"🛡 {attacker.Name}'s army was beaten at your gates!");
             }
             else
             {

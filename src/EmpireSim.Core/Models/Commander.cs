@@ -1,54 +1,44 @@
 namespace EmpireSim.Core.Models;
 
-/// <summary>Commander appointments. Each role grants an upkeep/tax bonus while filled.</summary>
+/// <summary>
+/// The six posts of a country's command staff. Saved as numbers: new posts are only ever appended, so old saves keep their meaning.
+/// Military leadership: <see cref="CommanderInChief"/>, <see cref="LandCommander"/>, <see cref="FleetCommander"/>.
+/// Civil administration: <see cref="ChiefTributeCollector"/>, <see cref="HeadOfTrade"/>, <see cref="HeadOfConstruction"/>.
+/// </summary>
 public enum CommanderRole
 {
     CommanderInChief,
     LandCommander,
-    FleetCommander
+    FleetCommander,
+    ChiefTributeCollector,
+    HeadOfTrade,
+    HeadOfConstruction,
 }
 
+/// <summary>Which half of the command staff a post belongs to.</summary>
+public enum StaffGroup
+{
+    MilitaryLeadership,
+    CivilAdministration,
+}
+
+/// <summary>
+/// An officer or official serving in one post of a country's command staff (a country has at most one holder per post).
+/// Saved with the country. Its wage is part of the army's maintenance bill, like every other wage.
+/// </summary>
 public sealed class Commander
 {
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
     public string Name { get; set; } = "";
     public CommanderRole Role { get; set; }
     public double DailyWage { get; set; }
-}
 
-/// <summary>Candidate name pools and role definitions for hiring.</summary>
-public static class CommanderCatalog
-{
-    public sealed record RoleSpec(CommanderRole Role, string Title, string Effect, double HireCost, double DailyWage);
+    /// <summary>
+    /// How able the holder is: 1 capable, 2 distinguished, 3 renowned (see <see cref="Services.CommandStaffService.Strength"/>).
+    /// Commanders from before skills existed load as capable, which is exactly what they were.
+    /// </summary>
+    public int Skill { get; set; } = 1;
 
-    public static readonly IReadOnlyList<RoleSpec> Roles = new List<RoleSpec>
-    {
-        new(CommanderRole.CommanderInChief, "Commander-in-Chief",
-            "−5% all upkeep, +5% taxes",
-            HireCost: 20, DailyWage: 0.03),
-        new(CommanderRole.LandCommander, "Land Commander",
-            "−15% land upkeep, −10% land recruit cost",
-            HireCost: 12, DailyWage: 0.02),
-        new(CommanderRole.FleetCommander, "Fleet Commander",
-            "−15% naval upkeep, −10% warship recruit cost",
-            HireCost: 12, DailyWage: 0.02),
-    };
-
-    private static readonly Dictionary<CommanderRole, string[]> NamePools = new()
-    {
-        [CommanderRole.CommanderInChief] = new[] { "Köprülü Mehmed Pasha", "Kara Mustafa Pasha", "Damat Ibrahim Pasha" },
-        [CommanderRole.LandCommander] = new[] { "Topal Osman Pasha", "Hasan Pasha", "Ahmed Pasha" },
-        [CommanderRole.FleetCommander] = new[] { "Piyale Pasha", "Uluç Ali Reis", "Seydi Ali Reis" },
-    };
-
-    public static RoleSpec GetRole(CommanderRole role) =>
-        Roles.First(r => r.Role == role);
-
-    /// <summary>Picks the first candidate name not already serving the nation.</summary>
-    public static string NextCandidateName(CommanderRole role, IEnumerable<Commander> serving)
-    {
-        var taken = new HashSet<string>(serving.Select(c => c.Name));
-        return NamePools[role].FirstOrDefault(n => !taken.Contains(n))
-            ?? $"{GetRole(role).Title} (retainer)";
-    }
+    /// <summary>The day the holder took the post (null for one appointed before the date was recorded).</summary>
+    public DateOnly? AppointedDate { get; set; }
 }

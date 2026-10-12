@@ -81,8 +81,10 @@ public static class TreatyService
     }
 
     /// <summary>
-    /// A message when nobody may annex this country right now, otherwise null: either the Assembly has
-    /// banned its annexation, or its independence is guaranteed (by anyone). Applies to every annexer.
+    /// A message when nobody may annex this country right now, otherwise null: the Assembly has banned its annexation.
+    /// Applies to every annexer. A sovereignty guarantee is deliberately NOT a block: it binds the guarantor (who may not
+    /// attack its ward, see <see cref="ForbidsAttack"/>), but an old guarantee never silently overrides what a winner may
+    /// choose after a military victory.
     /// </summary>
     public static string? AnnexationBlock(GameState state, string nationId)
     {
@@ -91,10 +93,6 @@ public static class TreatyService
             p.TypeId == "annexation_ban" && p.TargetId == nationId && state.CurrentDate < p.ExpirationDate);
         if (ban is not null)
             return $"The Assembly has forbidden annexing {name} until {ban.ExpirationDate:dd-MM-yyyy}.";
-        var guarantee = state.Treaties.FirstOrDefault(t =>
-            t.Type == TreatyType.SovereigntyGuarantee && t.NationBId == nationId && t.IsActiveOn(state.CurrentDate));
-        if (guarantee is not null)
-            return $"{name}'s sovereignty is guaranteed until {guarantee.ExpiresDate:dd-MM-yyyy}.";
         return null;
     }
 
@@ -168,9 +166,25 @@ public static class TreatyService
             ReturnLoan(state, loan, "war broke out");
     }
 
+    /// <summary>
+    /// Hands a colony, with the people and buildings it added to its owner, to another nation. Callers have checked that
+    /// <paramref name="from"/> owns it and still holds those totals (a present, or a term of a peace agreement).
+    /// </summary>
+    public static void TransferColony(Colony colony, Nation from, Nation to)
+    {
+        from.Population -= colony.Population;
+        from.Farms -= colony.Farms;
+        from.Mines -= colony.Mines;
+        to.Population += colony.Population;
+        to.Farms += colony.Farms;
+        to.Mines += colony.Mines;
+        colony.OwnerId = to.Id;
+    }
+
     /// <summary>Called as a nation is annexed: its treaties end and soldiers it was hosting go home.</summary>
     public static void OnEliminated(GameState state, Nation loser)
     {
+        PeaceService.OnWarEnded(state, loser);
         foreach (var loan in state.TroopLoans.Where(l => l.HostId == loser.Id).ToList())
             ReturnLoan(state, loan, $"{loser.Name} fell");
         // Soldiers the loser had lent out stay with their hosts: the loan record just ends.
@@ -227,7 +241,8 @@ public static class TreatyService
     {
         var force = ArmyHelper.ExtractSoldiers(from, count);
         if (force.Count == 0) return null;
-        int days = Warfare.TravelDays(from.MapX, from.MapY, target.MapX, target.MapY);
+        var route = MapGeography.Route(from, target);
+        if (MapGeography.FallbackNote(from, target, route) is { } note) state.Log(note);
         var march = new MarchingArmy
         {
             AttackerNationId = from.Id,
@@ -235,9 +250,8 @@ public static class TreatyService
             TargetNationId = target.Id,
             TargetNationName = target.Name,
             Force = force,
-            DaysLeft = days,
-            TotalDays = days,
         };
+        march.SetRoute(state.CurrentDate, route.Days);   // sets out today, arrives when the distance says
         state.MarchingArmies.Add(march);
         return march;
     }

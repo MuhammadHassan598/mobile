@@ -27,7 +27,7 @@
             <span>PRODUCT</span>
         </div>
         <div class="dip-list">
-            @foreach (var n in Engine.State.OtherNations.OrderBy(x => x.Name))
+            @foreach (var n in Engine.State.LiveOtherNations().OrderBy(x => x.Name))
             {
                 <div class="dip-row">
                     <span class="dip-flag">@n.Emblem</span>
@@ -40,6 +40,7 @@
                 </div>
             }
         </div>
+        @AnnexedList()
     }
     else
     {
@@ -49,13 +50,13 @@
             <span>DIPLOMACY</span>
         </div>
         <div class="dip-list">
-            @foreach (var n in Engine.State.OtherNations.OrderBy(x => x.Name))
+            @foreach (var n in Engine.State.LiveOtherNations().OrderBy(x => x.Name))
             {
                 int rating = DiplomacyService.ToDisplayRating(n.RelationToPlayer);
                 var status = DiplomacyService.GetStatus(rating);
                 <div class="dip-row">
                     <span class="dip-flag">@n.Emblem</span>
-                    <span class="dip-name">@n.Name</span>
+                    <span class="dip-name">@n.Name@if (Engine.HasTradeEmbassy(n.Id)) { <span class="dip-embassy" title="You have an embassy here: you can trade with this country"> 🏛</span> }</span>
                     <span class="dip-rel @DiplomacyService.StatusColorClass(status)">
                         @DiplomacyService.StatusName(status) (@rating)
                     </span>
@@ -63,13 +64,14 @@
                 </div>
             }
         </div>
+        @AnnexedList()
     }
 </div>
 
 <!-- Send Aid Modal -->
 @if (_aidTarget is not null)
 {
-    var eligible = Engine.State.OtherNations
+    var eligible = Engine.State.LiveOtherNations()
         .Where(n => DiplomacyService.ToDisplayRating(n.RelationToPlayer) < _aidThreshold)
         .ToList();
     double totalAid = eligible.Count * _aidPerCountry;
@@ -229,6 +231,10 @@
                         <button class="@(_actTab == 2 ? "active" : "")" @onclick="() => SetActTab(2)" title="Gifts, aid and expansion">🎁</button>
                     </div>
                 </div>
+                @if (p.AtWarWithPlayer)
+                {
+                    <button class="peace-talks-btn" @onclick="() => _peaceId = p.Id">🕊️ Peace talks@(Engine.PendingPeaceOffer(p.Id) is { } open ? (open.ReceiverId == Engine.State.PlayerNation.Id ? " — their terms await you" : " — your terms are pending") : "")</button>
+                }
                 @if (!string.IsNullOrEmpty(_actionMsg))
                 {
                     <div class="dip-action-msg">@_actionMsg</div>
@@ -237,6 +243,12 @@
         </div>
     </div>
 }
+
+<!-- Attack popup: choose the army, see the arrival and the risk, confirm (declares war if none is on, and sends the troops) -->
+<AttackDialog TargetId="@_attackId" OnClose="AttackClosed" OnSent="AttackSent" />
+
+<!-- Peace talks: put terms, answer theirs (accept / reject / counter) -->
+<PeaceDialog NationId="@_peaceId" OnClose="() => _peaceId = null" />
 
 <!-- Demand Resources Modal -->
 @if (_demandTarget is not null)
@@ -659,14 +671,40 @@
         return true;
     }
 
+    // Attack opens the confirmation popup: war is declared only when the troops are actually sent (see AttackDialog / ConfirmAttack).
+    private string? _attackId;
+    private string? _peaceId;
+
+    // Countries that were annexed are no longer states of their own: they are listed here under the country that took them.
+    private RenderFragment AnnexedList() => @<text>
+        @if (Engine.State.OtherNations.Where(n => n.IsEliminated).OrderBy(n => n.AnnexedDate).ThenBy(n => n.Name).ToList() is { Count: > 0 } fallen)
+        {
+            <div class="dip-annexed">
+                <div class="dip-annexed-title">🏳 Annexed — now part of the country that took them</div>
+                @foreach (var a in fallen)
+                {
+                    var master = Engine.State.AllNations().FirstOrDefault(n => n.Id == a.AnnexedById);
+                    <div class="dip-annexed-row">
+                        <span>@a.Emblem @a.Name</span>
+                        <span>@(master is null ? "annexed" : $"→ {master.Emblem} {master.Name}")@(a.AnnexedDate is { } day ? $" · {day:dd-MM-yyyy}" : "")</span>
+                    </div>
+                }
+            </div>
+        }
+    </text>;
+
     private void DoAttack(Nation target)
     {
-        // A treaty (non-aggression pact, alliance) may forbid war: say so before the cooldown is spent.
-        if (Engine.WarBlockReason(target.Id) is { } blocked) { _actionMsg = blocked; return; }
-        if (!CheckCooldown(target, "attack", 30)) return;
-        var error = Engine.DeclareWar(target.Id);
-        _actionMsg = error ?? $"War declared on {target.Name}!";
-        if (error is null) target.RelationToPlayer = -100;
+        _actionMsg = null;
+        _attackId = target.Id;
+    }
+
+    private void AttackClosed() => _attackId = null;
+
+    private void AttackSent(AttackResult result)
+    {
+        _attackId = null;
+        _actionMsg = result.Message;
     }
 
     private void DoEspionage(Nation target)
@@ -762,6 +800,7 @@
 .dip-list { display: flex; flex-direction: column; gap: 4px; }
 .dip-row { display: flex; align-items: center; gap: 8px; background: rgba(255,255,255,.3); border: 1px solid #c9b98a; border-radius: 6px; padding: 8px; }
 .dip-flag { font-size: 1.5rem; width: 36px; text-align: center; }
+.dip-embassy { font-size: 0.85em; }
 .dip-name { flex: 1; font-weight: bold; color: #2a1f14; font-size: 0.95rem; }
 .dip-res { display: flex; align-items: center; gap: 4px; color: #5a4a2a; font-size: 0.9rem; }
 .dip-help { background: linear-gradient(#7a5230, #4a2e14); color: #f5e6c4; border: 2px solid #2e1c0c; border-radius: 6px; padding: 6px 12px; cursor: pointer; font-family: inherit; font-size: 0.8rem; }
@@ -797,6 +836,8 @@
 .action-btn span { font-size: 0.68rem; }
 .action-btn:active { transform: translateY(1px); }
 .dip-action-msg { margin-top: 8px; padding: 8px; background: rgba(0,0,0,.1); border-radius: 4px; font-size: 0.88rem; text-align: center; }
+.peace-talks-btn { display: block; width: 100%; margin-top: 8px; padding: 9px; border-radius: 6px; border: 2px solid #2e1c0c; background: linear-gradient(#3f6f9a, #25405f); color: #fff; font-family: inherit; font-weight: bold; cursor: pointer; }
+.dip-annexed { margin: 10px 8px 0; padding: 8px 10px; border-radius: 6px; background: rgba(0,0,0,.12); font-family: Georgia, serif; font-size: 0.82rem; }.dip-annexed-title { font-weight: bold; margin-bottom: 4px; }.dip-annexed-row { display: flex; justify-content: space-between; gap: 8px; padding: 2px 0; opacity: 0.85; }
 /* Inputs */
 .dip-input { width: 100%; padding: 8px; border: 2px solid #8b6914; border-radius: 6px; background: #fffdf5; font-family: inherit; font-size: 1rem; color: #3d2b1f; }
 .dip-hint { font-size: 0.82rem; color: #5a4a2a; margin-top: 4px; }

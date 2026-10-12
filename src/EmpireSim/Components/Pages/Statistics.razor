@@ -33,7 +33,7 @@
     }
     else if (_tab == 1)
     {
-        var income = StatisticsService.IncomeBreakdown(_nation);
+        var income = StatisticsService.IncomeBreakdown(Engine.State, _nation);
         var expenses = StatisticsService.ExpenseBreakdown(_nation);
         double totalIn = income.Sum(i => i.Amount);
         double totalEx = expenses.Sum(e => e.Amount);
@@ -120,6 +120,11 @@
             <div class="stat-row"><span>Extra deaths from high taxes:</span><b class="@(_nation.LastTaxDeathIncreasePct > 0 ? "neg" : "")">+@_nation.LastTaxDeathIncreasePct.ToString("N2")%</b></div>
             <div class="stat-row"><span>Net rate:</span><b class="@(net < 0 ? "neg" : "")">@netPct.ToString("+0.0000;−0.0000")%</b></div>
             <div class="stat-row"><span>Population:</span><b>@_nation.Population.ToString("N0")</b></div>
+            @if (Engine.AnnexedTerritories.Count > 0)
+            {
+                <div class="stat-row"><span>Annexed states (managed separately):</span><b>@Engine.AnnexedTerritories.Sum(t => t.Population).ToString("N0")</b></div>
+                <div class="stat-row"><span>Whole realm, counted once:</span><b>@Engine.RealmPopulation.ToString("N0")</b></div>
+            }
             <div class="stat-note">While any item is short there are no births, and the shortage causes deaths and lowers the ruler rating.</div>
         </div>
         <div class="stat-section">

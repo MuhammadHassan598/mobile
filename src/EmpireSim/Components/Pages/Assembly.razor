@@ -31,12 +31,12 @@
     {
         <!-- VOTES -->
         <div class="asm-list-head"><span>STATE</span><span>VOTES</span></div>
-        @foreach (var n in Engine.State.AllNations().OrderByDescending(n => n.VotingPower))
+        @foreach (var n in Engine.State.AllNations().Where(n => !n.IsEliminated).OrderByDescending(n => Engine.State.VotingPowerOf(n)))
         {
             <div class="asm-row">
                 <span class="asm-flag">@n.Emblem</span>
                 <span class="asm-name">@n.Name</span>
-                <span class="asm-votes">@n.VotingPower</span>
+                <span class="asm-votes">@Engine.State.VotingPowerOf(n)</span>
             </div>
         }
     }
@@ -119,7 +119,7 @@
                 <div class="popup-section-title">Choose a state:</div>
                 <select class="asm-input" @bind="_propTargetId">
                     <option value="">-- Select --</option>
-                    @foreach (var n in Engine.State.OtherNations.OrderBy(n => n.Name))
+                    @foreach (var n in Engine.State.LiveOtherNations().OrderBy(n => n.Name))
                     {
                         <option value="@n.Id">@n.Emblem @n.Name</option>
                     }

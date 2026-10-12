@@ -170,9 +170,33 @@ public sealed class Nation
     // ---- Diplomacy (player-centric; only meaningful on AI nations) ----
     /// <summary>Relation toward the player, -100 (hatred) to +100 (allied).</summary>
     public double RelationToPlayer { get; set; }
+
+    /// <summary>
+    /// The regard (-100..100) that <see cref="RelationToPlayer"/> settles back to when nothing is done to change it: 0 (indifference)
+    /// by default, or the country's historical friendship or quarrel with the player's country (see <see cref="HistoricalDiplomacy"/>).
+    /// </summary>
+    public double BaselineRelation { get; set; }
     public bool AtWarWithPlayer { get; set; }
     public bool HasTradePactWithPlayer { get; set; }
     public bool IsEliminated { get; set; }
+
+    /// <summary>The country that annexed this one (null while it is independent). Everything it had now belongs to that country.</summary>
+    public string? AnnexedById { get; set; }
+
+    /// <summary>The day it was annexed.</summary>
+    public DateOnly? AnnexedDate { get; set; }
+
+    /// <summary>
+    /// The crown domains this country draws a daily income from (<see cref="Balance.CrownDomainIncomePerDay"/> each): its own, plus the
+    /// domains of every country it has annexed. An annexed country has none: it has no income of its own any more.
+    /// </summary>
+    public int CrownDomains { get; set; } = 1;
+
+    /// <summary>
+    /// How many polygons at the end of <see cref="Territory"/> came from annexed countries. The map draws them as inner provinces of this
+    /// country's realm (same colour, only a faint province line between them and the rest) rather than as a separate state.
+    /// </summary>
+    public int AnnexedPolygonCount { get; set; }
 
     // ---- Laws & religion ----
     public List<EdictType> ActiveEdicts { get; set; } = new();
@@ -194,12 +218,13 @@ public sealed class Nation
 
     public double UpkeepMultExtra => HasEdict(EdictType.MilitaryDrills) ? 1.10 : 1.0;
     public double BattleStrengthMult =>
-        (HasEdict(EdictType.MilitaryDrills) ? 1.10 : 1.0) * ResearchService.BattleStrengthMult(this);
+        (HasEdict(EdictType.MilitaryDrills) ? 1.10 : 1.0) * ResearchService.BattleStrengthMult(this) * CommandStaffService.BattleStrengthMult(this);
 
     public double TradeIncomeMult =>
         (HasEdict(EdictType.MerchantCharters) ? 1.50 : 1.0)
         * (Stance == ReligiousStance.Tolerant ? 1.20 : 1.0)
-        * ResearchService.TradeIncomeMult(this);
+        * ResearchService.TradeIncomeMult(this)
+        * CommandStaffService.TradePactIncomeMult(this);
 
     // ---- Research (see ResearchService) ----
 

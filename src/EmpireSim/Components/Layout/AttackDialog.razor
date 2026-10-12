@@ -1,0 +1,170 @@
+@using EmpireSim.Core.Models
+@using EmpireSim.Core.Services
+@inject GameEngine Engine
+@implements IDisposable
+
+@* The Attack popup: pick how many soldiers to send, see when they arrive and what is left at home, then confirm.
+   Confirming declares war (if none is on) and sends the army as one action; a refused attack changes nothing. *@
+@if (TargetId is not null && Engine.PlanAttack(TargetId) is { } plan)
+{
+    var target = Engine.State.OtherNations.First(n => n.Id == TargetId);
+    int troops = Math.Clamp(_troops, 0, plan.HomeArmy);
+    var risk = Engine.HomeRiskIfSent(plan.TargetId, troops);
+    string? troopsProblem = plan.CanAttack ? Engine.TroopsBlock(troops) : null;
+    bool canSend = plan.CanAttack && troopsProblem is null;
+    bool slider = plan.CanAttack && plan.HomeArmy > plan.MinForce;
+
+    <div class="atk-overlay" @onclick="Close">
+        <div class="atk-panel" @onclick:stopPropagation>
+            <button class="atk-x" @onclick="Close" title="Close">✕</button>
+            <div class="atk-title">⚔️ Attack @target.Emblem @plan.TargetName</div>
+
+            @if (!plan.CanAttack)
+            {
+                <div class="atk-blocked">🚫 The army cannot be sent: @plan.BlockReason</div>
+                <div class="atk-actions"><button class="atk-btn cancel" @onclick="Close">CLOSE</button></div>
+            }
+            else
+            {
+                <div class="atk-row"><span>Your home army</span><b>@plan.HomeArmy.ToString("N0") soldiers</b></div>
+                <div class="atk-row"><span>@plan.TargetName's army</span><b>@plan.TargetArmy.ToString("N0") soldiers</b></div>
+
+                <div class="atk-label">Soldiers to send</div>
+                @if (slider)
+                {
+                    <input type="range" class="atk-range" min="@plan.MinForce" max="@plan.HomeArmy" step="50"
+                           value="@troops" @oninput="OnSlide" />
+                }
+                <div class="atk-qty">
+                    <button class="atk-step" @onclick="() => Step(-500, plan)">−</button>
+                    <input type="number" class="atk-num" value="@troops" min="@plan.MinForce" max="@plan.HomeArmy" @onchange="OnTyped" />
+                    <button class="atk-step" @onclick="() => Step(500, plan)">+</button>
+                </div>
+                <div class="atk-quick">
+                    <button @onclick="() => Pct(25, plan)">25%</button>
+                    <button @onclick="() => Pct(50, plan)">50%</button>
+                    <button @onclick="() => Pct(75, plan)">75%</button>
+                    <button @onclick="() => Pct(100, plan)">ALL</button>
+                </div>
+
+                <div class="atk-split">
+                    <div><span>Sending</span><b>@troops.ToString("N0")</b></div>
+                    <div><span>Left at home</span><b class="@(risk.Level != "ok" ? "bad" : "")">@risk.Remaining.ToString("N0")</b></div>
+                </div>
+
+                <div class="atk-row"><span>Marching time</span><b>@plan.TravelDays day@(plan.TravelDays == 1 ? "" : "s")</b></div>
+                <div class="atk-row"><span>Estimated arrival</span><b>@plan.Arrival.ToString("dd-MM-yyyy")</b></div>
+                @if (plan.Distance is { } dist)
+                {
+                    <div class="atk-hint">Capital to capital: @dist.ToString("N0") map units at @Balance.MarchSpeedPerDay.ToString("N0") a day.</div>
+                }
+                @if (plan.GeographyNote is { } geo)
+                {
+                    <div class="atk-hint">🧭 @geo</div>
+                }
+
+                <div class="atk-risk @risk.Level">⚠ @risk.Text</div>
+
+                @if (!plan.AtWar)
+                {
+                    <div class="atk-war">🚩 Sending the army declares war on <b>@plan.TargetName</b>. Treaties between you end and relations fall to the floor.</div>
+                }
+                else
+                {
+                    <div class="atk-war">🚩 You are already at war with <b>@plan.TargetName</b>: this army joins the war.</div>
+                }
+
+                @if (!string.IsNullOrEmpty(troopsProblem))
+                {
+                    <div class="atk-err">@troopsProblem</div>
+                }
+                @if (!string.IsNullOrEmpty(_error))
+                {
+                    <div class="atk-err">@_error</div>
+                }
+
+                <div class="atk-actions">
+                    <button class="atk-btn cancel" @onclick="Close">CANCEL</button>
+                    <button class="atk-btn confirm" disabled="@(!canSend)" @onclick="() => Send(plan.TargetId)">⚔ SEND TROOPS</button>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    /// <summary>The country to attack; null keeps the dialog closed.</summary>
+    [Parameter] public string? TargetId { get; set; }
+
+    /// <summary>Raised when the dialog is dismissed without sending.</summary>
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    /// <summary>Raised with the result once the attack has been confirmed and carried out.</summary>
+    [Parameter] public EventCallback<AttackResult> OnSent { get; set; }
+
+    protected override void OnInitialized() => Engine.StateChanged += OnStateChanged;
+    private void OnStateChanged() => InvokeAsync(StateHasChanged);
+    public void Dispose() => Engine.StateChanged -= OnStateChanged;
+
+    private string? _opened;
+    private int _troops;
+    private string? _error;
+
+    protected override void OnParametersSet()
+    {
+        // A newly opened dialog starts at half the home army (never under the minimum, never over what is at home).
+        if (TargetId != _opened)
+        {
+            _opened = TargetId;
+            _error = null;
+            if (TargetId is not null && Engine.PlanAttack(TargetId) is { } plan)
+                _troops = Math.Clamp(plan.HomeArmy / 2, Math.Min(plan.MinForce, plan.HomeArmy), plan.HomeArmy);
+        }
+    }
+
+    private void OnSlide(ChangeEventArgs e) { if (int.TryParse(e.Value?.ToString(), out int v)) _troops = v; _error = null; }
+    private void OnTyped(ChangeEventArgs e) { if (int.TryParse(e.Value?.ToString(), out int v)) _troops = v; _error = null; }
+    private void Step(int delta, AttackPlan plan) { _troops = Math.Clamp(_troops + delta, Math.Min(plan.MinForce, plan.HomeArmy), plan.HomeArmy); _error = null; }
+    private void Pct(int pct, AttackPlan plan) { _troops = Math.Clamp((int)(plan.HomeArmy * pct / 100.0), Math.Min(plan.MinForce, plan.HomeArmy), plan.HomeArmy); _error = null; }
+
+    private async Task Close() => await OnClose.InvokeAsync();
+
+    private async Task Send(string targetId)
+    {
+        // Send what the popup shows: the chosen number held to the home army as it is right now (the army may have shrunk since).
+        int troops = Math.Clamp(_troops, 0, Engine.State.PlayerNation.Soldiers);
+        var result = Engine.ConfirmAttack(targetId, troops);
+        if (!result.Ok) { _error = result.Message; return; }   // refused: no war, no soldiers moved — the dialog stays open and says why
+        await OnSent.InvokeAsync(result);
+    }
+}
+
+<style>
+.atk-overlay { position: fixed; inset: 0; z-index: 200; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; padding: 12px; }
+.atk-panel { background: linear-gradient(#f5e6c4, #e2cb92); border: 3px double #8b6914; border-radius: 10px; padding: 14px; max-width: 380px; width: 100%; max-height: 90vh; overflow-y: auto; position: relative; font-family: Georgia, serif; color: #3d2b1f; }
+.atk-x { position: absolute; top: 6px; right: 8px; background: none; border: none; font-size: 1.1rem; cursor: pointer; color: #5a4a2a; }
+.atk-title { font-size: 1.15rem; font-weight: bold; margin-bottom: 10px; padding-right: 24px; }
+.atk-row { display: flex; justify-content: space-between; font-size: 0.9rem; padding: 3px 0; border-bottom: 1px dotted #b79a55; }
+.atk-label { font-size: 0.8rem; font-weight: bold; color: #8b6914; text-transform: uppercase; margin: 10px 0 4px; }
+.atk-range { width: 100%; accent-color: #8b1a1a; }
+.atk-qty { display: flex; align-items: center; gap: 8px; justify-content: center; margin: 4px 0; }
+.atk-step { width: 38px; height: 38px; border-radius: 6px; border: 2px solid #8b6914; background: linear-gradient(#f7ead0, #d9bd85); font-size: 1.2rem; font-weight: bold; color: #3d2b1f; cursor: pointer; }
+.atk-num { width: 110px; padding: 8px; border: 2px solid #8b6914; border-radius: 6px; background: #fffdf5; font-family: inherit; text-align: center; }
+.atk-quick { display: flex; gap: 6px; margin-top: 6px; }
+.atk-quick button { flex: 1; padding: 6px 0; border-radius: 6px; border: 2px solid #8b6914; background: linear-gradient(#f7ead0, #d9bd85); font-family: inherit; font-weight: bold; color: #3d2b1f; cursor: pointer; }
+.atk-split { display: flex; gap: 8px; margin: 10px 0 6px; }
+.atk-split div { flex: 1; text-align: center; background: rgba(255,253,245,.7); border: 1px solid #b79a55; border-radius: 6px; padding: 6px 4px; }
+.atk-split span { display: block; font-size: 0.72rem; text-transform: uppercase; color: #8b6914; }
+.atk-split b { font-size: 1.1rem; }
+.atk-split b.bad { color: #8B0000; }
+.atk-hint { font-size: 0.78rem; color: #5a4a2a; margin-top: 3px; }
+.atk-risk { margin: 10px 0 6px; padding: 8px 10px; border-radius: 6px; font-size: 0.82rem; line-height: 1.3; background: #fff3cd; color: #664d03; border: 1px solid #c9a227; }
+.atk-risk.danger { background: #f8d7da; color: #721c24; border-color: #8B0000; font-weight: bold; }
+.atk-war { font-size: 0.85rem; margin: 6px 0; }
+.atk-blocked, .atk-err { background: #f8d7da; color: #721c24; border: 1px solid #8B0000; border-radius: 6px; padding: 8px 10px; font-size: 0.88rem; margin: 6px 0; }
+.atk-actions { display: flex; gap: 10px; margin-top: 12px; }
+.atk-btn { flex: 1; padding: 10px; border-radius: 6px; cursor: pointer; font-family: inherit; border: 2px solid #2e1c0c; }
+.atk-btn.cancel { background: linear-gradient(#8a8a8a, #5a5a5a); color: #fff; }
+.atk-btn.confirm { background: linear-gradient(#a33, #6b1a1a); color: #fff; font-weight: bold; }
+.atk-btn.confirm:disabled { opacity: 0.4; cursor: not-allowed; }
+</style>

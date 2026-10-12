@@ -106,7 +106,7 @@ public static class DiplomaticActionCatalog
             $"They give {Balance.AidRequestFraction:P0} of the resource you ask for. Costs {Balance.AidRequestRatingCost} relations; cooldown {Balance.AidCooldownDays} days."),
         new(Sovereignty, "Support Sovereignty", "⚖️", DiplomaticTab.Relations,
             $"Embassy there; relations {Balance.SovereigntyMinRating}+; {Currency.Cost(Balance.SovereigntyCost)}. They must agree.",
-            $"You guarantee their independence for {Balance.SovereigntyDays} days: nobody may annex them (the same shield as an Assembly ban) and you may not attack them. They warm to you and trust you more."),
+            $"You guarantee their independence for {Balance.SovereigntyDays} days: you may not attack them while it lasts, and they warm to you and trust you more. (It is your pledge: it does not stop a country that wins a war against them from annexing them.)"),
         new(Missionary, "Missionary Work", "📿", DiplomaticTab.Relations,
             $"Your faith is in the religion catalogue; they follow another; at peace; relations {Balance.MissionaryMinRating}+; {Currency.Cost(Balance.MissionaryCost)}.",
             $"Adds religious influence (devout rulers resist, tolerant ones welcome it). At {Balance.MissionaryConversionThreshold:N0} influence they adopt your faith and its bonuses."),
@@ -123,7 +123,7 @@ public static class DiplomaticActionCatalog
             $"They march {Balance.CallToArmsFraction:P0} of their own army on your enemy. Their spoils are their own. Cooldown {Balance.AskAttackCooldownDays} days."),
         new(Annex, "Annex", "🏰", DiplomaticTab.Hostile,
             "You have just won a battle against them (winning is what earns the choice).",
-            $"Choose how to end the war. Annex: the whole country becomes yours (not while the Assembly or a guarantee protects it). " +
+            $"Choose how to end the war. Annex: the whole country becomes yours (not while the Assembly has banned annexing it). " +
             $"Take resources: {Balance.VictorySpoilsFraction:P0} of its treasury and stocks, it survives resentful. " +
             $"Nothing: a white peace, it is grateful. Unanswered for {Balance.VictoryDecisionDays} days, they are let go."),
     };

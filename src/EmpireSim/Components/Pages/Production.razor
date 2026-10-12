@@ -103,7 +103,7 @@
                 <!-- Always active: the build popup checks what can be built -->
                 <button class="prod-row-btn"
                         @onclick="() => OnBuildClick(spec)"
-                        title="@ProductionCatalog.CostText(spec) · @spec.BuildDays days">📐</button>
+                        title="@ProductionCatalog.CostText(spec) · @Engine.ProductionBuildDays(spec) days">📐</button>
             </div>
         }
     </div>
@@ -134,7 +134,7 @@
                 <div class="popup-section">
                     <div class="popup-section-title">Build Cost (each)</div>
                     <div class="info-line">@ProductionCatalog.CostText(_infoSpec)</div>
-                    <div class="info-line">⏱️ @_infoSpec.BuildDays days</div>
+                    <div class="info-line">⏱️ @Engine.ProductionBuildDays(_infoSpec) days</div>
                 </div>
                 <div class="popup-actions">
                     <button class="popup-btn cancel" @onclick="() => _infoSpec = null">Close</button>
@@ -151,7 +151,7 @@
         double reqWood = _popupSpec.WoodCost * qty;
         double reqStone = _popupSpec.StoneCost * qty;
         double reqIron = _popupSpec.IronCost * qty;
-        int totalDays = _popupSpec.BuildDays * qty;
+        int totalDays = Engine.ProductionBuildDays(_popupSpec) * qty;
 
         var limit = Engine.MaxBuildProduction(_popupSpec.Id);
         int queueRoom = Math.Max(0, Balance.MaxBuildQueue - _nation.ConstructionQueue.Count);
@@ -221,7 +221,7 @@
                 </div>
                 <div class="popup-section">
                     <div class="popup-section-title">Construction Time</div>
-                    <div class="popup-time">⏱️ @_popupSpec.BuildDays days each · @totalDays days total</div>
+                    <div class="popup-time">⏱️ @Engine.ProductionBuildDays(_popupSpec) days each · @totalDays days total</div>
                 </div>
                 @foreach (var problem in problems) { <div class="pop-warn">⚠ @problem</div> }
                 @if (!string.IsNullOrEmpty(_popupError)) { <div class="pop-warn">⚠ @_popupError</div> }

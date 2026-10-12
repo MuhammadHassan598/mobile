@@ -1,0 +1,72 @@
+@using EmpireSim.Core.Models
+@using EmpireSim.Core.Services
+@inject GameEngine Engine
+@implements IDisposable
+
+@* Shown on every page: peace terms an enemy has put to the player wait here until they are accepted, rejected or answered. *@
+@{
+    var offers = Engine.PeaceOffersForPlayer;
+}
+@if (offers.Count > 0 || !string.IsNullOrEmpty(_msg))
+{
+    <div class="pbn">
+        @if (!string.IsNullOrEmpty(_msg))
+        {
+            <div class="pbn-msg @_cls">
+                <span>@_msg</span>
+                <button @onclick="() => _msg = null" title="Dismiss">✕</button>
+            </div>
+        }
+        @foreach (var offer in offers)
+        {
+            var enemy = Engine.State.OtherNations.FirstOrDefault(n => n.Id == offer.NationId);
+            if (enemy is null) continue;
+            <div class="pbn-card">
+                <div class="pbn-head">🕊️ <b>@enemy.Emblem @enemy.Name</b> puts peace terms to you <small>(round @offer.Round · answer by @offer.DueDate.ToString("dd-MM-yyyy"))</small></div>
+                @foreach (var line in PeaceService.Describe(Engine.State, offer))
+                {
+                    <div class="pbn-line">• @line</div>
+                }
+                <div class="pbn-actions">
+                    <button class="go" @onclick="() => Answer(Engine.AcceptPeaceOffer(offer.Id))">✔ Accept</button>
+                    <button class="no" @onclick="() => Answer(Engine.RejectPeaceOffer(offer.Id))">✖ Reject</button>
+                    <button class="alt" @onclick="() => _talks = enemy.Id">↔ Counter / talks…</button>
+                </div>
+            </div>
+        }
+    </div>
+}
+<PeaceDialog NationId="@_talks" OnClose="() => _talks = null" />
+
+@code {
+    private string? _msg;
+    private string _cls = "";
+    private string? _talks;
+
+    protected override void OnInitialized() => Engine.StateChanged += OnStateChanged;
+    private void OnStateChanged() => InvokeAsync(StateHasChanged);
+    public void Dispose() => Engine.StateChanged -= OnStateChanged;
+
+    private void Answer(DipResult result)
+    {
+        _msg = result.Message;
+        _cls = result.Ok ? "done" : "refused";
+    }
+}
+
+<style>
+.pbn { margin: 0 0 4px; }
+.pbn-card { margin: 8px 8px 0; padding: 8px 10px; border-radius: 6px; background: #fff3cd; color: #664d03; border: 1px solid #c9a227; font-family: Georgia, serif; font-size: 0.85rem; }
+.pbn-head small { font-weight: normal; }
+.pbn-line { padding: 1px 0; }
+.pbn-actions { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
+.pbn-actions button { flex: 1; padding: 6px 8px; border-radius: 6px; border: 2px solid #2e1c0c; cursor: pointer; font-family: inherit; font-weight: bold; color: #fff; min-width: 90px; }
+.pbn-actions .go { background: linear-gradient(#3f8f4f, #25602f); }
+.pbn-actions .no { background: linear-gradient(#a33, #6b1a1a); }
+.pbn-actions .alt { background: linear-gradient(#7a5230, #4a2e14); color: #f5e6c4; }
+.pbn-msg { display: flex; align-items: center; gap: 8px; margin: 8px 8px 0; padding: 8px 10px; border-radius: 6px; font-family: Georgia, serif; font-size: 0.85rem; }
+.pbn-msg span { flex: 1; }
+.pbn-msg.done { background: #d4edda; color: #155724; border: 1px solid #2e7d32; }
+.pbn-msg.refused { background: #f8d7da; color: #721c24; border: 1px solid #8B0000; }
+.pbn-msg button { background: none; border: none; cursor: pointer; font-size: 1rem; color: inherit; }
+</style>

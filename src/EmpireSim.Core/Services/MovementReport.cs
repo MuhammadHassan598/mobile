@@ -113,7 +113,7 @@ public static class MovementReport
 
         foreach (var m in state.MarchingArmies)
             missions.Add(new Mission(MovementKind.March, m.AttackerNationId, m.AttackerNationName, m.TargetNationId, m.TargetNationName,
-                $"{m.Strength:N0} soldiers marching on {m.TargetNationName}", m.Progress, today.AddDays(m.DaysLeft), m.DaysLeft));
+                $"{m.Strength:N0} soldiers marching on {m.TargetNationName}", m.Progress, m.HasDates ? m.ArrivalDate : today.AddDays(m.DaysLeft), m.DaysLeft));
 
         foreach (var l in state.TroopLoans)
         {

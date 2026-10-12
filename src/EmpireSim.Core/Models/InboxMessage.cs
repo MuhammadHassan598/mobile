@@ -81,6 +81,12 @@ public enum InboxTopic
     Religion,
     /// <summary>A technology was researched.</summary>
     Research,
+
+    // ---- Peace negotiations (appended: topics are saved as numbers) ----
+    /// <summary>A peace proposal, a counteroffer, or the answer to one: the talks that end a war.</summary>
+    PeaceOffer,
+    /// <summary>The final agreement that ended a war (or settled terms), with every term listed.</summary>
+    PeaceAgreement,
 }
 
 /// <summary>
@@ -119,6 +125,7 @@ public static class InboxCatalog
             or InboxTopic.TroopMovement or InboxTopic.ForeignStrength => InboxCategory.Intelligence,
 
         InboxTopic.WarDeclared or InboxTopic.AllyAtWar or InboxTopic.Invasion or InboxTopic.Battle or InboxTopic.Peace
+            or InboxTopic.PeaceOffer or InboxTopic.PeaceAgreement
             or InboxTopic.Victory or InboxTopic.Annexation or InboxTopic.ArmyMovement or InboxTopic.AllyAssistance
             or InboxTopic.CallToArms or InboxTopic.Reinforcements or InboxTopic.EmpireFallen => InboxCategory.Military,
 
@@ -151,6 +158,8 @@ public static class InboxCatalog
         InboxTopic.Invasion => "Invasion",
         InboxTopic.Battle => "Battle report",
         InboxTopic.Peace => "Peace",
+        InboxTopic.PeaceOffer => "Peace talks",
+        InboxTopic.PeaceAgreement => "Peace agreement",
         InboxTopic.Victory => "Victory",
         InboxTopic.Annexation => "Country annexed",
         InboxTopic.ArmyMovement => "Army movement",
@@ -184,6 +193,8 @@ public static class InboxCatalog
         InboxTopic.Invasion => "⚔️",
         InboxTopic.Battle => "⚔️",
         InboxTopic.Peace => "🕊️",
+        InboxTopic.PeaceOffer => "📨",
+        InboxTopic.PeaceAgreement => "📜",
         InboxTopic.Victory => "🏆",
         InboxTopic.Annexation => "🏳️",
         InboxTopic.ArmyMovement => "🧭",

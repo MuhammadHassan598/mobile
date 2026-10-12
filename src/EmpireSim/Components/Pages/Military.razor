@@ -119,7 +119,7 @@
                     </div>
                 </div>
                 <div class="rec-costs">
-                    <div>💰 @((spec.GoldCost * _recCount).ToString("N1")) gold</div>
+                    <div>💰 @((spec.GoldCost * CommandStaffService.LandRecruitMult(_nation) * _recCount).ToString("N1")) gold</div>
                     @if (spec.Equipment is not null)
                     {
                         @foreach (var eq in spec.Equipment)
@@ -218,7 +218,7 @@
 
         <h3>ALLIED ASSISTANCE</h3>
         <div class="mil-sub" style="margin-bottom:6px">A friend (relations ≥ 70) hands over @(Balance.AlliedHelpFraction.ToString("P0")) of its soldiers: they leave its army and join yours. Costs @Balance.AlliedHelpRatingCost relations; once every @Balance.AlliedHelpCooldownDays days per friend.</div>
-        @foreach (var a in Engine.State.OtherNations.Where(n => DiplomacyService.ToDisplayRating(n.RelationToPlayer) >= 70).OrderBy(n => n.Name).Take(10))
+        @foreach (var a in Engine.State.LiveOtherNations().Where(n => DiplomacyService.ToDisplayRating(n.RelationToPlayer) >= 70).OrderBy(n => n.Name).Take(10))
         {
             <div class="mil-row">
                 <span class="mil-ico">@a.Emblem</span>
@@ -257,7 +257,7 @@
                 </div>
             </div>
             <div class="rec-costs">
-                <div>💰 @((WarshipSpec.GoldCost * _shipCount).ToString("N1")) gold</div>
+                <div>💰 @((WarshipSpec.GoldCost * CommandStaffService.WarshipRecruitMult(_nation) * _shipCount).ToString("N1")) gold</div>
                 <div>🪵 @((WarshipSpec.WoodCost * _shipCount).ToString("N0")) wood (have @_nation.Wood.ToString("N0"))</div>
                 <div>⛓️ @((WarshipSpec.IronCost * _shipCount).ToString("N0")) iron (have @_nation.Iron.ToString("N0"))</div>
                 <div>🔧 @((2 * _shipCount).ToString("N0")) ship parts (have @_nation.GetMilitaryItem("shipparts").ToString("N0"))</div>
@@ -295,8 +295,8 @@
     {
         double u = 0;
         foreach (var s in _nation.Units)
-            u += UnitCatalog.Get(s.Type).UpkeepPerDay * s.Count;
-        u += _nation.Warships * WarshipSpec.UpkeepPerDay;
+            u += UnitCatalog.Get(s.Type).UpkeepPerDay * s.Count * CommandStaffService.LandUpkeepMult(_nation);
+        u += _nation.Warships * WarshipSpec.UpkeepPerDay * CommandStaffService.NavalUpkeepMult(_nation);
         foreach (var c in _nation.MercenaryContracts)
         {
             var co = MercenaryCatalog.Get(c.CompanyId);

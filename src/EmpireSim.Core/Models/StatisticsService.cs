@@ -10,11 +10,21 @@ public static class StatisticsService
         return new List<(string, string, double)>
         {
             ("💰", "Tax Income", TaxationService.TotalRevenue(n.Workforce, n.TaxRates)),
-            ("🏰", "Crown Domain", Services.Balance.CrownDomainIncomePerDay),
+            ("🏰", n.CrownDomains > 1 ? $"Crown Domains (x{n.CrownDomains})" : "Crown Domain", Services.Balance.CrownDomainIncomePerDay * n.CrownDomains),
             ("⛏️", "Gold Mine", n.ProductionBuildings
                 .Where(kvp => ProductionCatalog.Get(kvp.Key)?.Produces == "Gold")
                 .Sum(kvp => kvp.Value * (ProductionCatalog.Get(kvp.Key)?.OutputPerDay ?? 0))),
         };
+    }
+
+    /// <summary>The income breakdown with the tax and gold the country's annexed territories pay it (each territory counted once).</summary>
+    public static List<(string Icon, string Name, double Amount)> IncomeBreakdown(GameState state, Nation n)
+    {
+        var list = IncomeBreakdown(n);
+        double territories = state.AnnexedBy(n.Id).Sum(t =>
+            Services.AnnexedStateService.TaxRevenue(n, t) + Services.AnnexedStateService.OtherIncome(state, t));
+        if (state.AnnexedBy(n.Id).Count > 0) list.Add(("🏳️", "Annexed states", territories));
+        return list;
     }
 
     /// <summary>Daily expense breakdown.</summary>

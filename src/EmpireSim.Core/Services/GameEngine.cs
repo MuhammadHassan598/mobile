@@ -84,7 +84,7 @@ public sealed partial class GameEngine : IDisposable
     public static long EstimateDailyIncome(Nation n)
     {
         n.EnsureTaxationInitialized();
-        double taxMult = n.HasCommander(CommanderRole.CommanderInChief) ? Balance.CinCTaxMult : 1.0;
+        double taxMult = CommandStaffService.TaxMult(n);
         double tax = TaxationService.TotalRevenue(n.Workforce, n.TaxRates) * taxMult * n.TaxMult;
         return (long)(tax + Balance.CrownDomainIncomePerDay);
     }
@@ -117,7 +117,8 @@ public sealed partial class GameEngine : IDisposable
         nation.PayGold(spec.GoldCost * costMult);
         nation.Wood -= spec.WoodCost * costMult;
         nation.Iron -= spec.IronCost * costMult;
-        int buildDays = Math.Max(1, (int)Math.Ceiling(spec.BuildDays * ReligionService.ConstructionTimeMult(nation) * LawService.ConstructionTimeMult(nation)));
+        int buildDays = CommandStaffService.BuildDays(nation,   // (the head of construction has his say after the faith and the laws)
+            Math.Max(1, (int)Math.Ceiling(spec.BuildDays * ReligionService.ConstructionTimeMult(nation) * LawService.ConstructionTimeMult(nation))));
         nation.ConstructionQueue.Add(new ConstructionProject
         {
             Building = type,
@@ -128,6 +129,9 @@ public sealed partial class GameEngine : IDisposable
         StateChanged?.Invoke();
         return null;
     }
+
+    /// <summary>Days a production building takes the player to build: its own time, shortened by the head of construction (never under a day).</summary>
+    public int ProductionBuildDays(ProductionBuildingSpec spec) => CommandStaffService.BuildDays(State.PlayerNation, spec.BuildDays);
 
     /// <summary>Starts construction of a production building.</summary>
     public string? BuildProduction(string buildingId, int count = 1)
@@ -151,17 +155,18 @@ public sealed partial class GameEngine : IDisposable
         nation.Wood -= totalWood;
         nation.Stone -= totalStone;
         nation.Iron -= totalIron;
+        int buildDays = ProductionBuildDays(spec);   // (the head of construction may shorten it)
         for (int i = 0; i < count; i++)
         {
             nation.ConstructionQueue.Add(new ConstructionProject
             {
                 Building = BuildingType.Farm, // placeholder, ProductionBuildingId is used
                 ProductionBuildingId = buildingId,
-                DaysLeft = spec.BuildDays,
-                TotalDays = spec.BuildDays,
+                DaysLeft = buildDays,
+                TotalDays = buildDays,
             });
         }
-        State.Log($"Started building {count}x {spec.Name} ({spec.BuildDays} days each).");
+        State.Log($"Started building {count}x {spec.Name} ({buildDays} days each).");
         StateChanged?.Invoke();
         return null;
     }
@@ -209,7 +214,7 @@ public sealed partial class GameEngine : IDisposable
         if (n.RecruitmentQueue.Count >= Balance.MaxRecruitmentQueue)
             return "Recruitment capacity reached.";
 
-        double mult = n.HasCommander(CommanderRole.LandCommander) ? Balance.LandCommanderRecruitMult : 1.0;
+        double mult = CommandStaffService.LandRecruitMult(n);
         double gold = spec.GoldCost * mult * count;
         double wood = spec.WoodCost * count;
         double iron = spec.IronCost * count;
@@ -436,6 +441,8 @@ public sealed partial class GameEngine : IDisposable
         double pricePer1000 = MarketPricing.PricePer1000(productId, sellerId);
         // Law: import price discount
         pricePer1000 *= LawService.ImportPriceMult(buyer);
+        // Head of Trade: a better price on everything you buy.
+        pricePer1000 *= CommandStaffService.ImportPriceMult(buyer);
         // Trade agreement: partners sell to us cheaper.
         if (TreatyService.Has(State, TreatyType.TradeAgreement, buyer.Id, sellerId))
             pricePer1000 *= Balance.TradeAgreementImportMult;
@@ -785,28 +792,43 @@ public sealed partial class GameEngine : IDisposable
         if (owner is null) return (false, "Nation not found.");
         if (owner.IsEliminated) return (false, "That nation no longer exists.");
         if (!owner.AtWarWithPlayer) return (false, "You must declare war first.");
+        if (commitCount <= 0) return (false, "Choose how many soldiers to send.");
+        if (PendingVictory(owner.Id) is not null)
+            return (false, $"You have already beaten {owner.Name}: decide its fate before sending another army.");
         if (TreatyService.AnnexationBlock(State, owner.Id) is { } protectedBy)
             return (false, $"{protectedBy} An invasion could not take the country.");
         if (player.Soldiers < Balance.MinInvasionForce)
             return (false, $"Need at least {Balance.MinInvasionForce} soldiers to invade.");
 
-        int commit = Math.Min(commitCount, player.Soldiers);
+        var march = StartMarch(owner, Math.Min(commitCount, player.Soldiers));
+        StateChanged?.Invoke();
+        return (true, $"Your army marches on {owner.Name} — arrival in {march.TotalDays} days ({march.ArrivalDate:dd-MM-yyyy}).");
+    }
+
+    /// <summary>
+    /// Takes the soldiers out of the player's home army and sends them marching on a country (no checks: callers validate first).
+    /// They set out today and arrive when the distance between the two capitals says.
+    /// </summary>
+    private MarchingArmy StartMarch(Nation target, int commit)
+    {
+        var player = State.PlayerNation;
         var force = ArmyHelper.ExtractSoldiers(player, commit);
-        int days = Warfare.TravelDays(player.MapX, player.MapY, owner.MapX, owner.MapY);
-        State.MarchingArmies.Add(new MarchingArmy
+        var route = MapGeography.Route(player, target);
+        if (MapGeography.FallbackNote(player, target, route) is { } note) State.Log(note);
+        var march = new MarchingArmy
         {
             AttackerNationId = player.Id,
             AttackerNationName = player.Name,
-            TargetNationId = owner.Id,
-            TargetNationName = owner.Name,
+            TargetNationId = target.Id,
+            TargetNationName = target.Name,
             Force = force,
-            DaysLeft = days,
-            TotalDays = days,
-        });
+        };
+        march.SetRoute(State.CurrentDate, route.Days);
+        State.MarchingArmies.Add(march);
 
-        State.LogMovement(MovementKind.March, MovementStatus.UnderWay, player, owner, $"⚔ {commit:N0} soldiers march on {owner.Name} — arrival in {days} days.");
-        StateChanged?.Invoke();
-        return (true, $"Your army marches on {owner.Name} — arrival in {days} days.");
+        State.LogMovement(MovementKind.March, MovementStatus.UnderWay, player, target,
+            $"⚔ {march.Strength:N0} soldiers march on {target.Name} — arrival in {route.Days} days ({march.ArrivalDate:dd-MM-yyyy}).");
+        return march;
     }
 
     // ---------------- Laws & religion ----------------
@@ -881,7 +903,7 @@ public sealed partial class GameEngine : IDisposable
         var spec = UnitCatalog.Get(type);
         var n = State.PlayerNation;
 
-        double mult = n.HasCommander(CommanderRole.LandCommander) ? Balance.LandCommanderRecruitMult : 1.0;
+        double mult = CommandStaffService.LandRecruitMult(n);
         double gold = spec.GoldCost * mult * count;
         double wood = spec.WoodCost * count;
         double iron = spec.IronCost * count;
@@ -906,7 +928,7 @@ public sealed partial class GameEngine : IDisposable
         if (count <= 0) return "Invalid count.";
         var n = State.PlayerNation;
 
-        double mult = n.HasCommander(CommanderRole.FleetCommander) ? Balance.FleetCommanderRecruitMult : 1.0;
+        double mult = CommandStaffService.WarshipRecruitMult(n);
         double gold = WarshipSpec.GoldCost * mult * count;
         double wood = WarshipSpec.WoodCost * count;
         double iron = WarshipSpec.IronCost * count;
@@ -923,35 +945,34 @@ public sealed partial class GameEngine : IDisposable
         return null;
     }
 
-    /// <summary>Hires a commander for a vacant role. Returns an error message, or null on success.</summary>
+    // ---------------- Command staff (the screen is CommandStaff.razor; the rules are in CommandStaffService) ----------------
+
+    /// <summary>
+    /// Appoints a candidate (skill tier 1-3) to a post of the player's command staff, replacing whoever holds it.
+    /// Returns an error message, or null on success.
+    /// </summary>
+    public string? AppointCommander(CommanderRole role, int tier)
+    {
+        var error = CommandStaffService.Appoint(State, State.PlayerNation, role, tier);
+        if (error is null) StateChanged?.Invoke();
+        return error;
+    }
+
+    /// <summary>Appoints the capable candidate to a vacant post (the quick form of <see cref="AppointCommander"/>).</summary>
     public string? HireCommander(CommanderRole role)
     {
-        var n = State.PlayerNation;
-        if (n.HasCommander(role)) return "Role already filled.";
-        var spec = CommanderCatalog.GetRole(role);
-        if (!n.CanPay(spec.HireCost)) return "Not enough Gold.";
-
-        n.PayGold(spec.HireCost);
-        n.Commanders.Add(new Commander
-        {
-            Name = CommanderCatalog.NextCandidateName(role, n.Commanders),
-            Role = role,
-            DailyWage = spec.DailyWage,
-        });
-        State.Log($"Hired {n.Commanders.Last().Name} as {spec.Title}.");
-        StateChanged?.Invoke();
-        return null;
+        if (CommandStaffService.Holder(State.PlayerNation, role) is not null) return "Role already filled.";
+        return AppointCommander(role, 1);
     }
 
+    /// <summary>Dismisses the holder of a post of the player's command staff.</summary>
     public void DismissCommander(CommanderRole role)
     {
-        var n = State.PlayerNation;
-        var cmd = n.Commanders.FirstOrDefault(c => c.Role == role);
-        if (cmd is null) return;
-        n.Commanders.Remove(cmd);
-        State.Log($"Dismissed {cmd.Name}.");
-        StateChanged?.Invoke();
+        if (CommandStaffService.Dismiss(State, State.PlayerNation, role) is not null) StateChanged?.Invoke();
     }
+
+    /// <summary>What the player's staff costs per day in wages.</summary>
+    public double StaffWagesPerDay => CommandStaffService.DailyWages(State.PlayerNation);
 
     /// <summary>
     /// Pays accrued army maintenance immediately and restarts the 180-day
@@ -978,8 +999,12 @@ public sealed partial class GameEngine : IDisposable
 
     // ---------------- Diplomacy ----------------
 
+    /// <summary>
+    /// A country the player can deal with. A country that has been annexed is not one: it is a territory of its master, with no diplomacy,
+    /// war or decisions of its own (it is managed through Annexed States, by its master only), so it is "not found" here.
+    /// </summary>
     private Nation? FindNation(string nationId) =>
-        State.OtherNations.FirstOrDefault(n => n.Id == nationId);
+        State.OtherNations.FirstOrDefault(n => n.Id == nationId && !n.IsEliminated);
 
     /// <summary>Sends a gift: +relations for gold. Returns an error, or null on success.</summary>
     public string? SendGift(string nationId)
@@ -1007,23 +1032,8 @@ public sealed partial class GameEngine : IDisposable
         n.HasTradePactWithPlayer = false;
         n.RelationToPlayer = -100;
         TreatyService.OnWar(State, State.PlayerNation, n);
+        PeaceService.OnWarStarted(State, n, playerStarted: true);
         State.LogMovement(MovementKind.War, MovementStatus.Completed, State.PlayerNation, n, $"You declared war on {n.Name}!");
-        StateChanged?.Invoke();
-        return null;
-    }
-
-    public string? SueForPeace(string nationId)
-    {
-        var n = FindNation(nationId);
-        if (n is null) return "Nation not found.";
-        if (!n.AtWarWithPlayer) return "You are not at war.";
-        if (!State.PlayerNation.CanPay(Balance.PeaceTributeCost)) return "Not enough Gold for tribute.";
-
-        State.PlayerNation.PayGold(Balance.PeaceTributeCost);
-        n.AtWarWithPlayer = false;
-        n.RelationToPlayer = -20;
-        State.PendingVictories.RemoveAll(v => v.LoserId == n.Id);   // peace made: nothing left to decide
-        State.LogMovement(MovementKind.War, MovementStatus.Completed, State.PlayerNation, n, $"You sued for peace with {n.Name} (tribute {Balance.PeaceTributeCost:N0} gold).");
         StateChanged?.Invoke();
         return null;
     }
@@ -1072,7 +1082,7 @@ public sealed partial class GameEngine : IDisposable
         if (player.Soldiers > n.Soldiers * Balance.TributeArmyRatio)
         {
             double tribute = Math.Min(n.Gold,
-                Math.Max(100, n.Gold * Balance.TributeFraction));
+                Math.Max(100, n.Gold * Balance.TributeFraction * CommandStaffService.TributeMult(State.PlayerNation)));
             n.PayGold(tribute);
             player.Gold += tribute;
             n.RelationToPlayer = Math.Max(-100, n.RelationToPlayer - 20);
@@ -1088,6 +1098,7 @@ public sealed partial class GameEngine : IDisposable
                 n.HasTradePactWithPlayer = false;
                 n.RelationToPlayer = -100;
                 TreatyService.OnWar(State, player, n);
+                PeaceService.OnWarStarted(State, n, playerStarted: false);
                 State.LogMovement(MovementKind.War, MovementStatus.Completed, n, player, $"{n.Name} declared war over your insult!", inbox: InboxTopic.WarDeclared);
                 State.ActiveWarnings.Add($"⚠ {n.Name} has DECLARED WAR on you!");
                 TreatyService.AllianceDefence(State, n, player);

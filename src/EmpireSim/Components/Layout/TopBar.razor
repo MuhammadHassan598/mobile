@@ -16,8 +16,9 @@
     private Nation _nation => Engine.State.PlayerNation;
     private string _gold => _nation.Gold.ToString("N0");
     private string _rating => _nation.RulerRating.ToString("N0");
-    private string _pop => _nation.Population.ToString("N0");
-    private string _income => GameEngine.EstimateDailyIncome(_nation).ToString("N0");
+    // The realm counts everyone once: the country's own people and income plus those of the territories it has annexed.
+    private string _pop => Engine.RealmPopulation.ToString("N0");
+    private string _income => Engine.RealmDailyIncome().ToString("N0");
 
     protected override void OnInitialized() => Engine.StateChanged += OnStateChanged;
     private void OnStateChanged() => InvokeAsync(StateHasChanged);

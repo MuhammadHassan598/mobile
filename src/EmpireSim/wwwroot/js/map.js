@@ -113,25 +113,67 @@ window.empireMap = (() => {
     }
 
     let wobbledShapes = null;
+
+    // An edge between two points, the same whichever way round it is walked (null if the points coincide).
+    function edgeKey(a, b) {
+        const x1 = ptX(a), y1 = ptY(a), x2 = ptX(b), y2 = ptY(b);
+        if (x1 === x2 && y1 === y2) return null;
+        return (x1 < x2 || (x1 === x2 && y1 <= y2)) ? `${x1},${y1}|${x2},${y2}` : `${x2},${y2}|${x1},${y1}`;
+    }
+
     function getWobbled() {
         if (wobbledShapes) return wobbledShapes;
         wobbledShapes = (data.shapes || []).map(p => {
-            const polysOut = [];
+            const raw = [];
             for (const pts of polys(p)) {
-                if (!pts || pts.length < 3) continue;
-                const w = [];
-                for (const pt of pts) {
-                    if (!pt) continue;
-                    w.push(wobblePt(ptX(pt), ptY(pt)));
-                }
-                if (w.length >= 3) polysOut.push(w);
+                const clean = (pts || []).filter(pt => !!pt);
+                if (clean.length >= 3) raw.push(clean);
             }
+
+            // A realm that has swallowed other countries owns several polygons that touch: an edge shared by two of its own
+            // polygons is a province line inside the realm, not a border. (Counted once per polygon.)
+            const counts = new Map();
+            for (const pts of raw) {
+                const seen = new Set();
+                for (let i = 0; i < pts.length; i++) {
+                    const k = edgeKey(pts[i], pts[(i + 1) % pts.length]);
+                    if (k) seen.add(k);
+                }
+                seen.forEach(k => counts.set(k, (counts.get(k) || 0) + 1));
+            }
+
+            const polysOut = raw.map(pts => {
+                const w = pts.map(pt => wobblePt(ptX(pt), ptY(pt)));
+                w.internal = pts.map((a, i) => {
+                    const k = edgeKey(a, pts[(i + 1) % pts.length]);
+                    return !!k && counts.get(k) > 1;
+                });
+                return w;
+            });
             return { p, polys: polysOut };
         });
         return wobbledShapes;
     }
 
     // ---- drawing ----
+    // Builds a path of one polygon's outer edges (internal = false) or of its inner province lines (internal = true).
+    // Returns whether there is anything to stroke.
+    function edgePath(pts, internal) {
+        ctx.beginPath();
+        let any = false;
+        for (let i = 0; i < pts.length; i++) {
+            if (!!(pts.internal && pts.internal[i]) !== internal) continue;
+            const j = (i + 1) % pts.length;
+            if (pts[i][0] === pts[j][0] && pts[i][1] === pts[j][1]) continue;
+            const [x0, y0] = toScreen(pts[i][0], pts[i][1]);
+            const [x1, y1] = toScreen(pts[j][0], pts[j][1]);
+            ctx.moveTo(x0, y0);
+            ctx.lineTo(x1, y1);
+            any = true;
+        }
+        return any;
+    }
+
     function draw() {
         if (!ctx) return;
         const w = cssW(), h = cssH();
@@ -152,6 +194,7 @@ window.empireMap = (() => {
         for (const { p, polys: wpolys } of getWobbled()) {
             const isSel = (p.id ?? p.Id) === (data.selectedId ?? data.SelectedId);
             const baseColor = p.color || p.Color || '#555555';
+            // First the wash over every polygon of the realm...
             for (const pts of wpolys) {
                 ctx.beginPath();
                 const [sx0, sy0] = toScreen(pts[0][0], pts[0][1]);
@@ -165,25 +208,77 @@ window.empireMap = (() => {
                 // Watercolor wash over the painted terrain.
                 ctx.fillStyle = rgba(baseColor, isSel ? 0.55 : 0.38);
                 ctx.fill();
-                // Engraved double-stroke border: dark casing + inner color line.
-                ctx.lineWidth = isSel ? 4 : 2.6;
-                ctx.strokeStyle = isSel ? '#FFD700' : 'rgba(52,38,24,0.9)';
-                ctx.stroke();
-                ctx.lineWidth = isSel ? 1.6 : 1.1;
-                ctx.strokeStyle = isSel ? '#FFE87A' : rgba(baseColor, 0.95);
-                ctx.stroke();
-                if (isSel) {
-                    ctx.lineWidth = 7;
-                    ctx.strokeStyle = 'rgba(255,215,0,0.25)';
+            }
+
+            // ...then its borders. The outer edge of the realm is the engraved double stroke; an edge between two of the realm's own
+            // polygons (an annexed country beside its new master) is only a faint province line, so the annexed land reads as part
+            // of the winning country.
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            for (const pts of wpolys) {
+                if (edgePath(pts, false)) {
+                    // Engraved double-stroke border: dark casing + inner color line.
+                    ctx.lineWidth = isSel ? 4 : 2.6;
+                    ctx.strokeStyle = isSel ? '#FFD700' : 'rgba(52,38,24,0.9)';
                     ctx.stroke();
+                    ctx.lineWidth = isSel ? 1.6 : 1.1;
+                    ctx.strokeStyle = isSel ? '#FFE87A' : rgba(baseColor, 0.95);
+                    ctx.stroke();
+                    if (isSel) {
+                        ctx.lineWidth = 7;
+                        ctx.strokeStyle = 'rgba(255,215,0,0.25)';
+                        ctx.stroke();
+                    }
+                }
+                if (edgePath(pts, true)) {
+                    ctx.setLineDash([4, 3]);
+                    ctx.lineWidth = 0.9;
+                    ctx.strokeStyle = isSel ? 'rgba(255,232,122,0.8)' : rgba(darkened(baseColor, 40), 0.65);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
                 }
             }
+            ctx.lineCap = 'butt';
+            ctx.lineJoin = 'miter';
 
             // Nation label (skip when zoomed far out and text would be tiny).
             // (Labels are drawn in a dedicated collision-aware pass below.)
         }
 
         drawNationLabels();
+        drawAnnexedCities();
+    }
+
+    // The old capitals of annexed countries stay on the map as cities of the realm that swallowed them (shown once zoomed in).
+    function drawAnnexedCities() {
+        if (view.scale < 0.5) return;
+        const fs = Math.max(9, 10.5 * Math.min(view.scale, 1.3));
+        ctx.font = `italic ${fs}px 'IM Fell English', Georgia, serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        const w = cssW(), h = cssH();
+        for (const { p } of getWobbled()) {
+            const cities = p.annexedCities || p.AnnexedCities || [];
+            const color = p.color || p.Color || '#555555';
+            for (const c of cities) {
+                const name = c.name ?? c.Name;
+                if (!name) continue;
+                const [sx, sy] = toScreen(c.x ?? c.X, c.y ?? c.Y);
+                if (sx < -60 || sx > w + 60 || sy < -30 || sy > h + 30) continue;
+                ctx.beginPath();
+                ctx.arc(sx, sy, 3, 0, Math.PI * 2);
+                ctx.fillStyle = darkened(color, 70);
+                ctx.fill();
+                ctx.lineWidth = 1;
+                ctx.strokeStyle = 'rgba(245,240,225,0.9)';
+                ctx.stroke();
+                ctx.lineWidth = 3;
+                ctx.strokeStyle = 'rgba(245,240,225,0.8)';
+                ctx.strokeText(name, sx, sy + 5);
+                ctx.fillStyle = '#3A2C1E';
+                ctx.fillText(name, sx, sy + 5);
+            }
+        }
     }
 
     function polyAreaPts(pts) {

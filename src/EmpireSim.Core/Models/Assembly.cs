@@ -57,10 +57,16 @@ public sealed class AssemblyProposal
     public Dictionary<string, bool> Votes { get; set; } = new(); // countryId -> for(true)/against(false)
     public DateOnly? ActiveUntil { get; set; }
 
-    public int VotesFor(IEnumerable<Nation> nations) =>
-        Votes.Where(v => v.Value).Sum(v => nations.FirstOrDefault(n => n.Id == v.Key)?.VotingPower ?? 0);
-    public int VotesAgainst(IEnumerable<Nation> nations) =>
-        Votes.Where(v => !v.Value).Sum(v => nations.FirstOrDefault(n => n.Id == v.Key)?.VotingPower ?? 0);
+    /// <summary>Votes cast for, weighted by voting power. <paramref name="nations"/> must be every nation (annexed territories count toward their master's power).</summary>
+    public int VotesFor(IEnumerable<Nation> nations) => Tally(nations, true);
+    public int VotesAgainst(IEnumerable<Nation> nations) => Tally(nations, false);
+
+    private int Tally(IEnumerable<Nation> nations, bool forProposal)
+    {
+        var all = nations as IReadOnlyList<Nation> ?? nations.ToList();
+        return Votes.Where(v => v.Value == forProposal)
+            .Sum(v => all.FirstOrDefault(n => n.Id == v.Key) is { } voter ? AssemblyService.VotingPower(voter, all) : 0);
+    }
 }
 
 /// <summary>Active assembly policy effect.</summary>
@@ -79,10 +85,22 @@ public static class AssemblyService
 {
     public const int DefaultVotingDays = 30;
 
-    /// <summary>Voting power from population.</summary>
+    /// <summary>Voting power from a country's own population (annexed territories are not counted here: see the overload with every nation).</summary>
     public static int VotingPower(Nation nation)
     {
+        if (nation.IsEliminated) return 0;   // an annexed country has no voice of its own
         return Math.Max(1, (int)(nation.Population / 500000));
+    }
+
+    /// <summary>
+    /// Voting power by the existing rule (one vote per 500,000 people, at least one), counting the people of the territories a country
+    /// has annexed: their voice is their master's, once. An annexed territory itself has no vote.
+    /// </summary>
+    public static int VotingPower(Nation nation, IEnumerable<Nation> allNations)
+    {
+        if (nation.IsEliminated) return 0;
+        long people = nation.Population + allNations.Where(t => t.IsEliminated && t.AnnexedById == nation.Id).Sum(t => t.Population);
+        return Math.Max(1, (int)(people / 500000));
     }
 
     /// <summary>Estimate votes for/against a proposal.</summary>
@@ -90,13 +108,14 @@ public static class AssemblyService
         AssemblyProposal proposal, IEnumerable<Nation> nations, string proposerId)
     {
         int forV = 0, againstV = 0;
+        nations = nations.ToList();   // (every nation, read once: territories count toward their master's voting power)
         var proposer = nations.FirstOrDefault(n => n.Id == proposerId);
         var target = nations.FirstOrDefault(n => n.Id == proposal.TargetId);
 
         foreach (var n in nations)
         {
-            if (n.Id == proposal.TargetId) continue; // target doesn't vote
-            int power = VotingPower(n);
+            if (n.Id == proposal.TargetId || n.IsEliminated) continue; // the target doesn't vote, nor does an annexed country
+            int power = VotingPower(n, nations);
 
             // Score based on relationships
             double score = 50; // base
