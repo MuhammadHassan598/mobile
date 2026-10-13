@@ -104,6 +104,10 @@ h2 { font-size: 1rem; color: var(--gold); margin: 4px 0 8px; font-weight: normal
 }
 .topnav a.active { color: var(--gold); border-bottom-color: var(--gold); }
 
+/* The page is drawn edge to edge, so the system navigation buttons can lie over the bottom of it. wwwroot/js/insets.js refines this variable
+   (browsers that report no inset on an edge-to-edge Android screen); anything pinned to the bottom adds it to its offset. */
+:root { --safe-bottom: env(safe-area-inset-bottom, 0px); }
+
 /* ---- map page ---- */
 .map-page { max-width: 640px; margin: 0 auto; padding: 0 12px 32px; }
 /* Full-screen war-room map: no chrome, no padding. */
@@ -115,8 +119,8 @@ main.map-full .map-canvas {
     border: none; border-radius: 0;
 }
 main.map-full .province-card {
-    position: fixed; left: 10px; right: 10px; bottom: 10px; z-index: 50;
-    margin-top: 0; max-height: 45dvh; overflow-y: auto;
+    position: fixed; left: 10px; right: 10px; bottom: calc(10px + var(--safe-bottom)); z-index: 50;
+    margin-top: 0; max-height: calc(45dvh - var(--safe-bottom)); overflow-y: auto;
 }
 .map-toolbar {
     display: flex; justify-content: space-between; align-items: center;

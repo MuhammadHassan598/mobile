@@ -267,8 +267,8 @@
 }
 
 <style>
-.pc-overlay { position: fixed; inset: 0; z-index: 210; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; padding: 12px; }
-.pc-panel { background: linear-gradient(#f5e6c4, #e2cb92); border: 3px double #8b6914; border-radius: 10px; padding: 14px; max-width: 420px; width: 100%; max-height: 92vh; overflow-y: auto; position: relative; font-family: Georgia, serif; color: #3d2b1f; }
+.pc-overlay { position: fixed; inset: 0; z-index: 210; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; padding: 12px 12px calc(12px + var(--safe-bottom)); }
+.pc-panel { background: linear-gradient(#f5e6c4, #e2cb92); border: 3px double #8b6914; border-radius: 10px; padding: 14px; max-width: 420px; width: 100%; max-height: calc(92vh - var(--safe-bottom)); overflow-y: auto; position: relative; font-family: Georgia, serif; color: #3d2b1f; }
 .pc-x { position: absolute; top: 6px; right: 8px; background: none; border: none; font-size: 1.1rem; cursor: pointer; color: #5a4a2a; }
 .pc-title { font-size: 1.1rem; font-weight: bold; margin-bottom: 8px; padding-right: 24px; }
 .pc-msg { padding: 7px 10px; border-radius: 6px; font-size: 0.85rem; margin-bottom: 8px; }

@@ -140,8 +140,8 @@
 }
 
 <style>
-.atk-overlay { position: fixed; inset: 0; z-index: 200; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; padding: 12px; }
-.atk-panel { background: linear-gradient(#f5e6c4, #e2cb92); border: 3px double #8b6914; border-radius: 10px; padding: 14px; max-width: 380px; width: 100%; max-height: 90vh; overflow-y: auto; position: relative; font-family: Georgia, serif; color: #3d2b1f; }
+.atk-overlay { position: fixed; inset: 0; z-index: 200; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; padding: 12px 12px calc(12px + var(--safe-bottom)); }
+.atk-panel { background: linear-gradient(#f5e6c4, #e2cb92); border: 3px double #8b6914; border-radius: 10px; padding: 14px; max-width: 380px; width: 100%; max-height: calc(90vh - var(--safe-bottom)); overflow-y: auto; position: relative; font-family: Georgia, serif; color: #3d2b1f; }
 .atk-x { position: absolute; top: 6px; right: 8px; background: none; border: none; font-size: 1.1rem; cursor: pointer; color: #5a4a2a; }
 .atk-title { font-size: 1.15rem; font-weight: bold; margin-bottom: 10px; padding-right: 24px; }
 .atk-row { display: flex; justify-content: space-between; font-size: 0.9rem; padding: 3px 0; border-bottom: 1px dotted #b79a55; }
