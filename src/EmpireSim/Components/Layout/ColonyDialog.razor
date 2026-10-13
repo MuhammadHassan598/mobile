@@ -20,7 +20,7 @@
 
             <div class="col-row"><span>Status</span><b>@ColonizationService.StatusText(state, region)</b></div>
             <div class="col-row"><span>Area</span><b>≈ @ColonizationService.AreaKm2(region).ToString("N0") km² (@ColonizationService.SizeName(size))</b></div>
-            <div class="col-row"><span>Journey</span><b>@(q.Overland ? "overland, on foot" : $"by sea, {q.Warships} warships carry the settlers")</b></div>
+            <div class="col-row"><span>Journey</span><b>@(q.Overland ? ColonizationService.Journey(true, region.Terrain) : $"{ColonizationService.Journey(false, region.Terrain)}; {q.Warships} warships carry the settlers")</b></div>
             <div class="col-row"><span>Duration</span><b>@q.Days days</b></div>
             <div class="col-row"><span>Estimated landing</span><b>@q.Completion.ToString("dd-MM-yyyy")</b></div>
 

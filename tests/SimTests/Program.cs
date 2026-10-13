@@ -5330,8 +5330,8 @@ Console.WriteLine("== 74. The political map: natural coasts, exact shared border
     foreach (var r in st.FrontierRegions) shapes.Add(("f:" + r.Name, "frontier", r.Polygons));
     var allRings = shapes.SelectMany(s => s.Polys.Select(p => (s.Id, s.Kind, Ring: p))).ToList();
 
-    Check(st.MapVersion == WorldGeometry.Version && st.NeutralRegions.Count == WorldGeometry.NeutralNames.Count && st.NeutralRegions.Count == 10 && st.FrontierRegions.Count == WorldGeometry.FrontierNames.Count && st.FrontierRegions.Count == 34,
-        "a new game carries the current map edition: 41 countries, 10 neutral territories that stay unsettled, 34 colony regions carved out of the rest");
+    Check(st.MapVersion == WorldGeometry.Version && st.NeutralRegions.Count == WorldGeometry.NeutralNames.Count && st.NeutralRegions.Count == 6 && st.FrontierRegions.Count == WorldGeometry.FrontierNames.Count && st.FrontierRegions.Count == 41,
+        "a new game carries the current map edition: 41 countries, 6 neutral territories that stay unsettled, 41 colony regions carved out of the rest");
     Check(allRings.All(r => r.Ring.Count >= 4 && r.Ring[0].X == r.Ring[^1].X && r.Ring[0].Y == r.Ring[^1].Y), "every polygon is a closed ring of at least three corners");
     Check(allRings.All(r => r.Ring.All(p => double.IsFinite(p.X) && double.IsFinite(p.Y) && p.X >= 0 && p.X <= 2200 && p.Y >= 0 && p.Y <= 1150)), "all points lie inside the 2200 x 1150 map");
 
@@ -5506,7 +5506,7 @@ Console.WriteLine("== 74. The political map: natural coasts, exact shared border
         foreach (var n in s3.AllNations()) n.Territory = n.IsEliminated ? new() : MgBox(n.MapX, n.MapY);
         player.Territory.Add(new() { new(0, 0), new(5, 0), new(5, 5), new(0, 0) }); player.AnnexedPolygonCount = 1;   // (Persia's old land, appended)
         s3.NeutralRegions.RemoveAll(r => r.Name is "Svalbard"); s3.NeutralRegions.First(r => r.Name == "Tibet").Polygons = MgBox(1100, 420);
-        s3.NeutralRegions.Add(new NeutralTerritory { Name = "Greenland", Polygons = MgBox(600, 40) });   // (a neutral territory of the old map that is now carved into colony regions)
+        foreach (var gone in new[] { "Greenland", "East Africa", "West Africa", "South Africa", "East Indies" }) s3.NeutralRegions.Add(new NeutralTerritory { Name = gone, Polygons = MgBox(600, 40) });   // (neutral territories of older maps that are now carved into colony regions)
         s3.FrontierRegions.Clear();
         foreach (var old in new[] { "Western Isles", "Southern Reaches" }) s3.FrontierRegions.Add(new FrontierRegion { Id = old, Name = old, Polygons = MgBox(40, 220) });   // the two that were still open
         var legacyColony = new Colony { Name = "Far Eastern Isles", OwnerId = player.Id, FoundedById = player.Id, FoundedDate = new DateOnly(1601, 6, 1), Population = 1000, Farms = 2, Mines = 1 };
@@ -5521,12 +5521,12 @@ Console.WriteLine("== 74. The political map: natural coasts, exact shared border
         Check(upPlayer.Territory.Count == WorldGeometry.Nation(upPlayer.Id).Count + WorldGeometry.Nation("persia").Count && upPlayer.AnnexedPolygonCount == WorldGeometry.Nation("persia").Count && upPersia.Territory.Count == 0 && upPersia.IsEliminated && upPersia.AnnexedById == upPlayer.Id,
             "an annexed country's lands come back in its master's realm (home lands plus the annexed country's), who owns what unchanged");
         Check(up.OtherNations.Where(n => !n.IsEliminated).All(n => n.Territory.Count == WorldGeometry.Nation(n.Id).Count), "every other country gets its redrawn lands");
-        Check(up.NeutralRegions.Count == 10 && up.NeutralRegions.All(r => r.Polygons.SelectMany(p => p).Count() == WorldGeometry.Neutral(r.Name).SelectMany(p => p).Count() && r.LabelX == WorldGeometry.Label(r.Name).X) && up.NeutralRegions.Any(r => r.Name == "Svalbard") && up.NeutralRegions.All(r => r.Name != "Greenland"),
-            "neutral regions are redrawn point for point, the missing one added, and a territory that is now colony regions is dropped");
-        Check(up.FrontierRegions.Count == 34 && up.FrontierRegions.All(r => r.Polygons.SelectMany(p => p).Count() == WorldGeometry.Frontier(r.Name).SelectMany(p => p).Count() && r.Id == ColonyCatalog.IdOf(r.Name)),
+        Check(up.NeutralRegions.Count == 6 && up.NeutralRegions.All(r => r.Polygons.SelectMany(p => p).Count() == WorldGeometry.Neutral(r.Name).SelectMany(p => p).Count() && r.LabelX == WorldGeometry.Label(r.Name).X) && up.NeutralRegions.Any(r => r.Name == "Svalbard") && up.NeutralRegions.All(r => r.Name is not ("Greenland" or "East Africa" or "West Africa" or "South Africa" or "East Indies")),
+            "neutral regions are redrawn point for point, the missing one added, and every territory that is now colony regions is dropped");
+        Check(up.FrontierRegions.Count == 41 && up.FrontierRegions.All(r => r.Polygons.SelectMany(p => p).Count() == WorldGeometry.Frontier(r.Name).SelectMany(p => p).Count() && r.Id == ColonyCatalog.IdOf(r.Name)),
             "every colony region exists after the upgrade, redrawn point for point, with its stable id");
         Check(up.FrontierRegions.Count(r => r.Status == ColonyStatus.Colonized) == 1 && up.FrontierRegions.First(r => r.Name == "Far Eastern Isles") is { Status: ColonyStatus.Colonized } fe && fe.ColonyId == legacyColony.Id
-              && up.FrontierRegions.Count(r => r.Status == ColonyStatus.Unclaimed) == 33,
+              && up.FrontierRegions.Count(r => r.Status == ColonyStatus.Unclaimed) == 40,
             "the region colonised under the old rules is that colony's land; every other one is open");
         var upDutch = up.OtherNations.First(n => n.Id == "dutch"); var upDen = up.OtherNations.First(n => n.Id == "denmark");
         Check(upDutch.MapY == 267 && upDen.MapX == 500 && upDen.CapitalName == "Hafnia", "a stock capital that the map moved is moved in the save too, one the save had already changed is left alone");
@@ -5547,12 +5547,12 @@ Console.WriteLine("== 75. Colonisation: neutral land settled by missions, one cl
     {
         var e0 = NewDipEngine(750); var g = e0.State; var p0 = g.PlayerNation;
         var quotes = g.FrontierRegions.Select(r => Q(g, p0, r)).ToList();
-        Check(quotes.Count == 34 && quotes.All(q => q.Gold > 0 && q.Wheat > 0 && q.Wood > 0 && q.Settlers > 0 && q.Days >= 1 && q.Completion == g.CurrentDate.AddDays(q.Days)),
+        Check(quotes.Count == 41 && quotes.All(q => q.Gold > 0 && q.Wheat > 0 && q.Wood > 0 && q.Settlers > 0 && q.Days >= 1 && q.Completion == g.CurrentDate.AddDays(q.Days)),
             "every colony region has a real price (gold, wheat, wood, settlers), a duration and an estimated completion date");
         var bySize = quotes.Where(q => !q.Overland).GroupBy(q => q.Size).OrderBy(gp => gp.Key).Select(gp => gp.Average(q => q.Gold)).ToList();
         Check(bySize.Count >= 3 && bySize.Zip(bySize.Skip(1), (a, b) => a < b).All(x => x), "a bigger region costs more gold: small < medium < large < vast, on average");
         Check(quotes.Select(q => q.Gold).Distinct().Count() >= 12 && quotes.Select(q => q.Days).Distinct().Count() >= 8, "prices and durations differ from region to region (not one flat figure)");
-        Check(g.FrontierRegions.All(r => r.Status == ColonyStatus.Unclaimed && r.Id == ColonyCatalog.IdOf(r.Name) && r.Id.Length > 0) && g.FrontierRegions.Select(r => r.Id).Distinct().Count() == 34, "34 distinct stable ids, all unclaimed at the start");
+        Check(g.FrontierRegions.All(r => r.Status == ColonyStatus.Unclaimed && r.Id == ColonyCatalog.IdOf(r.Name) && r.Id.Length > 0) && g.FrontierRegions.Select(r => r.Id).Distinct().Count() == 41, "41 distinct stable ids, all unclaimed at the start");
         Check(quotes.Where(q => !q.Overland).All(q => q.Warships == Balance.ColonyWarshipsRequired) && quotes.Where(q => q.Overland).All(q => q.Warships == 0), "a region across the sea needs the fleet; one on land the country already holds does not");
         var touching = g.OtherNations.SelectMany(n => g.FrontierRegions.Select(r => (n, r))).FirstOrDefault(x => ColonizationService.IsOverland(g, x.n, x.r));
         var overQ = touching.n is null ? null : Q(g, touching.n, touching.r);
@@ -5790,6 +5790,137 @@ Console.WriteLine("== 75. Colonisation: neutral land settled by missions, one cl
         for (int i = 0; i < 10; i++) eng.AdvanceOneDay();
         Check(s2.Colonies.Count == 1 && up.Status == ColonyStatus.Colonized && s2.ColoniesOf(s2.PlayerNation.Id).Single().Name == "Swahili Coast", "and it lands as promised");
     }
+}
+
+Console.WriteLine("== 76. Neutral land audit: ordinary land is a colony region, the rest says why it cannot be settled ==");
+{
+    bool InRing(double x, double y, List<MapPoint> ring)
+    {
+        bool inside = false;
+        for (int i = 0, j = ring.Count - 1; i < ring.Count; j = i++)
+            if (((ring[i].Y > y) != (ring[j].Y > y)) && (x < (ring[j].X - ring[i].X) * (y - ring[i].Y) / (ring[j].Y - ring[i].Y) + ring[i].X)) inside = !inside;
+        return inside;
+    }
+    double RingArea(List<MapPoint> r) { double a = 0; for (int i = 0; i < r.Count - 1; i++) a += r[i].X * r[i + 1].Y - r[i + 1].X * r[i].Y; return Math.Abs(a) / 2; }
+
+    var eng = NewDipEngine(760); var s = eng.State;
+    var shapes = new List<(string Id, string Kind, string Name, List<List<MapPoint>> Polys)>();
+    foreach (var n in s.AllNations().Where(n => !n.IsEliminated)) shapes.Add((n.Id, "nation", n.Name, n.Territory));
+    foreach (var r in s.NeutralRegions) shapes.Add((r.Id, "neutral", r.Name, r.Polygons));
+    foreach (var r in s.FrontierRegions) shapes.Add((r.Id, "colony", r.Name, r.Polygons));
+    List<(string Id, string Kind, string Name)> At(double x, double y) => shapes.Where(sh => sh.Polys.Any(r => InRing(x, y, r))).Select(sh => (sh.Id, sh.Kind, sh.Name)).ToList();
+
+    // ---- the audit, as a report
+    Console.WriteLine("  AUDIT of the neutral land of the map:");
+    foreach (var n in s.NeutralRegions)
+    {
+        double area = n.Polygons.Sum(RingArea); var why = ColonyCatalog.WhyNot(n.Name);
+        Console.WriteLine($"    neutral {n.Name,-12} {area,7:N0} units²  -> {(why is null ? "MISSING CONFIGURATION" : "permanently uncolonizable (" + why.Kind + ")")}");
+    }
+    foreach (var r in s.FrontierRegions)
+    {
+        var site = ColonyCatalog.Get(r.Name); var q = ColonizationService.Quote(s, s.PlayerNation, r);
+        Console.WriteLine($"    colony  {r.Name,-18} {ColonizationService.AreaOf(r),7:N0} units²  -> colonizable ({ColonizationService.SizeName(q.Size)}, {r.Terrain}){(site is null ? " MISSING CONFIGURATION" : "")}");
+    }
+
+    // ---- nothing is left half-configured
+    Check(s.NeutralRegions.Count == 6 && ColonyCatalog.Unsettleable.Count == 6 && s.NeutralRegions.All(n => ColonyCatalog.WhyNot(n.Name) is { } w && w.Reason.Length > 80 && w.Kind.Length > 0),
+        "every neutral land that remains has a specific reason why it cannot be settled (6 of 6)");
+    Check(ColonyCatalog.Unsettleable.Select(u => u.Name).OrderBy(x => x).SequenceEqual(WorldGeometry.NeutralNames.OrderBy(x => x)), "and the list of reasons is exactly the list of neutral lands: none without a reason, none with a reason and no land");
+    Check(s.FrontierRegions.Count == 41 && ColonyCatalog.Sites.Count == 41 && s.FrontierRegions.All(r => ColonyCatalog.Get(r.Name) is { } site && site.Endowment.Length > 0 && site.Blurb.Length > 12 && r.Terrain == site.Terrain && r.Landmass == site.Landmass && r.Id == site.Id),
+        "every colony region has its full configuration (site, endowment, terrain, landmass, id), and every site has a region");
+    Check(ColonyCatalog.Sites.Select(x => x.Settlement).Distinct().Count() == 41 && s.FrontierRegions.All(r => r.Polygons.Count > 0 && r.Polygons.All(p => p.Count >= 4)), "each has its own settlement name and its own polygons");
+    Check(s.NeutralRegions.All(n => n.Name is not ("East Africa" or "West Africa" or "South Africa" or "East Indies" or "Greenland" or "Ireland" or "Iceland")), "the old neutral territories that were only partly carved (East Africa, West Africa, South Africa, East Indies) are gone: all of their ordinary land is colony regions");
+
+    // ---- the exact places from the report: the interior of East Africa answers as a colony region, like the Swahili Coast
+    (string Name, double X, double Y)[] probes = { ("Darfur", 505, 600), ("Nubia", 600, 585), ("Great Lakes", 590, 760), ("Upper Niger", WorldGeometry.Label("Upper Niger").X, WorldGeometry.Label("Upper Niger").Y), ("Zambezi Plateau", 520, 845), ("Highveld", 480, 940), ("Kolyma Uplands", 1900, 140), ("Swahili Coast", 640, 780) };
+    foreach (var (name, x, y) in probes)
+    {
+        var hit = At(x, y);
+        Check(hit.Count == 1 && hit[0].Kind == "colony" && hit[0].Name == name, $"a tap at ({x}, {y}) finds exactly one shape: the colony region {name} (found {string.Join(", ", hit.Select(h => h.Kind + " " + h.Name))})");
+    }
+    foreach (var (name, x, y) in new[] { ("Sahara", 300, 520), ("Arabia", 700, 520), ("Tibet", 1150, 440) })
+    {
+        var hit = At(x, y);
+        Check(hit.Count == 1 && hit[0].Kind == "neutral" && hit[0].Name == name && ColonyCatalog.WhyNot(name) is not null, $"a tap at ({x}, {y}) finds the neutral land {name}, which explains itself");
+    }
+
+    // ---- no overlap, and every label point sits in its own shape
+    var rng = new Random(76); int overlaps = 0, samples = 0;
+    var boxes = shapes.Select(sh => (sh, Boxes: sh.Polys.Select(r => (r.Min(p => p.X), r.Min(p => p.Y), r.Max(p => p.X), r.Max(p => p.Y))).ToList())).ToList();
+    for (int i = 0; i < 6000; i++)
+    {
+        double x = rng.NextDouble() * 2200, y = rng.NextDouble() * 1150; int inside = 0; samples++;
+        foreach (var (sh, bx) in boxes) for (int k = 0; k < sh.Polys.Count; k++) { var b = bx[k]; if (x >= b.Item1 && x <= b.Item3 && y >= b.Item2 && y <= b.Item4 && InRing(x, y, sh.Polys[k])) { inside++; break; } }
+        if (inside > 1) overlaps++;
+    }
+    Check(overlaps == 0, $"no two shapes overlap ({samples:N0} random points, none inside two realms)");
+    Check(s.FrontierRegions.All(r => At(r.LabelX, r.LabelY) is { Count: 1 } one && one[0].Id == r.Id) && s.NeutralRegions.All(r => At(r.LabelX, r.LabelY) is { Count: 1 } one && one[0].Id == r.Id),
+        "the label point of every colony region and every neutral land lies in its own shape and in no other (a tap there selects it)");
+
+    // ---- every region is connected to the real mission system: the player and an AI country can settle each one
+    var player = s.PlayerNation; var ai = Ai(eng, "france");
+    void Fund(Nation n) { n.Gold = 50_000_000; n.GoodsInventory["Wheat"] = 5_000_000; n.Wood = 5_000_000; n.Warships = 10; n.Population = Math.Max(n.Population, 60_000_000); }
+    int settled = 0; bool allColonies = true, allLand = true, allReports = true;
+    for (int i = 0; i < s.FrontierRegions.Count; i++)
+    {
+        var region = s.FrontierRegions[i]; var owner = i % 2 == 0 ? player : ai;
+        Fund(owner);
+        var (mission, error) = ColonizationService.Start(s, owner, region.Id);
+        if (mission is null) { Console.WriteLine($"    cannot start {region.Name}: {error}"); allColonies = false; continue; }
+        s.CurrentDate = mission.CompletionDate; ColonizationService.Advance(s);
+        var colony = s.Colonies.FirstOrDefault(c => c.RegionId == region.Id); var record = s.AllNations().FirstOrDefault(n => n.Id == "colony-" + region.Id);
+        allColonies &= colony is not null && colony.OwnerId == owner.Id && region.Status == ColonyStatus.Colonized && record is { IsColony: true } && record.AnnexedById == owner.Id && record.Name == region.Name;
+        allLand &= record is not null && string.Join(";", record.Territory.Select(r => r.Count)) == string.Join(";", region.Polygons.Select(r => r.Count)) && record.Population == mission.Settlers;
+        settled++;
+    }
+    Check(settled == 41 && allColonies, "all 41 regions can be settled by a mission: the player and an AI country each paid, waited, and founded the colony in the right owner's name");
+    Check(allLand && s.Colonies.Count == 41 && s.Colonies.Select(c => c.RegionId).Distinct().Count() == 41 && s.FrontierRegions.All(r => r.Status == ColonyStatus.Colonized), "each colony holds exactly its region's land and its settlers, one colony per region, no duplicates");
+    Check(s.ColoniesOf(player.Id).Count == 21 && s.ColoniesOf(ai.Id).Count == 20 && eng.ColonyReports().Count == 21 && eng.AnnexedTerritories.Count == 0, "the player's Colonies list shows its 21 colonies (and only those), the Annexed States list stays empty");
+    Check(eng.ColonyReports().All(r => r.IsColony && r.Population > 0) && eng.RealmPopulation == player.Population + s.ColoniesOf(player.Id).Sum(c => c.Population), "each is managed as a colony of the player, and the realm counts their people once");
+}
+
+{
+    // ---- the AI sees the new regions: when only one is open, an AI country that can reach it claims it, by the same rules
+    var eng = NewDipEngine(761); var s = eng.State; s.CurrentDate = s.AiWorldStartDate.AddDays(Balance.AiColonyStartDays + 5);
+    foreach (var r in s.FrontierRegions.Where(r => r.Name != "Great Lakes")) { r.Status = ColonyStatus.Colonized; r.ColonyId = "taken-" + r.Id; }
+    var lakes = s.FrontierRegions.First(r => r.Name == "Great Lakes");
+    var able = s.OtherNations.Where(n => !n.IsEliminated && n.Population >= Balance.AiColonyMinPopulation && ColonizationService.Appetite(n) >= Balance.AiColonyAppetiteMin && !AiWorldService.AtWarAny(s, n)).ToList();
+    foreach (var n in able) { n.Gold = 5_000_000; n.GoodsInventory["Wheat"] = 1_000_000; n.Wood = 1_000_000; n.Warships = 10; }
+    var rng = new Random(61);
+    for (int i = 0; i < 4000 && lakes.Status == ColonyStatus.Unclaimed; i++) foreach (var n in able) ColonizationService.AiThink(s, n, rng);
+    var claim = s.ColonizationMissions.FirstOrDefault(m => m.RegionId == lakes.Id);
+    Check(claim is not null && claim.OwnerId != s.PlayerNation.Id && lakes.Status == ColonyStatus.MissionInProgress && claim.Gold > 0, $"an AI country claims the Great Lakes by the ordinary mission rules ({claim?.OwnerName}, {claim?.Gold:N0} gold)");
+    var rival = able.First(n => n.Id != claim!.OwnerId); var before = rival.Gold;
+    Check(ColonizationService.Start(s, rival, lakes.Id).Error is { } why && why.Contains("claimed by") && rival.Gold == before, "and a second country is refused the same region");
+}
+
+{
+    // ---- a save of the first colonisation build (map edition 3): the interiors were still neutral, 34 regions existed. Nothing is lost, nothing is doubled.
+    var eng = NewDipEngine(762); var s = eng.State; var p = s.PlayerNation; var france = Ai(eng, "france");
+    p.Gold = 5_000_000; p.GoodsInventory["Wheat"] = 1_000_000; p.Wood = 1_000_000; p.Warships = 6; france.Gold = 5_000_000; france.GoodsInventory["Wheat"] = 1_000_000; france.Wood = 1_000_000; france.Warships = 6; france.Population = Math.Max(france.Population, 8_000_000);
+    var swahili = s.FrontierRegions.First(r => r.Name == "Swahili Coast"); var natal = s.FrontierRegions.First(r => r.Name == "Natal");
+    var colonyMission = ColonizationService.Start(s, france, natal.Id).Mission!; s.CurrentDate = colonyMission.CompletionDate; ColonizationService.Advance(s);
+    var playerMission = ColonizationService.Start(s, p, swahili.Id).Mission!;
+    string missionId = playerMission.Id; var due = playerMission.CompletionDate; double goldAfter = p.Gold; string colonyId = s.Colonies.Single().Id;
+    var newNames = new[] { "Upper Niger", "Darfur", "Nubia", "Great Lakes", "Zambezi Plateau", "Highveld", "Kolyma Uplands" };
+    s.FrontierRegions.RemoveAll(r => newNames.Contains(r.Name));
+    List<List<MapPoint>> Box(double x, double y) => new() { new() { new(x, y), new(x + 20, y), new(x + 20, y + 20), new(x, y + 20), new(x, y) } };
+    foreach (var old in new[] { "East Africa", "West Africa", "South Africa", "East Indies" }) s.NeutralRegions.Add(new NeutralTerritory { Name = old, Polygons = Box(500, 600) });
+    s.MapVersion = 3;
+    await eng.SaveAsync(); await eng.LoadAsync();
+    var up = eng.State; var upP = up.PlayerNation;
+    Check(up.MapVersion == WorldGeometry.Version && up.NeutralRegions.Count == 6 && up.NeutralRegions.All(n => ColonyCatalog.WhyNot(n.Name) is not null), "an old save's neutral interiors are dropped on load: only the lands that explain themselves stay neutral");
+    Check(up.FrontierRegions.Count == 41 && up.FrontierRegions.Select(r => r.Id).Distinct().Count() == 41 && up.FrontierRegions.Select(r => r.Name).Distinct().Count() == 41, "the seven new colony regions are registered once each, with no duplicates");
+    Check(newNames.All(nm => up.FrontierRegions.First(r => r.Name == nm) is { Status: ColonyStatus.Unclaimed, MissionId: null, ColonyId: null } r && r.Polygons.Count > 0), "and they start unclaimed");
+    var upSwahili = up.FrontierRegions.First(r => r.Name == "Swahili Coast"); var upNatal = up.FrontierRegions.First(r => r.Name == "Natal");
+    Check(up.ColonizationMissions.Count == 2 && eng.PlayerMission is { } pm && pm.Id == missionId && pm.CompletionDate == due && upSwahili.Status == ColonyStatus.MissionInProgress && upSwahili.MissionId == missionId && upP.Gold == goldAfter, "the mission under way is untouched: same id, same landing date, nothing charged again");
+    Check(up.Colonies.Count == 1 && up.Colonies[0].Id == colonyId && upNatal.Status == ColonyStatus.Colonized && upNatal.ColonyId == colonyId && up.AllNations().First(n => n.Id == colonyId).Territory.Count == upNatal.Polygons.Count, "the existing colony keeps its owner, its region and its land");
+    var upFrance = up.OtherNations.First(n => n.Id == "france");
+    Check(newNames.All(nm => ColonizationService.Quote(up, upFrance, up.FrontierRegions.First(r => r.Name == nm)) is { Block: null } q && q.Gold > 0), "the new regions can be quoted and sent to at once (by a country with no mission under way)");
+    Check(ColonizationService.Start(up, up.OtherNations.First(n => n.Id == "france"), upSwahili.Id).Error is { } e && e.Contains("claimed by"), "nobody else can claim the region the player's mission holds");
+    while (up.CurrentDate < due) eng.AdvanceOneDay();
+    Check(up.Colonies.Count(c => c.RegionId == upSwahili.Id) == 1 && upSwahili.Status == ColonyStatus.Colonized && up.Colonies.Count == 2, "after loading, the mission lands once, on its date");
 }
 
 Console.WriteLine(failures == 0 ? "\nALL CHECKS PASSED" : $"\n{failures} CHECK(S) FAILED");

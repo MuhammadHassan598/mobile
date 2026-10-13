@@ -108,10 +108,13 @@
             }
             else if (_selectedNeutral is not null)
             {
+                var why = ColonyCatalog.WhyNot(_selectedNeutral.Name);
                 <div class="cards">
                     <div class="card"><div class="label">Status</div><div class="value">Neutral territory</div></div>
+                    <div class="card"><div class="label">Land</div><div class="value">@(why?.Kind ?? "Reserved")</div></div>
+                    <div class="card"><div class="label">Settlement</div><div class="value">Not possible</div></div>
                 </div>
-                <p class="page-hint">Beyond the reach of crowns — no ruler claims this land, and nobody can settle it.</p>
+                <p class="page-hint">🚫 <b>This land cannot be settled.</b> @(why?.Reason ?? "It is reserved: no ruler claims it and no colony can be founded on it.")</p>
             }
             else if (_selectedFrontier is not null)
             {
@@ -156,7 +159,7 @@
                 {
                     <div class="mp-req @(rq.Met ? "ok" : "bad")"><span>@(rq.Met ? "✓" : "✗") @rq.Icon @rq.Label</span><span>@rq.Need <small>· have @rq.Have</small></span></div>
                 }
-                <div class="mp-when">⏱ <b>@q.Days days</b> @(q.Overland ? "overland" : "by sea") · estimated landing <b>@q.Completion.ToString("dd-MM-yyyy")</b></div>
+                <div class="mp-when">⏱ <b>@q.Days days</b> @ColonizationService.Journey(q.Overland, region.Terrain) · estimated landing <b>@q.Completion.ToString("dd-MM-yyyy")</b></div>
                 @if (q.Block is { } why)
                 {
                     <div class="warning">🔒 @why</div>
@@ -170,7 +173,7 @@
                     double progress = mission.Progress(state.CurrentDate);
                     <div class="build-row">
                         <div class="build-info">
-                            <div class="build-name">⛵ @mission.OwnerName's colonists @(mission.Overland ? "march to" : "sail for") @region.Name</div>
+                            <div class="build-name">⛵ @mission.OwnerName's colonists @(mission.Overland ? "march to" : region.Terrain == ColonyTerrain.Highland ? "sail, then march inland to" : "sail for") @region.Name</div>
                             <div class="progress"><div class="progress-fill" style="width:@((progress * 100).ToString("N0"))%"></div></div>
                         </div>
                         <div class="build-days">@((progress * 100).ToString("N0"))% · @mission.DaysLeft(state.CurrentDate) d</div>

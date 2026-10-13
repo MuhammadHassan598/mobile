@@ -135,7 +135,7 @@ public static class MovementReport
 
         foreach (var m in state.ColonizationMissions.Where(m => m.Status == MissionStatus.InProgress))
             missions.Add(new Mission(MovementKind.Colony, m.OwnerId, m.OwnerName, m.RegionId, m.RegionName,
-                $"Colonists of {m.OwnerName} {(m.Overland ? "marching overland to" : "sailing for")} {m.RegionName}", m.Progress(today), m.CompletionDate, m.DaysLeft(today)));
+                $"Colonists of {m.OwnerName} {ColonizationService.Voyage(m.Overland, state.RegionOf(m.RegionId)?.Terrain ?? ColonyTerrain.Coast)} to {m.RegionName}", m.Progress(today), m.CompletionDate, m.DaysLeft(today)));
 
         foreach (var net in state.SpyNetworks)
             missions.Add(new Mission(MovementKind.Mission, player.Id, player.Name, net.TargetNationId, net.TargetNationName,

@@ -81,6 +81,14 @@ public static class ColonizationService
         return false;
     }
 
+    /// <summary>How the settlers travel, for the popup: on foot over land the country holds, by sea to a coast, or by sea and then inland (a region with no shore of its own).</summary>
+    public static string Journey(bool overland, ColonyTerrain terrain) =>
+        overland ? "overland, on foot" : terrain == ColonyTerrain.Highland ? "by sea to the nearest coast, then inland on foot" : "by sea";
+
+    /// <summary>The same, as the verb of a movement line ("Colonists of X sailing to Java").</summary>
+    public static string Voyage(bool overland, ColonyTerrain terrain) =>
+        overland ? "marching overland" : terrain == ColonyTerrain.Highland ? "sailing, then marching inland" : "sailing";
+
     /// <summary>The mission a country has under way (a country sends one at a time).</summary>
     public static ColonizationMission? ActiveMission(GameState state, string ownerId) =>
         state.ColonizationMissions.FirstOrDefault(m => m.OwnerId == ownerId && m.Status == MissionStatus.InProgress);
@@ -204,7 +212,7 @@ public static class ColonizationService
         region.Status = ColonyStatus.MissionInProgress;
         region.MissionId = mission.Id;
 
-        string how = quote.Overland ? "marches overland to" : "sails for";
+        string how = quote.Overland ? "marches overland to" : region.Terrain == ColonyTerrain.Highland ? "sails, then marches inland to" : "sails for";
         state.LogMovement(MovementKind.Colony, MovementStatus.UnderWay, owner.Id, owner.Name, region.Id, region.Name,
             $"{owner.Name}'s colonists {how} {region.Name} ({quote.Days} days, landing {quote.Completion:dd-MM-yyyy}).", inbox: InboxTopic.Colony);
         if (!owner.IsPlayer)

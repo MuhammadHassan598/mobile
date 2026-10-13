@@ -19,7 +19,7 @@
         <div class="cl-mission">
             <div class="cl-mhead"><b>⛵ Mission to @_mission.RegionName</b><span>@((progress * 100).ToString("N0"))% · @_mission.DaysLeft(Engine.State.CurrentDate) days</span></div>
             <div class="cl-prog"><div class="cl-progfill" style="width:@((progress * 100).ToString("N0"))%"></div></div>
-            <div class="cl-mline">Sent @_mission.StartDate.ToString("dd-MM-yyyy") · @(_mission.Overland ? "marching overland" : "sailing") · the colonists land on <b>@_mission.CompletionDate.ToString("dd-MM-yyyy")</b>.</div>
+            <div class="cl-mline">Sent @_mission.StartDate.ToString("dd-MM-yyyy") · @ColonizationService.Voyage(_mission.Overland, Engine.State.RegionOf(_mission.RegionId)?.Terrain ?? ColonyTerrain.Coast) · the colonists land on <b>@_mission.CompletionDate.ToString("dd-MM-yyyy")</b>.</div>
             <button class="cl-link" @onclick='() => Nav.NavigateTo($"/map?focus={_mission.RegionId}")'>📍 Show on the map</button>
         </div>
     }

@@ -92,6 +92,27 @@
   },
   {
    "name": "Greenland"
+  },
+  {
+   "name": "Upper Niger"
+  },
+  {
+   "name": "Darfur"
+  },
+  {
+   "name": "Nubia"
+  },
+  {
+   "name": "Great Lakes"
+  },
+  {
+   "name": "Zambezi Plateau"
+  },
+  {
+   "name": "Highveld"
+  },
+  {
+   "name": "Kolyma Uplands"
   }
  ],
  "claims": [
@@ -1077,6 +1098,388 @@
     ]
    ],
    "shared": true
+  },
+  {
+   "owner": "f:Gold Coast",
+   "only": [
+    "n:West Africa"
+   ],
+   "shared": true,
+   "polygons": [
+    [
+     [
+      216,
+      610
+     ],
+     [
+      242,
+      610
+     ],
+     [
+      242,
+      644
+     ],
+     [
+      216,
+      644
+     ]
+    ]
+   ]
+  },
+  {
+   "owner": "f:Upper Niger",
+   "only": [
+    "n:West Africa"
+   ],
+   "shared": true,
+   "polygons": [
+    [
+     [
+      268,
+      588
+     ],
+     [
+      432,
+      588
+     ],
+     [
+      432,
+      738
+     ],
+     [
+      268,
+      738
+     ]
+    ]
+   ]
+  },
+  {
+   "owner": "f:Darfur",
+   "only": [
+    "n:East Africa"
+   ],
+   "shared": true,
+   "polygons": [
+    [
+     [
+      430,
+      500
+     ],
+     [
+      548,
+      500
+     ],
+     [
+      552,
+      702
+     ],
+     [
+      430,
+      702
+     ]
+    ]
+   ]
+  },
+  {
+   "owner": "f:Nubia",
+   "only": [
+    "n:East Africa"
+   ],
+   "shared": true,
+   "polygons": [
+    [
+     [
+      548,
+      500
+     ],
+     [
+      700,
+      500
+     ],
+     [
+      700,
+      702
+     ],
+     [
+      552,
+      702
+     ]
+    ]
+   ]
+  },
+  {
+   "owner": "f:Great Lakes",
+   "only": [
+    "n:East Africa"
+   ],
+   "shared": true,
+   "polygons": [
+    [
+     [
+      430,
+      702
+     ],
+     [
+      552,
+      702
+     ],
+     [
+      700,
+      702
+     ],
+     [
+      700,
+      862
+     ],
+     [
+      430,
+      862
+     ]
+    ]
+   ]
+  },
+  {
+   "owner": "f:Zambezi Plateau",
+   "only": [
+    "n:South Africa"
+   ],
+   "shared": true,
+   "polygons": [
+    [
+     [
+      400,
+      792
+     ],
+     [
+      700,
+      792
+     ],
+     [
+      700,
+      890
+     ],
+     [
+      400,
+      890
+     ]
+    ]
+   ]
+  },
+  {
+   "owner": "f:Highveld",
+   "only": [
+    "n:South Africa"
+   ],
+   "shared": true,
+   "polygons": [
+    [
+     [
+      400,
+      890
+     ],
+     [
+      700,
+      890
+     ],
+     [
+      700,
+      1002
+     ],
+     [
+      400,
+      1002
+     ]
+    ]
+   ]
+  },
+  {
+   "owner": "f:Amur Basin",
+   "only": [
+    "n:Siberia"
+   ],
+   "shared": true,
+   "polygons": [
+    [
+     [
+      1664,
+      292
+     ],
+     [
+      1698,
+      292
+     ],
+     [
+      1698,
+      322
+     ],
+     [
+      1664,
+      322
+     ]
+    ]
+   ]
+  },
+  {
+   "owner": "f:Okhotsk Coast",
+   "only": [
+    "n:Siberia"
+   ],
+   "shared": true,
+   "polygons": [
+    [
+     [
+      1610,
+      136
+     ],
+     [
+      1652,
+      136
+     ],
+     [
+      1652,
+      168
+     ],
+     [
+      1610,
+      168
+     ]
+    ]
+   ]
+  },
+  {
+   "owner": "f:Kamchatka",
+   "only": [
+    "n:Siberia"
+   ],
+   "shared": true,
+   "polygons": [
+    [
+     [
+      1876,
+      184
+     ],
+     [
+      1906,
+      184
+     ],
+     [
+      1906,
+      206
+     ],
+     [
+      1876,
+      206
+     ]
+    ]
+   ]
+  },
+  {
+   "owner": "f:Celebes",
+   "only": [
+    "n:East Indies"
+   ],
+   "shared": true,
+   "polygons": [
+    [
+     [
+      1426,
+      716
+     ],
+     [
+      1456,
+      716
+     ],
+     [
+      1456,
+      782
+     ],
+     [
+      1426,
+      782
+     ]
+    ]
+   ]
+  },
+  {
+   "owner": "f:Lena Valley",
+   "only": [
+    "n:Siberia"
+   ],
+   "exact": true,
+   "polygons": [
+    [
+     [
+      1480,
+      55
+     ],
+     [
+      1636,
+      55
+     ],
+     [
+      1636,
+      125
+     ],
+     [
+      1480,
+      125
+     ]
+    ]
+   ]
+  },
+  {
+   "owner": "f:Okhotsk Coast",
+   "only": [
+    "n:Siberia"
+   ],
+   "exact": true,
+   "polygons": [
+    [
+     [
+      1636,
+      55
+     ],
+     [
+      1742,
+      55
+     ],
+     [
+      1742,
+      125
+     ],
+     [
+      1636,
+      125
+     ]
+    ]
+   ]
+  },
+  {
+   "owner": "f:Kolyma Uplands",
+   "only": [
+    "n:Siberia"
+   ],
+   "exact": true,
+   "polygons": [
+    [
+     [
+      1742,
+      73
+     ],
+     [
+      2072,
+      73
+     ],
+     [
+      2072,
+      215
+     ],
+     [
+      1742,
+      215
+     ]
+    ]
+   ]
   }
  ]
 }
