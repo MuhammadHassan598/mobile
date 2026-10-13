@@ -1,0 +1,18 @@
+@inject NavigationHistory History
+@implements IDisposable
+
+@* Marks the markup around it as a layer that Back closes before it leaves the page. Put one inside every popup, drawer, country card or
+   sub-view: it registers when it appears and is forgotten when it goes, so the open layers always match what is on screen.
+   OnBack is the very thing the layer's own close control does. *@
+
+@code {
+    /// <summary>Closes the layer (what the popup's own close button or backdrop does).</summary>
+    [Parameter] public EventCallback OnBack { get; set; }
+
+    private IDisposable? _layer;
+
+    protected override void OnInitialized() =>
+        _layer = History.OpenLayer(() => InvokeAsync(() => OnBack.InvokeAsync()));
+
+    public void Dispose() => _layer?.Dispose();
+}

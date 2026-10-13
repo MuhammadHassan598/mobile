@@ -49,6 +49,7 @@
         @if (_milInfo is not null)
         {
             <div class="popup-overlay" @onclick="() => _milInfo = null">
+                <BackLayer OnBack="() => _milInfo = null" />
                 <div class="popup-panel" @onclick:stopPropagation>
                     <div class="popup-header"><span class="popup-icon">@_milInfo.Icon</span><span class="popup-title">@_milInfo.Name</span></div>
                     <div class="popup-section"><div class="popup-section-title">Requirement for 10</div><div class="info-line">@MilitaryRecipes.RequirementsText(_milInfo)</div></div>
@@ -119,6 +120,7 @@
     {
         int built = _nation.GetProductionBuilding(_infoSpec.Id);
         <div class="popup-overlay" @onclick="() => _infoSpec = null">
+            <BackLayer OnBack="() => _infoSpec = null" />
             <div class="popup-panel" @onclick:stopPropagation>
                 <div class="popup-header">
                     <span class="popup-icon">@_infoSpec.Icon</span>
@@ -165,6 +167,7 @@
         bool canBuild = problems.Count == 0;
 
         <div class="popup-overlay" @onclick="ClosePopup">
+            <BackLayer OnBack="ClosePopup" />
             <div class="popup-panel" @onclick:stopPropagation>
                 <div class="popup-header">
                     <span class="popup-icon">@_popupSpec.Icon</span>

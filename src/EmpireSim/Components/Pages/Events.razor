@@ -76,6 +76,7 @@
 @if (_info is not null)
 {
     <div class="popup-overlay" @onclick="() => _info = null">
+        <BackLayer OnBack="() => _info = null" />
         <div class="popup-panel" @onclick:stopPropagation>
             <div class="evt-modal-icon">@_info.Icon</div>
             <div class="evt-modal-name">@_info.Name</div>
@@ -103,6 +104,7 @@
     bool valid = canAfford && hasFood;
 
     <div class="popup-overlay" @onclick="() => _selected = null">
+        <BackLayer OnBack="() => _selected = null" />
         <div class="popup-panel" @onclick:stopPropagation>
             <div class="evt-modal-icon">@def.Icon</div>
             <div class="evt-modal-name">@def.Name.ToUpper()</div>

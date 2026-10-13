@@ -14,6 +14,7 @@
     var size = ColonizationService.SizeOf(q.Area);
 
     <div class="col-overlay" @onclick="Close">
+        <BackLayer OnBack="Close" />
         <div class="col-panel" @onclick:stopPropagation>
             <button class="col-x" @onclick="Close" title="Close">✕</button>
             <div class="col-title">⛵ Colonise @region.Name</div>

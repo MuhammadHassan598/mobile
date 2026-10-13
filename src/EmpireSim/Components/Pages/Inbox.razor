@@ -13,7 +13,7 @@
 
 <div class="inb-wrap">
     <div class="inb-header">
-        <button class="inb-back" @onclick='() => Nav.NavigateTo("/")'>◀ BACK</button>
+        <span class="inb-spacer"></span>
         <h2>✉️ INBOX</h2>
         <button class="inb-trash" disabled="@(total == 0)" title="Delete all messages" @onclick="() => _confirmDelete = true">🗑</button>
     </div>
@@ -69,6 +69,7 @@
 {
     var nation = _open.CountryId is null ? null : state.AllNations().FirstOrDefault(n => n.Id == _open.CountryId);
     <div class="inb-overlay" @onclick="() => _open = null">
+        <BackLayer OnBack="() => _open = null" />
         <div class="inb-panel" @onclick:stopPropagation>
             <div class="inb-modal-icon">@InboxCatalog.TopicIcon(_open.Topic)</div>
             <div class="inb-modal-title">@_open.Title</div>
@@ -92,6 +93,7 @@
 @if (_confirmDelete)
 {
     <div class="inb-overlay" @onclick="() => _confirmDelete = false">
+        <BackLayer OnBack="() => _confirmDelete = false" />
         <div class="inb-panel" @onclick:stopPropagation>
             <div class="inb-modal-icon">🗑</div>
             <div class="inb-modal-title">Delete all messages?</div>
@@ -153,7 +155,8 @@
 .inb-wrap { background: linear-gradient(#f0e0b0, #e8d090); min-height: 100vh; padding: 10px 8px 90px; font-family: Georgia, serif; color: #3d2b1f; }
 .inb-header { display: flex; align-items: center; margin-bottom: 10px; }
 .inb-header h2 { flex: 1; text-align: center; margin: 0; letter-spacing: 3px; font-size: 1.1rem; color: #3d2b1f; }
-.inb-back, .inb-trash { background: linear-gradient(#7a5230, #4a2e14); color: #f5e6c4; border: 2px solid #2e1c0c; border-radius: 6px; padding: 8px 14px; cursor: pointer; font-family: inherit; min-width: 80px; }
+.inb-spacer { width: 56px; }
+.inb-trash { background: linear-gradient(#7a5230, #4a2e14); color: #f5e6c4; border: 2px solid #2e1c0c; border-radius: 6px; padding: 8px 14px; cursor: pointer; font-family: inherit; }
 .inb-trash { min-width: 56px; font-size: 1.1rem; padding: 6px 12px; }
 .inb-trash:disabled { opacity: 0.4; cursor: default; }
 .inb-tabs { display: flex; margin-bottom: 10px; border-radius: 8px; overflow: hidden; border: 2px solid #8b6914; }

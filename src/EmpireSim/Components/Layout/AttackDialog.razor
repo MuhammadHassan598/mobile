@@ -15,6 +15,7 @@
     bool slider = plan.CanAttack && plan.HomeArmy > plan.MinForce;
 
     <div class="atk-overlay" @onclick="Close">
+        <BackLayer OnBack="Close" />
         <div class="atk-panel" @onclick:stopPropagation>
             <button class="atk-x" @onclick="Close" title="Close">✕</button>
             <div class="atk-title">⚔️ Attack @target.Emblem @plan.TargetName</div>

@@ -607,6 +607,41 @@ main.map-full .province-card {
     font-size: 0.62rem; color: rgba(245, 230, 196, 0.55);
     white-space: nowrap; user-select: none;
 }
+
+/* ---- THE Back button (components/Layout/BackButton.razor): one round arrow, the same on every screen ----
+   In the top bar it is the last item of the row (its space is kept, empty, on the main screen so the bar never jumps); on the full-screen map,
+   which has no top bar, it floats at the top right. Size and colours are variables so the one button is tuned in one place. */
+:root {
+    --back-size: 40px;
+    --back-ink: #f5e6c4;
+    --back-edge: #2e1c0c;
+    --back-ring: rgba(201, 162, 39, 0.75);
+}
+.back-btn, .back-slot { flex: 0 0 var(--back-size); width: var(--back-size); height: var(--back-size); }
+.back-slot { visibility: hidden; }
+.back-btn {
+    display: flex; align-items: center; justify-content: center; padding: 0; cursor: pointer;
+    border-radius: 50%; border: 2px solid var(--back-edge); color: var(--back-ink);
+    background: radial-gradient(circle at 35% 28%, #a5733f, #6b4623 55%, #3d2610);
+    box-shadow: inset 0 0 0 2px var(--back-ring), 0 2px 5px rgba(0,0,0,.55);
+    -webkit-tap-highlight-color: transparent;
+}
+.back-btn svg { width: 22px; height: 22px; display: block; filter: drop-shadow(0 1px 1px rgba(0,0,0,.6)); }
+.back-btn:active { transform: translateY(1px); box-shadow: inset 0 0 0 2px var(--back-ring), 0 1px 2px rgba(0,0,0,.6); }
+.back-btn:focus-visible { outline: 2px solid #ffd700; outline-offset: 2px; }
+.back-btn.floating {
+    position: fixed; z-index: 190;
+    top: calc(10px + env(safe-area-inset-top, 0px)); right: 10px;
+}
+/* narrow phones: the top bar keeps one row (the arrow a little smaller there; the floating one on the map stays full size) */
+@media (max-width: 420px) {
+    .woodbar { --back-size: 36px; gap: 6px; padding: 8px; }
+    .woodbar .wood-pill { padding: 5px 6px; }
+}
+@media (max-width: 340px) {
+    .woodbar .build-tag { display: none; }
+    .woodbar .wood-pill { font-size: 0.74rem; padding: 4px 4px; }
+}
 .select-build { text-align: center; margin: 2px 0 6px; color: rgba(60, 45, 25, 0.6); }
 .backdrop { width: 100%; height: auto; border-radius: 6px; display: block; }
 

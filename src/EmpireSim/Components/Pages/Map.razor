@@ -2,6 +2,7 @@
 @inject GameEngine Engine
 @inject IJSRuntime JS
 @inject NavigationManager Nav
+@inject NavigationHistory History
 @implements IAsyncDisposable
 
 <div class="map-page">
@@ -13,6 +14,8 @@
     @if (_selectedNation is not null || _selectedFrontier is not null || _selectedNeutral is not null)
     {
         <div class="province-card">
+            @* Back closes the card (the selection) before it leaves the map *@
+            <BackLayer OnBack="ClearSelection" />
             <div class="province-head">
                 <div>
                     <div class="province-name">@SelectedName</div>
@@ -260,16 +263,21 @@
         if (firstRender)
         {
             double focusX = Engine.State.PlayerNation.MapX, focusY = Engine.State.PlayerNation.MapY;
-            if (!string.IsNullOrEmpty(Focus) && Engine.State.RegionOf(Focus) is { } region)
+            bool focused = !string.IsNullOrEmpty(Focus) && Engine.State.RegionOf(Focus) is not null;
+            if (focused)
             {
+                var region = Engine.State.RegionOf(Focus!)!;
                 _selectedFrontier = region;
                 focusX = region.LabelX;
                 focusY = region.LabelY;
             }
+            // Returning by Back: the map is as the player left it (where they were looking, how far in, and which country was selected).
+            bool returning = History.ArrivedByBack && !focused;
+            if (returning) SelectById(History.Recall(SelectionKey));
             _dotNetRef = DotNetObjectReference.Create(this);
-            await JS.InvokeVoidAsync("empireMap.init", "gameMap", _dotNetRef, focusX, focusY);
+            await JS.InvokeVoidAsync("empireMap.init", "gameMap", _dotNetRef, focusX, focusY, returning);
             await RenderMapAsync();
-            if (_selectedFrontier is not null) StateHasChanged();
+            if (_selectedFrontier is not null || _selectedNation is not null || _selectedNeutral is not null) StateHasChanged();
         }
     }
 
@@ -345,15 +353,21 @@
             new { shapes, selectedId = SelectedId });
     }
 
+    private const string SelectionKey = "map.selected";
+
+    /// <summary>Selects a country, colony region or neutral land by id (nothing for null or an unknown id).</summary>
+    private void SelectById(string? id)
+    {
+        _selectedNation = id is null ? null : Engine.State.AllNations().FirstOrDefault(n => n.Id == id);
+        _selectedFrontier = id is null || _selectedNation is not null ? null : Engine.State.FrontierRegions.FirstOrDefault(r => r.Id == id);
+        _selectedNeutral = id is null || _selectedNation is not null || _selectedFrontier is not null ? null : Engine.State.NeutralRegions.FirstOrDefault(r => r.Id == id);
+        History.Remember(SelectionKey, SelectedId);
+    }
+
     [JSInvokable]
     public async Task OnMapTapped(string id)
     {
-        _selectedNation = Engine.State.AllNations().FirstOrDefault(n => n.Id == id);
-        _selectedFrontier = _selectedNation is null
-            ? Engine.State.FrontierRegions.FirstOrDefault(r => r.Id == id) : null;
-        _selectedNeutral = _selectedNation is null && _selectedFrontier is null
-            ? Engine.State.NeutralRegions.FirstOrDefault(r => r.Id == id) : null;
-
+        SelectById(id);
         _error = null;
         _battleReport = null;
         await RenderMapAsync();
@@ -362,9 +376,7 @@
 
     private async Task ClearSelection()
     {
-        _selectedNation = null;
-        _selectedFrontier = null;
-        _selectedNeutral = null;
+        SelectById(null);
         await RenderMapAsync();
         StateHasChanged();
     }

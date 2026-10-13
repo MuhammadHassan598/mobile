@@ -6,6 +6,7 @@ builder.Services.AddRazorComponents().AddInteractiveServerComponents();
 builder.Services.AddSingleton<SimulationService>();
 builder.Services.AddSingleton(_ => new SaveService(Path.Combine(Path.GetTempPath(), "empiresim-preview")));
 builder.Services.AddSingleton<GameEngine>();
+builder.Services.AddSingleton<NavigationHistory>();   // one history for the Back button (as in MauiProgram)
 
 var app = builder.Build();
 

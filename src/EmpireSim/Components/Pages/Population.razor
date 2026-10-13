@@ -86,6 +86,7 @@
     bool valid = _qty > 0 && _qty <= maxAvailable && canAfford;
 
     <div class="popup-overlay" @onclick="() => _selected = null">
+        <BackLayer OnBack="() => _selected = null" />
         <div class="popup-panel" @onclick:stopPropagation>
             <div class="pop-modal-icon">@def.Icon</div>
             <div class="pop-modal-name">@def.Name.ToUpper()</div>

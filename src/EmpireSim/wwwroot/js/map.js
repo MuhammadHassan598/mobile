@@ -52,21 +52,29 @@ window.empireMap = (() => {
         draw();
     }
 
-    function init(canvasId, ref, focusX, focusY) {
+    let viewKept = false;   // the view survives leaving the map (this module lives as long as the page does), so Back can return to it
+
+    // keepView: the player is coming back to the map (Back): leave the view as they left it instead of starting at their capital.
+    function init(canvasId, ref, focusX, focusY, keepView) {
         canvas = document.getElementById(canvasId);
         if (!canvas) return false;
         dotNetRef = ref;
         ctx = canvas.getContext('2d');
 
-        // Start zoomed into the player's lands like a war-room chart,
-        // not fitted to the whole tiny world.
-        const fit = Math.min(cssW() / WORLD_W, cssH() / WORLD_H) || 1;
-        const s = Math.min(fit * 3.2, 1.2);
-        view.scale = s;
-        const fx = (focusX ?? WORLD_W / 2), fy = (focusY ?? WORLD_H / 2);
-        view.ox = cssW() / 2 - fx * s;
-        view.oy = cssH() / 2 - fy * s;
-        clampView();
+        if (keepView && viewKept) {
+            clampView();   // (the window may have been resized meanwhile)
+        } else {
+            // Start zoomed into the player's lands like a war-room chart,
+            // not fitted to the whole tiny world.
+            const fit = Math.min(cssW() / WORLD_W, cssH() / WORLD_H) || 1;
+            const s = Math.min(fit * 3.2, 1.2);
+            view.scale = s;
+            const fx = (focusX ?? WORLD_W / 2), fy = (focusY ?? WORLD_H / 2);
+            view.ox = cssW() / 2 - fx * s;
+            view.oy = cssH() / 2 - fy * s;
+            clampView();
+        }
+        viewKept = true;
 
         new ResizeObserver(resize).observe(canvas);
         canvas.addEventListener('pointerdown', onDown);

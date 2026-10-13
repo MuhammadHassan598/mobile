@@ -5923,5 +5923,140 @@ Console.WriteLine("== 76. Neutral land audit: ordinary land is a colony region, 
     Check(up.Colonies.Count(c => c.RegionId == upSwahili.Id) == 1 && upSwahili.Status == ColonyStatus.Colonized && up.Colonies.Count == 2, "after loading, the mission lands once, on its date");
 }
 
+Console.WriteLine("== 77. Navigation: one history behind one Back button; layers close first; the main screen is the safe fallback ==");
+{
+    // A navigator that behaves like the app: changing the page reports a visit to the history.
+    NavigationHistory NewHistory(out List<string> sent)
+    {
+        var h = new NavigationHistory(); var log = new List<string>(); sent = log;
+        h.Attach(target => { log.Add(target); h.Visited(target); });
+        h.Reset("/");
+        return h;
+    }
+    Task Done() => Task.CompletedTask;
+
+    // ---- screens: Back returns to where the player really came from
+    {
+        var h = NewHistory(out var sent);
+        Check(!h.CanGoBack && h.Back() == BackOutcome.None && sent.Count == 0, "on the main screen with nothing open there is nothing to go back to (the system's Back applies)");
+        h.Visited("/military");
+        Check(h.CanGoBack && h.Previous == "/" && h.Current == "/military", "main menu -> Army Management: the main menu is remembered");
+        Check(h.Back() == BackOutcome.Navigated && sent.Last() == "/" && h.Current == "/" && h.ArrivedByBack && !h.CanGoBack, "Back from Army Management returns to the main menu, and there it is the root again");
+
+        h.Visited("/command"); h.Visited("/colonies"); h.Visited("/colonies/colony-java");
+        Check(h.Trail.SequenceEqual(new[] { "/", "/command", "/colonies" }), "Command Control -> Colonies -> one colony: every screen on the way is remembered");
+        Check(h.Back() == BackOutcome.Navigated && h.Current == "/colonies" && h.Back() == BackOutcome.Navigated && h.Current == "/command" && h.Back() == BackOutcome.Navigated && h.Current == "/" && h.Back() == BackOutcome.None,
+            "Back from the colony returns to Colonies, then Command Control, then the main menu, then stops");
+        Check(sent.SequenceEqual(new[] { "/", "/colonies", "/command", "/" }), "(each step went exactly one screen back)");
+
+        // the same screen reached from two places goes back to whichever it came from
+        h.Visited("/diplomacy"); h.Visited("/trade"); h.Visited("/diplomacy");
+        Check(h.Back() == BackOutcome.Navigated && h.Current == "/trade" && h.Back() == BackOutcome.Navigated && h.Current == "/diplomacy" && h.Back() == BackOutcome.Navigated && h.Current == "/", "Diplomacy -> Trade -> Diplomacy: Back retraces exactly that route");
+    }
+
+    // ---- the main screen is the root; a screen with no history falls back to it
+    {
+        var h = NewHistory(out var sent);
+        h.Visited("/a"); h.Visited("/b"); h.Visited("/");
+        Check(h.Trail.Count == 0 && !h.CanGoBack, "going to the main screen forgets the trail (menu -> A -> menu is not a loop to walk back through)");
+        h.Reset("/colonies");
+        Check(h.CanGoBack && h.Previous is null && h.Back() == BackOutcome.Navigated && sent.Last() == "/" && h.Current == "/" && !h.CanGoBack, "a screen opened with no history goes back to the main screen");
+    }
+
+    // ---- the platform's own back (the browser history) is understood as going back, never as a new visit
+    {
+        var h = NewHistory(out _);
+        h.Visited("/a"); h.Visited("/b");
+        h.Visited("/a");
+        Check(h.Current == "/a" && h.Trail.SequenceEqual(new[] { "/", "/a", "/b" }), "a forward move to the screen behind the current one is a new visit, like any other");
+        h.Reset("/"); h.Visited("/a"); h.Visited("/b");
+        h.Navigating(); h.Visited("/a", platformBack: true);
+        Check(h.Current == "/a" && h.Trail.SequenceEqual(new[] { "/" }) && h.ArrivedByBack, "the platform's own back (the browser history) onto the screen behind the current one is understood as going back");
+        h.Visited("/a/");
+        Check(h.Trail.Count == 1 && h.Current == "/a", "the same screen twice (even with a trailing slash) is one visit");
+        Check(NavigationHistory.Normalize("map/?focus=gold-coast#x") == "/map?focus=gold-coast" && NavigationHistory.Normalize("") == "/" && NavigationHistory.Normalize("/colonies/colony-java/") == "/colonies/colony-java", "locations are normalised (query kept, fragment and trailing slash dropped)");
+        h.Visited("/x?focus=1"); h.Visited("/x?focus=2");
+        Check(h.Current == "/x?focus=2" && h.Trail.Last() == "/x?focus=1", "a different query is a different screen state, remembered like any other");
+    }
+
+    // ---- layers: popups, cards and sub-views close before the screen underneath is left
+    {
+        var h = NewHistory(out var sent); var closed = new List<string>();
+        h.Visited("/map");
+        var card = h.OpenLayer(() => { closed.Add("card"); return Done(); });
+        var dialog = h.OpenLayer(() => { closed.Add("dialog"); return Done(); });
+        Check(h.LayerCount == 2 && h.CanGoBack, "a country card with a dialog open on top: two layers");
+        Check(h.Back() == BackOutcome.ClosedLayer && closed.SequenceEqual(new[] { "dialog" }) && h.Current == "/map" && h.LayerCount == 1, "Back closes the topmost layer first (the dialog), and the map stays");
+        Check(h.Back() == BackOutcome.ClosedLayer && closed.SequenceEqual(new[] { "dialog", "card" }) && h.Current == "/map" && sent.Count == 0, "the next Back closes the country card; still on the map, nothing navigated");
+        Check(h.Back() == BackOutcome.Navigated && h.Current == "/", "only then does Back leave the map for the screen before it");
+        dialog.Dispose(); card.Dispose();
+        Check(h.LayerCount == 0, "(a layer that Back already closed is forgotten: disposing it later changes nothing)");
+    }
+    {
+        var h = NewHistory(out _); int count = 0;
+        h.Visited("/trade");
+        var stuck = h.OpenLayer(() => { count++; return Done(); });   // a layer whose close does nothing visible
+        Check(h.Back() == BackOutcome.ClosedLayer && h.Back() == BackOutcome.Navigated && h.Current == "/" && count == 1, "a layer that fails to close can never trap the player: the next Back moves on");
+        var broken = h.OpenLayer(() => throw new InvalidOperationException("boom"));
+        h.Visited("/trade");
+        Check(h.Back() == BackOutcome.ClosedLayer && h.LayerCount == 0, "a layer whose close throws is still forgotten");
+        var closing = h.OpenLayer(() => Done()); closing.Dispose();
+        Check(h.LayerCount == 0 && h.Back() == BackOutcome.Navigated, "a layer closed by its own control (disposed) is gone: Back goes straight to the previous screen");
+        var changes = 0; h.Changed += () => changes++;
+        var l = h.OpenLayer(() => Done()); l.Dispose(); l.Dispose();
+        Check(changes == 2, "opening and closing a layer tells the Back button (so it can show or hide) exactly once each");
+    }
+
+    // ---- memory, depth, safety
+    {
+        var h = NewHistory(out _);
+        h.Remember("map.selected", "persia");
+        Check(h.Recall("map.selected") == "persia" && h.Recall("nothing") is null, "a screen can remember its state (the map's selected country)");
+        h.Remember("map.selected", null);
+        Check(h.Recall("map.selected") is null, "...and forget it");
+        for (int i = 0; i < NavigationHistory.MaxDepth + 25; i++) h.Visited("/page" + i);
+        Check(h.Trail.Count == NavigationHistory.MaxDepth && h.Trail.Last() == "/page" + (NavigationHistory.MaxDepth + 23), "the trail is bounded: the oldest screens are forgotten first");
+        var detached = new NavigationHistory(); detached.Visited("/a");
+        Check(detached.Back() == BackOutcome.None && detached.Current == "/a" && detached.Previous == "/", "with no way to change the page attached, Back changes nothing (and loses nothing)");
+        var tasks = Enumerable.Range(0, 200).Select(i => Task.Run(() => { using var l = h.OpenLayer(() => Task.CompletedTask); h.Visited("/p" + (i % 5)); })).ToArray();
+        Task.WaitAll(tasks);
+        Check(h.LayerCount == 0, "layers opened and closed from many threads at once never leave one behind");
+    }
+
+    // ---- the app's own markup keeps the rules: one Back button, no page-specific ones, a BackLayer in every popup
+    {
+        string? root = AppContext.BaseDirectory; while (root is not null && !File.Exists(Path.Combine(root, "EmpireSim.sln"))) root = Path.GetDirectoryName(root);
+        Check(root is not null, "(the repository root is found)");
+        if (root is not null)
+        {
+            var razor = Directory.GetFiles(Path.Combine(root, "src", "EmpireSim", "Components"), "*.razor", SearchOption.AllDirectories);
+            var pages = razor.Where(f => f.Contains(Path.Combine("Components", "Pages"))).ToList();
+            string Text(string f) => File.ReadAllText(f).Replace("\r\n", "\n");
+
+            var buttons = razor.Where(f => Text(f).Contains("<BackButton")).Select(Path.GetFileName).OrderBy(x => x).ToList();
+            Check(buttons.SequenceEqual(new[] { "MainLayout.razor", "TopBar.razor" }), $"the Back button is placed only by the shared layout (top bar, and floating on the map): {string.Join(", ", buttons)}");
+            var pageBacks = pages.Where(f => System.Text.RegularExpressions.Regex.IsMatch(Text(f), @"class=""[a-z]+-back""|◀ BACK|>‹ ")).Select(Path.GetFileName).ToList();
+            Check(pageBacks.Count == 0, $"no page has a Back button of its own ({string.Join(", ", pageBacks)})");
+            var goHome = pages.Where(f => Text(f).Contains("NavigateTo(\"/\")")).Select(Path.GetFileName).ToList();
+            Check(goHome.Count == 0, $"no page sends the player home as its 'back' ({string.Join(", ", goHome)})");
+
+            int overlays = 0; var missing = new List<string>();
+            foreach (var f in razor)
+            {
+                var lines = Text(f).Split('\n');
+                for (int i = 0; i < lines.Length; i++)
+                    if (System.Text.RegularExpressions.Regex.IsMatch(lines[i], @"<div class=""[^""]*overlay[^""]*"" @onclick="))
+                    {
+                        overlays++;
+                        if (i + 1 >= lines.Length || !lines[i + 1].Contains("<BackLayer")) missing.Add($"{Path.GetFileName(f)}:{i + 1}");
+                    }
+            }
+            Check(overlays >= 28 && missing.Count == 0, $"every popup overlay ({overlays}) opens with a BackLayer, so Back closes it: missing {string.Join(", ", missing)}");
+            Check(Text(Path.Combine(root, "src", "EmpireSim", "Components", "Pages", "Map.razor")).Contains("<BackLayer OnBack=\"ClearSelection\""), "the map's country card is a layer too");
+            Check(Text(Path.Combine(root, "src", "EmpireSim", "MainPage.xaml.cs")).Contains("OnBackButtonPressed") && Text(Path.Combine(root, "src", "EmpireSim", "MauiProgram.cs")).Contains("AddSingleton<NavigationHistory>"), "the device's Back (Android) is routed to the same history");
+        }
+    }
+}
+
 Console.WriteLine(failures == 0 ? "\nALL CHECKS PASSED" : $"\n{failures} CHECK(S) FAILED");
 return failures;

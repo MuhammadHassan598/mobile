@@ -55,6 +55,7 @@
 @if (_info is not null)
 {
     <div class="popup-overlay" @onclick="() => _info = null">
+        <BackLayer OnBack="() => _info = null" />
         <div class="popup-panel" @onclick:stopPropagation>
             <div class="law-modal-icon">@_info.Icon</div>
             <div class="law-modal-name">@_info.Name</div>
@@ -85,6 +86,7 @@
             && law.PolicyGroup != "general" && law.PolicyGroup != "diplomatic");
 
     <div class="popup-overlay" @onclick="() => _selected = null">
+        <BackLayer OnBack="() => _selected = null" />
         <div class="popup-panel" @onclick:stopPropagation>
             <div class="law-modal-icon">@law.Icon</div>
             <div class="law-modal-name">@law.Name</div>

@@ -4,6 +4,7 @@
 @implements IDisposable
 
 <div class="page">
+    <NavigationTracker />
     @if (Engine.CampaignChosen)
     {
         @if (!IsMapPage)
@@ -11,6 +12,11 @@
             <TopBar />
             <VictoryBanner />
             <PeaceBanner />
+        }
+        @if (IsMapPage)
+        {
+            @* the full-screen map has no top bar: the same Back button floats at its top right *@
+            <BackButton Floating="true" />
         }
         <main class="@(IsMapPage ? "map-full" : null)">
             <article class="content @(IsMapPage ? "content-map" : null)">

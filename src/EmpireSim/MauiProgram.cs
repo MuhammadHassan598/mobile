@@ -27,6 +27,9 @@ public static class MauiProgram
         builder.Services.AddSingleton(_ => new SaveService(FileSystem.AppDataDirectory));
         builder.Services.AddSingleton<GameEngine>();
 
+        // ---- Navigation: one history for the Back button in the top bar and the device's Back (see MainPage.OnBackButtonPressed) ----
+        builder.Services.AddSingleton<NavigationHistory>();
+
         return builder.Build();
     }
 }

@@ -102,6 +102,7 @@
     bool ready = (!needsCountry || !string.IsNullOrEmpty(_propTargetId)) && (!needsProduct || !string.IsNullOrEmpty(_propProductId));
 
     <div class="popup-overlay" @onclick="() => _proposalOpen = false">
+        <BackLayer OnBack="() => _proposalOpen = false" />
         <div class="popup-panel" @onclick:stopPropagation>
             <div class="popup-header"><span class="popup-title">Make a Suggestion</span></div>
 

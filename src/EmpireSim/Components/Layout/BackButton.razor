@@ -1,0 +1,26 @@
+@inject NavigationHistory History
+@implements IDisposable
+
+@* THE Back button of the whole app: one round arrow, in the same place on every screen (the right end of the top bar; floating at the top
+   right of the full-screen map). It does exactly what the device's Back does (NavigationHistory.Back): close the topmost popup or card,
+   else return to the screen the player came from. Hidden (its space kept) on the main screen, where there is nowhere to go back to. *@
+@if (History.CanGoBack)
+{
+    <button class="back-btn @(Floating ? "floating" : "")" type="button" aria-label="Back" title="Back" @onclick="Press">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12H5.5M11.5 5.5L5 12l6.5 6.5" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" /></svg>
+    </button>
+}
+else if (!Floating)
+{
+    <span class="back-slot" aria-hidden="true"></span>
+}
+
+@code {
+    /// <summary>Floats over the page (the full-screen map has no top bar); otherwise it sits in the top bar's own row.</summary>
+    [Parameter] public bool Floating { get; set; }
+
+    protected override void OnInitialized() => History.Changed += OnChanged;
+    private void OnChanged() => InvokeAsync(StateHasChanged);
+    private void Press() => History.Back();
+    public void Dispose() => History.Changed -= OnChanged;
+}

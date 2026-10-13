@@ -1,0 +1,73 @@
+@inject NavigationManager Nav
+@inject NavigationHistory History
+@inject IJSRuntime JS
+@implements IDisposable
+
+@* The app's navigation, kept in one place and drawn nowhere: it tells the shared NavigationHistory about every page change (so the Back
+   button and the device's Back return to the screen the player really came from), lets the history change the page, restores the scroll
+   position of a screen that is returned to, and routes the desktop Escape key to Back. It sits once in MainLayout. *@
+
+@code {
+    private DotNetObjectReference<NavigationTracker>? _ref;
+
+    protected override void OnInitialized()
+    {
+        History.Reset(Nav.ToBaseRelativePath(Nav.Uri));
+        History.Attach(Navigate);
+        Nav.LocationChanged += OnLocationChanged;
+    }
+
+    // Called from any thread (the device's Back button): the page is changed on the renderer's own thread.
+    private void Navigate(string target) => _ = InvokeAsync(() => Nav.NavigateTo(target));
+
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs e)
+    {
+        string location = Nav.ToBaseRelativePath(e.Location);
+        History.Navigating();
+        if (History.IsPendingBack(location))
+        {
+            // the history's own Back arriving: known at once, so the screen can restore what the player left as it first renders
+            History.Visited(location);
+            _ = RestoreScrollAsync();
+        }
+        else _ = VisitAsync(location);
+    }
+
+    // Any other page change is a new visit, unless the script says it was the platform's own back (the browser's history).
+    private async Task VisitAsync(string location)
+    {
+        bool platformBack = false;
+        try { platformBack = await JS.InvokeAsync<bool>("empireNav.consumePop"); }
+        catch { /* no script: treated as a new visit */ }
+        History.Visited(location, platformBack);
+        await RestoreScrollAsync();
+    }
+
+    private async Task RestoreScrollAsync()
+    {
+        try { await JS.InvokeVoidAsync("empireNav.navigated", History.ArrivedByBack); }
+        catch { /* no script yet (first paint) or the circuit is gone: nothing to restore */ }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        try
+        {
+            _ref = DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("empireNav.init", _ref);
+        }
+        catch { /* the script is optional: Back still works from the button and the device */ }
+    }
+
+    /// <summary>The desktop Escape key (see nav.js).</summary>
+    [JSInvokable]
+    public void BackFromKeyboard() => History.Back();
+
+    public void Dispose()
+    {
+        Nav.LocationChanged -= OnLocationChanged;
+        History.Detach(Navigate);
+        _ref?.Dispose();
+    }
+}

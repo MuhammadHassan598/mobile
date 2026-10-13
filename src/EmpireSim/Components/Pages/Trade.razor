@@ -101,6 +101,7 @@
 @if (_buyStep == 1)
 {
     <div class="popup-overlay" @onclick="() => _buyStep = 0">
+        <BackLayer OnBack="() => _buyStep = 0" />
         <div class="popup-panel" @onclick:stopPropagation>
             <div class="popup-header"><span class="popup-title">Select Product to Buy</span></div>
             @ProductPicker(x => x.CanBuy, SelectBuyProduct, false)
@@ -116,6 +117,7 @@
 {
     var prod = TradeCatalog.Get(_buyProductId);
     <div class="popup-overlay" @onclick="() => _buyStep = 0">
+        <BackLayer OnBack="() => _buyStep = 1" />
         <div class="popup-panel" @onclick:stopPropagation>
             <div class="popup-header"><span class="popup-title">Select Seller — @prod?.Name</span></div>
             <div class="price-note">Price is per 1,000 units. You can only trade with countries where you have an embassy.</div>
@@ -146,6 +148,7 @@
     double maxBuy = Engine.MaxBuyQuantity(_buySellerId, _buyProductId);
 
     <div class="popup-overlay" @onclick="() => _buyStep = 0">
+        <BackLayer OnBack="() => _buyStep = 2" />
         <div class="popup-panel" @onclick:stopPropagation>
             <div class="popup-header"><span class="popup-title">Buy @prod?.Name</span></div>
             <div class="c-row"><span>Product:</span><b>@prod?.Icon @prod?.Name</b></div>
@@ -171,6 +174,7 @@
 @if (_sellStep == 1)
 {
     <div class="popup-overlay" @onclick="() => _sellStep = 0">
+        <BackLayer OnBack="() => _sellStep = 0" />
         <div class="popup-panel" @onclick:stopPropagation>
             <div class="popup-header"><span class="popup-title">Select Product to Sell</span></div>
             <div class="price-note">Every product is listed with the stock you have. What you can sell is checked on the next screens.</div>
@@ -187,6 +191,7 @@
 {
     var prod = TradeCatalog.Get(_sellProductId);
     <div class="popup-overlay" @onclick="() => _sellStep = 0">
+        <BackLayer OnBack="() => _sellStep = 1" />
         <div class="popup-panel" @onclick:stopPropagation>
             <div class="popup-header"><span class="popup-title">Select Buyer — @prod?.Name</span></div>
             <div class="price-note">Price is per 1,000 units. You can only trade with countries where you have an embassy.</div>
@@ -219,6 +224,7 @@
     double maxSell = Engine.MaxSellQuantity(_sellBuyerId, _sellProductId, _sellPrice);
 
     <div class="popup-overlay" @onclick="() => _sellStep = 0">
+        <BackLayer OnBack="() => _sellStep = 2" />
         <div class="popup-panel" @onclick:stopPropagation>
             <div class="popup-header"><span class="popup-title">Sell @prod?.Name</span></div>
             <div class="c-row"><span>Product:</span><b>@prod?.Icon @prod?.Name</b></div>
@@ -246,6 +252,7 @@
 @if (_sellAllOpen)
 {
     <div class="popup-overlay" @onclick="() => _sellAllOpen = false">
+        <BackLayer OnBack="() => _sellAllOpen = false" />
         <div class="popup-panel" @onclick:stopPropagation>
             <div class="popup-header"><span class="popup-title">Sell Everything</span></div>
             <div class="price-note">Sells all tradable stock at market price, only to countries where you have an embassy. Military equipment is protected.</div>

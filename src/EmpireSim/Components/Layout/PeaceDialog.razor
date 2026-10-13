@@ -17,6 +17,7 @@
     bool composing = block is null && !mine && (!theirs || _countering);
 
     <div class="pc-overlay" @onclick="Close">
+        <BackLayer OnBack="Close" />
         <div class="pc-panel" @onclick:stopPropagation>
             <button class="pc-x" @onclick="Close" title="Close">✕</button>
             <div class="pc-title">🕊️ Peace talks with @enemy.Emblem @enemy.Name</div>

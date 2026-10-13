@@ -13,7 +13,6 @@
     var t = Engine.Territory(Id);
 }
 <div class="ao-wrap">
-    <button class="ao-back" @onclick='() => Nav.NavigateTo(Colony ? "/colonies" : "/annexed")'>‹ @(Colony ? "Colonies" : "Annexed States")</button>
 
     @if (t is null)
     {
@@ -399,7 +398,6 @@
 
 <style>
 .ao-wrap { background: linear-gradient(#f0e0b0, #e8d090); min-height: 100vh; padding: 10px 8px 90px; font-family: Georgia, serif; color: #3d2b1f; box-sizing: border-box; max-width: 100%; overflow-x: hidden; }
-.ao-back { background: none; border: none; color: #5a3a1a; font-family: inherit; font-size: 0.9rem; font-weight: bold; padding: 4px 2px; cursor: pointer; }
 .ao-denied { background: #f8d7da; color: #721c24; border: 1px solid #8B0000; border-radius: 8px; padding: 12px; margin-top: 8px; }
 .ao-header { display: flex; align-items: center; gap: 10px; margin: 4px 0 6px; }
 .ao-flag { font-size: 2.4rem; }

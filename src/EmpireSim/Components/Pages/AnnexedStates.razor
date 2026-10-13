@@ -8,7 +8,6 @@
 @* Annexed States: every territory the player's country has annexed. Each is a living part of the realm — its people, tax, mills and
    stocks go on — governed by the player and managed one at a time (tap one to open its operations). *@
 <div class="as-wrap">
-    <button class="as-back" @onclick='() => Nav.NavigateTo("/command")'>‹ Command Control</button>
     <div class="as-title">🏳️ Annexed States</div>
     <div class="as-sub">Countries your realm has annexed. They are no longer independent: they live and work under your rule, pay their tax into your treasury, and are managed one by one.</div>
 
@@ -79,7 +78,6 @@
 
 <style>
 .as-wrap { background: linear-gradient(#f0e0b0, #e8d090); min-height: 100vh; padding: 10px 8px 90px; font-family: Georgia, serif; color: #3d2b1f; box-sizing: border-box; max-width: 100%; overflow-x: hidden; }
-.as-back { background: none; border: none; color: #5a3a1a; font-family: inherit; font-size: 0.9rem; font-weight: bold; padding: 4px 2px; cursor: pointer; }
 .as-title { font-size: 1.2rem; font-weight: bold; letter-spacing: 1px; margin: 4px 0; }
 .as-sub { font-size: 0.82rem; color: #5a4a2a; margin-bottom: 10px; line-height: 1.3; }
 .as-empty { text-align: center; background: rgba(255,255,255,.35); border: 2px dashed #8b6914; border-radius: 10px; padding: 24px 14px; }

@@ -86,6 +86,7 @@
     var r = _selected;
     bool canAfford = _nation.Gold >= r.ConversionCost;
     <div class="popup-overlay" @onclick="() => _selected = null">
+        <BackLayer OnBack="() => _selected = null" />
         <div class="popup-panel" @onclick:stopPropagation>
             <div class="rel-modal-icon">@r.Icon</div>
             <div class="rel-modal-name">@r.Name.ToUpper()</div>
