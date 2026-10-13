@@ -170,6 +170,8 @@
             {
                 id = n.Id,
                 name = n.Name,
+                kind = "nation",
+                painted = WorldGeometry.IsPaintedIsland(n.Id),
                 color = n.ColorHex,
                 polygons = n.Territory,
                 labelX = n.MapX,
@@ -186,6 +188,8 @@
         {
             id = r.Id,
             name = r.Name,
+            kind = "frontier",
+            painted = true,
             color = "#6B7280",
             polygons = r.Polygons,
             labelX = r.LabelX,
@@ -196,6 +200,7 @@
         {
             id = r.Id,
             name = r.Name,
+            kind = "neutral",
             color = "#4A4438",
             polygons = r.Polygons,
             labelX = r.LabelX,

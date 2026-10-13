@@ -465,14 +465,17 @@
 
     private string GetArea(Nation n)
     {
-        // Approximate from territory polygon area
+        // From the territory polygons: the shoelace area of each polygon (signed, so an enclave or inner sea joined to a polygon's outline
+        // by a zero-width bridge subtracts), in map units
         double area = 0;
         foreach (var poly in n.Territory)
         {
+            double a = 0;
             for (int i = 0; i < poly.Count - 1; i++)
-                area += Math.Abs(poly[i].X * poly[i + 1].Y - poly[i + 1].X * poly[i].Y);
+                a += poly[i].X * poly[i + 1].Y - poly[i + 1].X * poly[i].Y;
+            area += Math.Abs(a) / 2;
         }
-        return ((int)(area / 2)).ToString("N0");
+        return ((int)area).ToString("N0");
     }
 
     private void OpenAid(Nation n)

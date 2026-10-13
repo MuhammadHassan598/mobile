@@ -162,7 +162,7 @@ public static class AiWorldService
 
     private static void Think(GameState state, Nation n, Random rng)
     {
-        Economy(n);
+        Economy(state, n);
         // An AI master governs its annexed territories through the simulation too: it keeps their people fed as it does its own (the
         // territories' economies themselves are advanced every day, with their tax paid to the master).
         foreach (var territory in state.AnnexedBy(n.Id))
@@ -173,7 +173,7 @@ public static class AiWorldService
     }
 
     /// <summary>An AI country feeds its growing people and rebuilds its army (paying from its treasury).</summary>
-    private static void Economy(Nation n)
+    public static void Economy(GameState state, Nation n)
     {
         ConsumptionService.EnsureSupply(n, Balance.AiSupplyCoverage);
 
@@ -185,6 +185,9 @@ public static class AiWorldService
         if (deficit <= 0) return;
 
         int add = Math.Min(deficit, Math.Max(20, (int)(target * Balance.AiRecruitPerThink)));
+        // Assembly: a Military Training Restriction on this country halves its recruiting (the player's soldiers train at half speed).
+        if (AssemblyService.HasActivePolicy(state.ActiveAssemblyPolicies, AssemblyProposalTypes.MilitaryRestriction, n.Id, state.CurrentDate))
+            add = Math.Max(1, add / 2);
         double cost = add * UnitCatalog.Get(UnitType.Musketeer).GoldCost * CommandStaffService.LandRecruitMult(n);
         if (!n.CanPay(cost)) return;
         n.PayGold(cost);
@@ -342,6 +345,7 @@ public static class AiWorldService
     /// </summary>
     private static void TryWar(GameState state, Nation n, Random rng)
     {
+        if (TreatyService.WarDeclarationBlock(state) is not null) return;   // the Assembly has forbidden new wars
         if (OwnWars(state, n) >= Balance.AiMaxWars) return;
 
         var map = AllianceMap(state);
@@ -368,6 +372,7 @@ public static class AiWorldService
     /// </summary>
     public static void DeclareWar(GameState state, Nation aggressor, Nation target, Random rng)
     {
+        if (TreatyService.WarDeclarationBlock(state) is not null) return;   // an AI country is bound by the Assembly's ban like the player
         // What the war is for is judged before the war itself sours anything.
         var aim = Motives(state, aggressor, target).Aim;
 
@@ -400,6 +405,7 @@ public static class AiWorldService
     /// <summary>An ally joins its friend's war against <paramref name="enemy"/> — if it can, and if it honours the alliance.</summary>
     private static void TryJoin(GameState state, Nation ally, Nation friend, Nation enemy, bool defending, Random rng)
     {
+        if (TreatyService.WarDeclarationBlock(state) is not null) return;
         if (ally.IsEliminated || AtWar(state, ally.Id, enemy.Id) || Allied(state, ally.Id, enemy.Id)) return;
         if (Relation(state, ally, friend) < Balance.AiAllyHonorMinRelation) return;
         double chance = defending ? Balance.AiDefenderAllyJoinChance : Balance.AiAttackerAllyJoinChance;
@@ -418,6 +424,7 @@ public static class AiWorldService
     /// <summary>An AI country declares war on the player: the same steps whether it decided by anger or by opportunity.</summary>
     public static void DeclareWarOnPlayer(GameState state, Nation aggressor, string? reason = null)
     {
+        if (TreatyService.WarDeclarationBlock(state) is not null) return;   // (an ally joining a war on the player is a declaration too)
         var player = state.PlayerNation;
         aggressor.AtWarWithPlayer = true;
         aggressor.HasTradePactWithPlayer = false;

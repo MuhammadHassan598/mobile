@@ -69,9 +69,12 @@ public sealed class SimulationService
         string About(string text) => owner == nation ? text : $"{nation.Name}: {text}";
         nation.MigrateGoodsInventory();
 
+        // Products the Assembly has prohibited are not produced by anyone, in any building (read once for the day).
+        var banned = AssemblyService.BannedProducts(state);
+
         // ---- Raw materials ----
-        nation.Iron += nation.Mines * Balance.IronPerMinePerDay;
-        nation.Wood += nation.Sawmills * Balance.WoodPerSawmillPerDay;
+        if (!AssemblyService.IsBanned(banned, "iron")) nation.Iron += nation.Mines * Balance.IronPerMinePerDay;
+        if (!AssemblyService.IsBanned(banned, "wood")) nation.Wood += nation.Sawmills * Balance.WoodPerSawmillPerDay;
 
         // ---- Workshop chain: wood + iron -> goods ----
         if (nation.Workshops > 0)
@@ -146,10 +149,11 @@ public sealed class SimulationService
         foreach (var kvp in nation.ProductionBuildings)
         {
             var spec = ProductionCatalog.Get(kvp.Key);
+            if (AssemblyService.IsBanned(banned, spec.Produces)) continue;   // prohibited by the Assembly: nothing is made
             double catMult = spec.Category == ProductionCategory.Food ? foodMult
                            : spec.Category == ProductionCategory.Minerals ? resMult : 1.0;
-            // Assembly: production ban reduces output by 50%
-            double assemblyMult = AssemblyService.HasActivePolicy(state.ActiveAssemblyPolicies, "production_ban", nation.Id, state.CurrentDate) ? 0.5 : 1.0;
+            // (A production law from an older save that named this country halves its whole output, as it did then.)
+            double assemblyMult = AssemblyService.HasActivePolicy(state.ActiveAssemblyPolicies, AssemblyProposalTypes.ProductionBan, nation.Id, state.CurrentDate) ? 0.5 : 1.0;
             double dailyOutput = kvp.Value * spec.OutputPerDay * prodMult * catMult * genMult * assemblyMult;
             nation.AddProduct(spec.Produces, dailyOutput);
         }
@@ -199,11 +203,20 @@ public sealed class SimulationService
         AdvanceEconomy(state, nation, nation);
 
         // ---- Military crafting: progress projects, add 10 units on completion ----
+        var bannedItems = AssemblyService.BannedProducts(state);
         foreach (var proj in nation.MilitaryCraftQueue.ToList())
         {
             proj.DaysLeft -= 1;
             if (proj.DaysLeft > 0) continue;
             var recipe = MilitaryRecipes.Get(proj.RecipeId);
+            if (AssemblyService.IsBanned(bannedItems, proj.RecipeId))
+            {
+                // The Assembly prohibits making this item: the batch comes to nothing.
+                state.Log($"{nation.Name}: crafting {recipe.Name} is prohibited by the Assembly — the batch is lost.");
+                Report(state, nation, InboxTopic.Production, $"Crafting {recipe.Name} is prohibited by the Assembly: the batch was lost.", $"{recipe.Name} prohibited");
+                nation.MilitaryCraftQueue.Remove(proj);
+                continue;
+            }
             double craftAmount = 10 * LawService.MilitaryGoodsMult(nation);
             nation.AddMilitaryItem(proj.RecipeId, craftAmount);
             state.Log($"{nation.Name}: Crafted 10x {recipe.Name}.");
@@ -293,29 +306,31 @@ public sealed class SimulationService
             int againstV = prop.VotesAgainst(allNations);
             var ptype = AssemblyProposalTypes.Get(prop.TypeId);
             string proposerName = TreatyService.NameOf(state, prop.ProposerId);
-            string targetName = TreatyService.NameOf(state, prop.TargetId);
+            var (partyId, targetName) = AssemblyService.Party(state, prop.TargetId);   // the country it is about, or the Assembly for a global law
+            string what = AssemblyService.Describe(state, prop.TypeId, prop.TargetId, prop.ProductId);
             if (forV > againstV)
             {
                 prop.Status = ProposalStatus.Approved;
-                // Activate policy
+                // Activate policy (carrying exactly the scope the proposal had: its country, or none for a global law, and its product)
                 state.ActiveAssemblyPolicies.Add(new ActiveAssemblyPolicy
                 {
                     ProposalId = prop.Id,
                     TypeId = prop.TypeId,
                     TargetId = prop.TargetId,
+                    ProductId = prop.ProductId,
                     ActivationDate = state.CurrentDate,
                     ExpirationDate = state.CurrentDate.AddDays(prop.EffectDurationDays)
                 });
                 prop.Status = ProposalStatus.Active;
                 prop.ActiveUntil = state.CurrentDate.AddDays(prop.EffectDurationDays);
-                state.LogMovement(MovementKind.Assembly, MovementStatus.Completed, prop.ProposerId, proposerName, prop.TargetId, targetName,
-                    $"Assembly APPROVED: {ptype?.Name} against {targetName} ({forV} vs {againstV}).", inbox: InboxTopic.Assembly);
+                state.LogMovement(MovementKind.Assembly, MovementStatus.Completed, prop.ProposerId, proposerName, partyId, targetName,
+                    $"Assembly APPROVED: {what} ({forV} vs {againstV}).", inbox: InboxTopic.Assembly);
             }
             else
             {
                 prop.Status = ProposalStatus.Rejected;
-                state.LogMovement(MovementKind.Assembly, MovementStatus.Failed, prop.ProposerId, proposerName, prop.TargetId, targetName,
-                    $"Assembly REJECTED: {ptype?.Name} against {targetName} ({forV} vs {againstV}).", inbox: InboxTopic.Assembly);
+                state.LogMovement(MovementKind.Assembly, MovementStatus.Failed, prop.ProposerId, proposerName, partyId, targetName,
+                    $"Assembly REJECTED: {what} ({forV} vs {againstV}).", inbox: InboxTopic.Assembly);
             }
         }
         // Expire policies
@@ -327,10 +342,10 @@ public sealed class SimulationService
                 var prop = state.AssemblyProposals.FirstOrDefault(p => p.Id == pol.ProposalId);
                 if (prop is not null) prop.Status = ProposalStatus.Expired;
                 string expiredBy = prop?.ProposerId ?? state.PlayerNation.Id;
-                string expiredType = AssemblyProposalTypes.Get(pol.TypeId)?.Name ?? pol.TypeId;
+                var (expiredPartyId, expiredPartyName) = AssemblyService.Party(state, pol.TargetId);
                 state.LogMovement(MovementKind.Assembly, MovementStatus.Completed, expiredBy, TreatyService.NameOf(state, expiredBy),
-                    pol.TargetId, TreatyService.NameOf(state, pol.TargetId),
-                    $"Assembly policy expired: {expiredType} against {TreatyService.NameOf(state, pol.TargetId)}.", inbox: InboxTopic.Assembly);
+                    expiredPartyId, expiredPartyName,
+                    $"Assembly policy expired: {AssemblyService.Describe(state, pol.TypeId, pol.TargetId, pol.ProductId)}.", inbox: InboxTopic.Assembly);
             }
         }
 
@@ -511,6 +526,7 @@ public sealed class SimulationService
             // (A non-aggression pact or alliance keeps even a furious neighbour from declaring war.)
             if (other.RelationToPlayer <= Balance.AiWarRelationThreshold
                 && TreatyService.ForbidsAttack(state, other.Id, player.Id) is null
+                && TreatyService.WarDeclarationBlock(state) is null
                 && RollChance(Balance.AiDeclareWarChancePerDay))
             {
                 AiWorldService.DeclareWarOnPlayer(state, other);
@@ -637,7 +653,14 @@ public sealed class SimulationService
                     ? $"⚠ {attacker.Name}'s army of {outcome.AttackerCommitted:N0} reached {def.Name} and broke the home army ({fallen:N0} of its men fell, the garrison lost {outcome.DefenderCasualties:N0})."
                     : $"🛡 {def.Name} repelled {attacker.Name}'s army: {outcome.AttackerCommitted:N0} attacked, {fallen:N0} fell; the garrison lost {outcome.DefenderCasualties:N0}.";
                 state.LogMovement(MovementKind.March, MovementStatus.Completed, attacker, def, report, inbox: InboxTopic.Battle);
-                if (outcome.AttackerWon)
+                if (outcome.AttackerWon && TreatyService.AnnexationBlock(state, def.Id) is { } cannotAnnex)
+                {
+                    // The battle is lost, but the country cannot be taken: the Assembly forbids annexation, so the war simply goes on.
+                    state.LogMovement(MovementKind.War, MovementStatus.Failed, attacker, def,
+                        $"{attacker.Name} broke the home army of {def.Name} but cannot annex it ({cannotAnnex}) — the war goes on.");
+                    state.ActiveWarnings.Add($"⚠ {attacker.Name} beat your home army, but the Assembly forbids annexing you.");
+                }
+                else if (outcome.AttackerWon)
                 {
                     Warfare.AnnexNation(state, attacker, def);
                     state.LogMovement(MovementKind.War, MovementStatus.Completed, attacker, def, $"{def.Name} has fallen to {attacker.Name}!");

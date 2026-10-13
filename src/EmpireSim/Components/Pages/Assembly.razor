@@ -57,7 +57,6 @@
         @foreach (var p in Engine.State.AssemblyProposals.OrderByDescending(p => p.CreatedDate))
         {
             var type = AssemblyProposalTypes.Get(p.TypeId);
-            var target = Engine.State.AllNations().FirstOrDefault(n => n.Id == p.TargetId);
             var proposer = Engine.State.AllNations().FirstOrDefault(n => n.Id == p.ProposerId);
             var nations = Engine.State.AllNations().ToList();
             int forV = p.VotesFor(nations);
@@ -69,7 +68,7 @@
                     <span>@type?.Icon</span>
                     <div>
                         <div class="prop-name">@type?.Name</div>
-                        <div class="prop-sub">Target: @target?.Emblem @target?.Name · By @proposer?.Name</div>
+                        <div class="prop-sub">@ScopeLine(p) · By @proposer?.Name</div>
                     </div>
                     <span class="prop-status @p.Status.ToString().ToLower()">@p.Status</span>
                 </div>
@@ -93,12 +92,14 @@
     }
 </div>
 
-<!-- Make a Suggestion Modal -->
+<!-- Make a Suggestion Modal: only the fields the chosen proposal needs -->
 @if (_proposalOpen)
 {
     var type = AssemblyProposalTypes.Get(_propTypeId);
-    var target = Engine.State.AllNations().FirstOrDefault(n => n.Id == _propTargetId);
     var estimate = EstimateVotes();
+    bool needsCountry = type?.Scope == AssemblyScope.Country;
+    bool needsProduct = type?.NeedsProduct == true;
+    bool ready = (!needsCountry || !string.IsNullOrEmpty(_propTargetId)) && (!needsProduct || !string.IsNullOrEmpty(_propProductId));
 
     <div class="popup-overlay" @onclick="() => _proposalOpen = false">
         <div class="popup-panel" @onclick:stopPropagation>
@@ -106,25 +107,48 @@
 
             <div class="popup-section">
                 <div class="popup-section-title">Assembly type:</div>
-                <select class="asm-input" @bind="_propTypeId">
-                    @foreach (var t in AssemblyProposalTypes.All)
+                <select class="asm-input" value="@_propTypeId" @onchange="e => OnTypeChanged(e.Value?.ToString())">
+                    @foreach (var t in AssemblyProposalTypes.Offered)
                     {
                         <option value="@t.Id">@t.Icon @t.Name</option>
                     }
                 </select>
                 <div class="asm-desc">@type?.EffectDescription</div>
+                <div class="asm-scope">@(needsCountry ? "🎯 Applies to one country." : "🌍 Applies to all countries.")</div>
             </div>
 
-            <div class="popup-section">
-                <div class="popup-section-title">Choose a state:</div>
-                <select class="asm-input" @bind="_propTargetId">
-                    <option value="">-- Select --</option>
-                    @foreach (var n in Engine.State.LiveOtherNations().OrderBy(n => n.Name))
-                    {
-                        <option value="@n.Id">@n.Emblem @n.Name</option>
-                    }
-                </select>
-            </div>
+            @if (needsCountry)
+            {
+                <div class="popup-section">
+                    <div class="popup-section-title">Choose a state:</div>
+                    <select class="asm-input" @bind="_propTargetId">
+                        <option value="">-- Select --</option>
+                        @foreach (var n in Engine.State.LiveOtherNations().OrderBy(n => n.Name))
+                        {
+                            <option value="@n.Id">@n.Emblem @n.Name</option>
+                        }
+                    </select>
+                </div>
+            }
+
+            @if (needsProduct)
+            {
+                <div class="popup-section">
+                    <div class="popup-section-title">Choose the product to prohibit:</div>
+                    <select class="asm-input" @bind="_propProductId">
+                        <option value="">-- Select --</option>
+                        @foreach (var group in TradeCatalog.Groups)
+                        {
+                            <optgroup label="@group.Icon @group.Title">
+                                @foreach (var product in TradeCatalog.InGroup(group))
+                                {
+                                    <option value="@product.Id">@product.Icon @product.Name</option>
+                                }
+                            </optgroup>
+                        }
+                    </select>
+                </div>
+            }
 
             <div class="popup-section">
                 <div class="popup-section-title">Choose a timeframe:</div>
@@ -140,8 +164,7 @@
             </div>
 
             <div class="popup-section">
-                <div class="popup-section-title">Voting timeframe:</div>
-                <div>@_propVotingDays days</div>
+                <div class="popup-section-title">Voting timeframe: <span class="asm-inline">@_propVotingDays days</span></div>
             </div>
 
             <div class="popup-section">
@@ -153,9 +176,14 @@
                 <div class="asm-note">Improving your relations with other states may influence the voting results.</div>
             </div>
 
+            @if (!string.IsNullOrEmpty(_formError))
+            {
+                <div class="asm-error">⚠ @_formError</div>
+            }
+
             <div class="popup-actions">
                 <button class="popup-btn cancel" @onclick="() => _proposalOpen = false">CANCEL</button>
-                <button class="popup-btn confirm" disabled="@(string.IsNullOrEmpty(_propTargetId))" @onclick="Submit">ADD</button>
+                <button class="popup-btn confirm" disabled="@(!ready)" @onclick="Submit">ADD</button>
             </div>
         </div>
     </div>
@@ -169,6 +197,8 @@
     private bool _proposalOpen = false;
     private string _propTypeId = "military_restriction";
     private string _propTargetId = "";
+    private string _propProductId = "";
+    private string? _formError;
     private int _propDuration = 365;
     private int _propVotingDays = 30;
 
@@ -182,20 +212,41 @@
         {
             Id = "estimate",
             TypeId = _propTypeId,
-            TargetId = _propTargetId,
+            TargetId = AssemblyProposalTypes.Get(_propTypeId)?.Scope == AssemblyScope.Country ? _propTargetId : "",
             ProposerId = _nation.Id
         };
         return AssemblyService.EstimateVotes(prop, Engine.State.AllNations(), _nation.Id);
     }
 
+    /// <summary>Switching type drops whatever the new type does not use: a global law has no country, only a production ban has a product.</summary>
+    private void OnTypeChanged(string? typeId)
+    {
+        var type = AssemblyProposalTypes.Offered.FirstOrDefault(t => t.Id == typeId) ?? AssemblyProposalTypes.Offered.First();
+        _propTypeId = type.Id;
+        if (type.Scope != AssemblyScope.Country) _propTargetId = "";
+        if (!type.NeedsProduct) _propProductId = "";
+        _formError = null;
+    }
+
+    private string ScopeLine(AssemblyProposal p)
+    {
+        var type = AssemblyProposalTypes.Get(p.TypeId);
+        string product = string.IsNullOrEmpty(p.ProductId) ? "" : $" · {TradeCatalog.Get(p.ProductId)?.Icon} {TradeCatalog.Get(p.ProductId)?.Name}";
+        if (type?.Scope == AssemblyScope.Global || string.IsNullOrEmpty(p.TargetId)) return "🌍 All countries" + product;
+        var target = Engine.State.AllNations().FirstOrDefault(n => n.Id == p.TargetId);
+        return $"Target: {target?.Emblem} {target?.Name}" + product;
+    }
+
     private void Submit()
     {
-        _error = Engine.SubmitProposal(_propTypeId, _propTargetId, _propDuration, _propVotingDays);
-        if (_error is null)
+        _formError = Engine.SubmitProposal(_propTypeId, _propTargetId, _propDuration, _propVotingDays, _propProductId);
+        if (_formError is null)
         {
+            _error = null;
             _msg = $"Proposal submitted. Voting closes in {_propVotingDays} days.";
             _proposalOpen = false;
             _propTargetId = "";
+            _propProductId = "";
         }
     }
 
@@ -241,9 +292,11 @@
 .popup-panel { background: linear-gradient(#f5e6c4, #e2cb92); border: 3px double #8b6914; border-radius: 10px; padding: 14px; max-width: 380px; width: 100%; max-height: 88vh; overflow-y: auto; font-family: Georgia, serif; color: #3d2b1f; }
 .popup-header { margin-bottom: 10px; text-align: center; }
 .popup-title { font-size: 1.15rem; font-weight: bold; }
-.popup-section { margin-bottom: 10px; }
+.popup-section { margin-bottom: 8px; }
 .popup-section-title { font-size: 0.82rem; font-weight: bold; color: #8b6914; margin-bottom: 5px; }
 .asm-input { width: 100%; padding: 8px; border: 2px solid #8b6914; border-radius: 6px; background: #fffdf5; font-family: inherit; font-size: 0.95rem; color: #3d2b1f; }
+.asm-scope { font-size: 0.8rem; font-weight: bold; color: #5a3a1a; margin-top: 3px; }
+.asm-inline { font-weight: normal; color: #3d2b1f; }
 .asm-desc { font-size: 0.85rem; color: #5a4a2a; margin-top: 4px; font-style: italic; }
 .est-row { display: flex; gap: 16px; font-size: 1rem; font-weight: bold; }
 .est-row .for { color: #2e7d32; }

@@ -89,12 +89,22 @@ public static class TreatyService
     public static string? AnnexationBlock(GameState state, string nationId)
     {
         string name = NameOf(state, nationId);
-        var ban = state.ActiveAssemblyPolicies.FirstOrDefault(p =>
-            p.TypeId == "annexation_ban" && p.TargetId == nationId && state.CurrentDate < p.ExpirationDate);
-        if (ban is not null)
-            return $"The Assembly has forbidden annexing {name} until {ban.ExpirationDate:dd-MM-yyyy}.";
-        return null;
+        // A global ban (no target) forbids annexing anyone; a ban from an older save that names a country protects only that country.
+        var ban = AssemblyService.Binding(state.ActiveAssemblyPolicies, AssemblyProposalTypes.AnnexationBan, nationId, state.CurrentDate);
+        if (ban is null) return null;
+        return ban.TargetId == ""
+            ? $"The Assembly has forbidden annexing any country until {ban.ExpirationDate:dd-MM-yyyy}."
+            : $"The Assembly has forbidden annexing {name} until {ban.ExpirationDate:dd-MM-yyyy}.";
     }
+
+    /// <summary>
+    /// A message when the Assembly has forbidden declaring war (null = war may be declared). It binds every country alike — the player,
+    /// the AI countries, an ally joining a war — and stops only NEW declarations: wars already under way go on.
+    /// </summary>
+    public static string? WarDeclarationBlock(GameState state) =>
+        AssemblyService.GlobalPolicy(state.ActiveAssemblyPolicies, AssemblyProposalTypes.WarBan, state.CurrentDate) is { } ban
+            ? $"The Assembly has forbidden declaring war until {ban.ExpirationDate:dd-MM-yyyy}."
+            : null;
 
     // ---------------- AI attitude ----------------
 

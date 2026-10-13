@@ -69,6 +69,7 @@ public sealed partial class GameEngine : IDisposable
             Clock.SetSpeed(GameSpeed.Paused);
             State = loaded;
             TreatyService.MigrateLegacy(State);
+            WorldGeometry.Upgrade(State);   // a save from before the map was redrawn gets the new coasts and borders (who owns what is untouched)
             CampaignChosen = true;
             State.Log("Save loaded.");
             StateChanged?.Invoke();
@@ -107,6 +108,10 @@ public sealed partial class GameEngine : IDisposable
         var nation = State.PlayerNation;
 
         var spec = BuildingCatalog.Get(type);
+        // A mine makes iron and a sawmill wood: while the Assembly prohibits that product there is no point building one.
+        string? madeBanned = type == BuildingType.Mine ? AssemblyService.ProductionBlock(State, "iron")
+                           : type == BuildingType.Sawmill ? AssemblyService.ProductionBlock(State, "wood") : null;
+        if (madeBanned is not null) return madeBanned;
 
         if (nation.ConstructionQueue.Count >= Balance.MaxBuildQueue)
             return $"Build queue is full (max {Balance.MaxBuildQueue}).";
@@ -140,6 +145,7 @@ public sealed partial class GameEngine : IDisposable
         var spec = ProductionCatalog.Get(buildingId);
 
         if (count <= 0) return "Invalid count.";
+        if (AssemblyService.ProductionBlock(State, spec.Produces) is { } prohibited) return prohibited;
         if (nation.ConstructionQueue.Count + count > Balance.MaxBuildQueue)
             return $"Build queue is full (max {Balance.MaxBuildQueue}).";
 
@@ -184,6 +190,7 @@ public sealed partial class GameEngine : IDisposable
     {
         var nation = State.PlayerNation;
         var spec = ProductionCatalog.Get(buildingId);
+        if (AssemblyService.ProductionBlock(State, spec.Produces) is not null) return new BuildLimit(0, "the Assembly's production ban");
 
         int max = Math.Max(0, Balance.MaxBuildQueue - nation.ConstructionQueue.Count);
         string by = "the build queue";
@@ -380,13 +387,8 @@ public sealed partial class GameEngine : IDisposable
         if (TradeBlock(sellerId) is { } noTrade) return noTrade;
         var product = TradeCatalog.Get(productId);
         if (product is null || !product.CanBuy) return "Cannot buy this product.";
-        // Assembly: weapon embargo blocks equipment purchases from/to target
-        if (product.Category == "Equipment")
-        {
-            if (AssemblyService.HasActivePolicy(State.ActiveAssemblyPolicies, "weapon_sales_ban", sellerId, State.CurrentDate) ||
-                AssemblyService.HasActivePolicy(State.ActiveAssemblyPolicies, "weapon_embargo", sellerId, State.CurrentDate))
-                return "Weapon sales to this country are prohibited by Assembly.";
-        }
+        // Assembly: a ban on weapon sales stops every purchase of military equipment (a retired country-by-country embargo still stops its country's).
+        if (product.Category == "Equipment" && AssemblyService.WeaponSalesBlock(State, sellerId) is { } noWeapons) return noWeapons;
 
         // Check seller stock (they won't sell more than 50%)
         double sellerStock = seller.GetProductStock(productId) * 0.5;
@@ -496,6 +498,7 @@ public sealed partial class GameEngine : IDisposable
         if (TradeBlock(buyerId) is { } noTrade) return noTrade;
         var product = TradeCatalog.Get(productId);
         if (product is null || !product.CanSell) return "Cannot sell this product.";
+        if (product.Category == "Equipment" && AssemblyService.WeaponSalesBlock(State, buyerId) is { } noWeapons) return noWeapons;
 
         double available = seller.GetProductStock(productId);
         if (available < quantity) return $"Only {available:N0} available.";
@@ -578,19 +581,26 @@ public sealed partial class GameEngine : IDisposable
     }
 
     /// <summary>Submit an assembly proposal. Returns error or null.</summary>
-    public string? SubmitProposal(string typeId, string targetId, int effectDays, int votingDays = 30)
+    /// <summary>
+    /// Submits an Assembly proposal. What it needs depends on its type: a country-scoped proposal (military training restriction) needs one
+    /// valid country and stores it; a global one (weapon sales, production, annexation, war) needs none and stores none; a production
+    /// ban also needs the product to prohibit (a trade-catalogue id). Anything the type does not use is dropped, not stored.
+    /// Returns an error message, or null on success.
+    /// </summary>
+    public string? SubmitProposal(string typeId, string? targetId, int effectDays, int votingDays = 30, string? productId = null)
     {
         var proposer = State.PlayerNation;
         var type = AssemblyProposalTypes.Get(typeId);
-        if (type is null) return "Invalid proposal type.";
-        var target = State.AllNations().FirstOrDefault(n => n.Id == targetId);
-        if (target is null || target.Id == proposer.Id) return "Invalid target.";
+        var (error, target, product) = AssemblyService.Check(type, targetId, productId,
+            id => State.OtherNations.Any(n => n.Id == id && !n.IsEliminated), proposer.Id);
+        if (error is not null) return error;
 
         var proposal = new AssemblyProposal
         {
             TypeId = typeId,
             ProposerId = proposer.Id,
-            TargetId = targetId,
+            TargetId = target,
+            ProductId = product,
             EffectDurationDays = effectDays,
             CreatedDate = State.CurrentDate,
             VotingDeadline = State.CurrentDate.AddDays(votingDays),
@@ -599,8 +609,9 @@ public sealed partial class GameEngine : IDisposable
         // Proposer auto-votes FOR
         proposal.Votes[proposer.Id] = true;
         State.AssemblyProposals.Add(proposal);
-        State.LogMovement(MovementKind.Assembly, MovementStatus.UnderWay, proposer, target,
-            $"Proposal submitted: {type.Name} against {target.Name}. Voting closes in {votingDays}d.");
+        var (partyId, partyName) = AssemblyService.Party(State, target);
+        State.LogMovement(MovementKind.Assembly, MovementStatus.UnderWay, proposer.Id, proposer.Name, partyId, partyName,
+            $"Proposal submitted: {AssemblyService.Describe(State, typeId, target, product)}. Voting closes in {votingDays}d.");
         StateChanged?.Invoke();
         return null;
     }
@@ -725,6 +736,7 @@ public sealed partial class GameEngine : IDisposable
     {
         var nation = State.PlayerNation;
         var recipe = MilitaryRecipes.Get(recipeId);
+        if (AssemblyService.ProductionBlock(State, recipeId) is { } prohibited) return prohibited;
 
         if (nation.Wood < recipe.WoodCost || nation.Stone < recipe.StoneCost ||
             nation.Iron < recipe.IronCost || nation.Copper < recipe.CopperCost ||
@@ -1027,6 +1039,7 @@ public sealed partial class GameEngine : IDisposable
         if (n is null) return "Nation not found.";
         if (n.AtWarWithPlayer) return "Already at war.";
         if (TreatyService.ForbidsAttack(State, State.PlayerNation.Id, n.Id) is { } forbidden) return forbidden;
+        if (TreatyService.WarDeclarationBlock(State) is { } warBanned) return warBanned;   // the Assembly's ban binds the player like everyone else
 
         n.AtWarWithPlayer = true;
         n.HasTradePactWithPlayer = false;
@@ -1092,7 +1105,7 @@ public sealed partial class GameEngine : IDisposable
         {
             n.RelationToPlayer = Math.Max(-100, n.RelationToPlayer - 30);
             State.LogMovement(MovementKind.Gold, MovementStatus.Failed, n, player, $"{n.Name} refused your tribute demand.", inbox: InboxTopic.Aid);
-            if (_sim.RollChance(Balance.TributeRefusalWarChance))
+            if (TreatyService.WarDeclarationBlock(State) is null && _sim.RollChance(Balance.TributeRefusalWarChance))
             {
                 n.AtWarWithPlayer = true;
                 n.HasTradePactWithPlayer = false;

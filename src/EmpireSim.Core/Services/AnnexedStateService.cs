@@ -85,13 +85,17 @@ public static class AnnexedStateService
         {
             var spec = ProductionCatalog.All.FirstOrDefault(s => s.Id == id);
             if (spec is null || spec.Produces != "Gold") continue;
-            total += count * ConsumptionService.OutputPerMill(territory, spec) * AssemblyMult(state, territory);
+            total += Banned(state, spec, count * ConsumptionService.OutputPerMill(territory, spec) * AssemblyMult(state, territory));
         }
         return total;
     }
 
     private static double AssemblyMult(GameState state, Nation territory) =>
-        AssemblyService.HasActivePolicy(state.ActiveAssemblyPolicies, "production_ban", territory.Id, state.CurrentDate) ? 0.5 : 1.0;
+        AssemblyService.HasActivePolicy(state.ActiveAssemblyPolicies, AssemblyProposalTypes.ProductionBan, territory.Id, state.CurrentDate) ? 0.5 : 1.0;
+
+    /// <summary>Output of a mill after the Assembly's rules: nothing at all if its product is prohibited.</summary>
+    private static double Banned(GameState state, ProductionBuildingSpec spec, double output) =>
+        AssemblyService.ProductionBlock(state, spec.Produces) is null ? output : 0;
 
     /// <summary>The report for one territory.</summary>
     public static TerritoryReport Report(GameState state, Nation owner, Nation territory)
@@ -104,7 +108,7 @@ public static class AnnexedStateService
             .Select(kv => (spec: ProductionCatalog.All.FirstOrDefault(s => s.Id == kv.Key), count: kv.Value))
             .Where(x => x.spec is not null)
             .Select(x => new TerritoryMill(x.spec!.Id, x.spec.Name, x.spec.Icon, x.spec.Produces, x.count,
-                x.count * ConsumptionService.OutputPerMill(territory, x.spec) * AssemblyMult(state, territory)))
+                Banned(state, x.spec, x.count * ConsumptionService.OutputPerMill(territory, x.spec) * AssemblyMult(state, territory))))
             .OrderBy(m => m.Name).ToList();
 
         var items = new List<TerritoryItem>();
@@ -188,6 +192,7 @@ public static class AnnexedStateService
         double gold = spec.GoldCost * count, wood = spec.WoodCost * count, stone = spec.StoneCost * count, iron = spec.IronCost * count;
         string? block = Authority(state, owner, territory);
         if (block is null && count <= 0) block = "Choose how many to build.";
+        block ??= AssemblyService.ProductionBlock(state, spec.Produces);
         if (block is null && territory.ConstructionQueue.Count + count > Balance.MaxBuildQueue) block = $"{territory.Name}'s build queue is full (max {Balance.MaxBuildQueue}).";
         if (block is null && !owner.CanPay(gold)) block = $"Needs {Currency.Cost(gold)} from the treasury of {owner.Name} (it holds {Currency.Cost(owner.Gold)}).";
         block ??= StockShort(territory, wood, stone, iron);
@@ -247,6 +252,8 @@ public static class AnnexedStateService
         int days = CommandStaffService.BuildDays(owner,
             Math.Max(1, (int)Math.Ceiling(spec.BuildDays * ReligionService.ConstructionTimeMult(owner) * LawService.ConstructionTimeMult(owner))));
         string? block = Authority(state, owner, territory);
+        if (block is null && type == BuildingType.Mine) block = AssemblyService.ProductionBlock(state, "iron");
+        if (block is null && type == BuildingType.Sawmill) block = AssemblyService.ProductionBlock(state, "wood");
         if (block is null && territory.ConstructionQueue.Count >= Balance.MaxBuildQueue) block = $"{territory.Name}'s build queue is full (max {Balance.MaxBuildQueue}).";
         if (block is null && !owner.CanPay(gold)) block = $"Needs {Currency.Cost(gold)} from the treasury of {owner.Name} (it holds {Currency.Cost(owner.Gold)}).";
         block ??= StockShort(territory, wood, 0, iron);

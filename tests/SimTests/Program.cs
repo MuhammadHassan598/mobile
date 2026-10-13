@@ -69,7 +69,7 @@ Console.WriteLine("== 5. Map data sanity ==");
 using (var engine2 = new GameEngine(new SimulationService(), new SaveService(saveFolder)))
 {
     var allTerr = engine2.State.AllNations().SelectMany(n => n.Territory).ToList();
-    Check(allTerr.Count >= 80, "80+ territory polygons across 41 nations");
+    Check(allTerr.Count >= 70 && engine2.State.AllNations().All(n => n.Territory.Count >= 1), "every one of the 41 nations owns land on the map (70+ polygons: islands and exclaves are polygons of their own)");
     Check(engine2.State.AllNations().Count() == 41, "41 nations on the 1600 map");
     Check(allTerr.All(t => t.Count >= 3), "every territory polygon has >= 3 points");
     Check(allTerr.All(t => t.All(pt => pt.X >= 0 && pt.X <= 2200 && pt.Y >= 0 && pt.Y <= 1150)),
@@ -1999,7 +1999,7 @@ Check(Enum.GetValues<MovementKind>().All(k => MovementReport.Icon(k) != "•" &&
 using (var eng = NewDipEngine(41))
 {
     var s = eng.State; var p = s.PlayerNation; var persia = Ai(eng, "persia");
-    Check(eng.SubmitProposal("annexation_ban", persia.Id, 60, 30) is null, "proposal submitted");
+    Check(eng.SubmitProposal("military_restriction", persia.Id, 60, 30) is null, "proposal submitted");
     var submitted = s.Movements.Last();
     Check(submitted.Kind == MovementKind.Assembly && submitted.Status == MovementStatus.UnderWay && submitted.FromId == p.Id
           && submitted.ToId == persia.Id && submitted.Text.Contains("Iran"), "a proposal is recorded as under way against its target");
@@ -2021,7 +2021,7 @@ using (var eng = NewDipEngine(41))
 using (var eng = NewDipEngine(42))
 {
     var s = eng.State; var p = s.PlayerNation; var persia = Ai(eng, "persia");
-    eng.SubmitProposal("production_ban", persia.Id, 60, 30);
+    eng.SubmitProposal("military_restriction", persia.Id, 60, 30);
     var prop = s.AssemblyProposals.Single();
     foreach (var n in s.AllNations().Where(n => n.Id != persia.Id && n.Id != p.Id)) prop.Votes[n.Id] = false;
     for (int i = 0; i < 30; i++) { p.Gold = 1_000_000_000; eng.AdvanceOneDay(); }
@@ -4986,6 +4986,535 @@ using (var eng = NewDipEngine(211))
     Check(eng.SetTerritoryTaxRates(spain.Id, new TaxRates { Peasants = 5, Craftsmen = 5, MilitaryPersonnel = 5, Merchants = 5, Spies = 5, Saboteurs = 5 }) is null && persia.TaxRates.Peasants != 5, "settings are per territory");
     Check(eng.ReportTerritory(persia.Id)!.UnderConstruction == 1 && eng.ReportTerritory(spain.Id)!.UnderConstruction == 0, "each reports its own builds");
     Check(eng.ReportTerritory(persia.Id)!.Population == persiaPeople && eng.ReportTerritory(spain.Id)!.Population == spainPeople && eng.RealmPopulation == p.Population + persiaPeople + spainPeople, "each its own people, all counted once in the realm");
+}
+
+Console.WriteLine("== 73. Assembly: proposal scope, the production product, and enforcement by the real systems ==");
+void PassLaw(GameEngine e, string typeId, string? target = null, string? product = null, int days = 400)
+{
+    Check(e.SubmitProposal(typeId, target, days, 30, product) is null, $"(proposal {typeId} submitted)");
+    var prop = e.State.AssemblyProposals.Last();
+    foreach (var n in e.State.AllNations().Where(n => !n.IsEliminated)) prop.Votes[n.Id] = true;
+    for (int i = 0; i < 30; i++) { e.State.PlayerNation.Gold = Math.Max(e.State.PlayerNation.Gold, 1_000_000); e.AdvanceOneDay(); }
+}
+
+using (var eng = NewDipEngine(220))
+{
+    var s = eng.State; var p = s.PlayerNation; var persia = Ai(eng, "persia"); var spain = Ai(eng, "spain");
+
+    // The form offers exactly five proposals, each with the scope the rules give it.
+    var offered = AssemblyProposalTypes.Offered.ToList();
+    Check(offered.Select(t => t.Id).SequenceEqual(new[] { "military_restriction", "weapon_sales_ban", "production_ban", "annexation_ban", "war_ban" }), "the form offers the five proposals");
+    Check(offered[0].Scope == AssemblyScope.Country && offered.Skip(1).All(t => t.Scope == AssemblyScope.Global), "only the military training restriction is about one country; the others are global");
+    Check(offered.Where(t => t.NeedsProduct).Select(t => t.Id).SequenceEqual(new[] { "production_ban" }), "only the production ban needs a product");
+    Check(AssemblyProposalTypes.Get("weapon_embargo") is { Offered: false } && !offered.Any(t => t.Id == "weapon_embargo"), "the retired embargo is not offered, but laws already passed still read");
+    Check(eng.SubmitProposal("weapon_embargo", persia.Id, 60) == "Invalid proposal type." && eng.SubmitProposal("nonsense", persia.Id, 60) == "Invalid proposal type.", "so it cannot be proposed again");
+
+    // Military Training Restriction: one valid country, required and stored.
+    Check(eng.SubmitProposal("military_restriction", null, 60) is { } noTarget && noTarget.Contains("Choose the country"), "a military training restriction needs a country");
+    Check(eng.SubmitProposal("military_restriction", "", 60) is not null && eng.SubmitProposal("military_restriction", "nowhere", 60) is not null && eng.SubmitProposal("military_restriction", p.Id, 60) is not null, "an unknown country, no country, or oneself is refused");
+    Check(Ai(eng, "japan") is { } jp && (jp.IsEliminated = true) && eng.SubmitProposal("military_restriction", jp.Id, 60) is not null && !(jp.IsEliminated = false), "so is an annexed country");
+    Check(s.AssemblyProposals.Count == 0, "(nothing was stored by the refusals)");
+    Check(eng.SubmitProposal("military_restriction", persia.Id, 60, 30, "wheat") is null, "a valid country is accepted");
+    var mil = s.AssemblyProposals.Single();
+    Check(mil.TargetId == persia.Id && mil.ProductId == "" && mil.TypeId == "military_restriction", "it stores its country, and no product");
+    s.AssemblyProposals.Clear();
+
+    // The global proposals need no country, and store none (even if one is offered).
+    foreach (var type in new[] { "weapon_sales_ban", "annexation_ban", "war_ban" })
+    {
+        Check(eng.SubmitProposal(type, null, 60) is null && eng.SubmitProposal(type, "", 60) is null && eng.SubmitProposal(type, spain.Id, 60, 30, "wheat") is null, $"{type}: needs no country");
+        Check(s.AssemblyProposals.All(x => x.TargetId == "" && x.ProductId == ""), $"{type}: stores no country and no product");
+        s.AssemblyProposals.Clear();
+    }
+
+    // The production ban needs a product from the existing catalogue, and no country.
+    Check(eng.SubmitProposal("production_ban", null, 60) is { } noProduct && noProduct.Contains("Choose the product"), "a production ban needs a product");
+    Check(eng.SubmitProposal("production_ban", null, 60, 30, "") is not null && eng.SubmitProposal("production_ban", null, 60, 30, "unobtainium") is { } unknown && unknown.Contains("Unknown"), "an empty or unknown product is refused");
+    Check(eng.SubmitProposal("production_ban", persia.Id, 60, 30, "wheat") is null, "a product is accepted (a country offered with it is ignored)");
+    var prod = s.AssemblyProposals.Single();
+    Check(prod.ProductId == "wheat" && prod.TargetId == "", "it stores the product and no country");
+    Check(TradeCatalog.All.All(t => eng.SubmitProposal("production_ban", null, 60, 30, t.Id) is null), "every product of the trade catalogue can be chosen");
+    s.AssemblyProposals.Clear();
+
+    // The estimate for a global proposal counts everyone (there is no target to leave out).
+    var global = new AssemblyProposal { TypeId = "war_ban", TargetId = "", ProposerId = p.Id };
+    var all = s.AllNations().ToList();
+    var est = AssemblyService.EstimateVotes(global, all, p.Id);
+    Check(est.forVotes + est.againstVotes == all.Where(n => !n.IsEliminated).Sum(n => AssemblyService.VotingPower(n, all)), "estimated votes for a global law count every country");
+    var local = new AssemblyProposal { TypeId = "military_restriction", TargetId = persia.Id, ProposerId = p.Id };
+    var est2 = AssemblyService.EstimateVotes(local, all, p.Id);
+    Check(est2.forVotes + est2.againstVotes == est.forVotes + est.againstVotes - AssemblyService.VotingPower(persia, all), "...while a country-scoped one leaves out its target, as before");
+}
+
+using (var eng = NewDipEngine(221))
+{
+    // Voting resolution keeps its rules; the law it makes carries exactly the proposal's scope. Rejected and expired laws are not in force.
+    var s = eng.State; var p = s.PlayerNation; var persia = Ai(eng, "persia");
+    PassLaw(eng, "production_ban", null, "wheat", 100);
+    var law = s.ActiveAssemblyPolicies.Single();
+    Check(law.TypeId == "production_ban" && law.TargetId == "" && law.ProductId == "wheat" && law.ExpirationDate == law.ActivationDate.AddDays(100), "an approved production ban becomes a law on that product, with no country");
+    Check(s.AssemblyProposals.Single().Status == ProposalStatus.Active, "(the proposal is active)");
+    var approvedLine = s.Movements.Last(m => m.Kind == MovementKind.Assembly && m.Status == MovementStatus.Completed);
+    Check(approvedLine.Text.StartsWith("Assembly APPROVED") && approvedLine.Text.Contains("Wheat") && !approvedLine.Text.Contains("against"), "the report names the product and no country");
+    Check(AssemblyService.ProductionBan(s.ActiveAssemblyPolicies, "wheat", s.CurrentDate) is not null && AssemblyService.ProductionBan(s.ActiveAssemblyPolicies, "bread", s.CurrentDate) is null, "it holds for wheat only");
+    for (int i = 0; i < 101; i++) { p.Gold = 1e9; eng.AdvanceOneDay(); }
+    Check(s.ActiveAssemblyPolicies.Count == 0 && s.AssemblyProposals.Single().Status == ProposalStatus.Expired, "after its term the law is gone");
+    Check(AssemblyService.ProductionBan(s.ActiveAssemblyPolicies, "wheat", s.CurrentDate) is null && s.Movements.Last(m => m.Kind == MovementKind.Assembly).Text.StartsWith("Assembly policy expired"), "and recorded as expired");
+
+    // A rejected proposal makes no law.
+    s.AssemblyProposals.Clear();
+    Check(eng.SubmitProposal("war_ban", null, 100) is null, "(a war ban is proposed)");
+    var prop = s.AssemblyProposals.Single();
+    foreach (var n in s.AllNations().Where(n => n.Id != p.Id && !n.IsEliminated)) prop.Votes[n.Id] = false;
+    for (int i = 0; i < 31; i++) { p.Gold = 1e9; eng.AdvanceOneDay(); }
+    Check(prop.Status == ProposalStatus.Rejected && s.ActiveAssemblyPolicies.Count == 0, "a rejected proposal passes no law");
+    Check(TreatyService.WarDeclarationBlock(s) is null && eng.DeclareWar(persia.Id) is null, "and nothing is enforced: war can be declared");
+}
+
+using (var eng = NewDipEngine(222))
+{
+    // Persistence: proposals, product and the law in force survive save / load, and still bind afterwards.
+    var s = eng.State; var p = s.PlayerNation; var persia = Ai(eng, "persia");
+    eng.SubmitProposal("military_restriction", persia.Id, 200);
+    eng.SubmitProposal("production_ban", null, 200, 30, "wheat");
+    eng.SubmitProposal("war_ban", persia.Id, 200);
+    var before = s.AssemblyProposals.Select(x => (x.TypeId, x.TargetId, x.ProductId, x.EffectDurationDays, x.Status)).ToList();
+    Check(before.Select(x => x.TargetId).SequenceEqual(new[] { persia.Id, "", "" }) && before[1].ProductId == "wheat", "(stored: one country, one product, no stray country)");
+    var ban = s.AssemblyProposals[1]; foreach (var n in s.AllNations().Where(n => !n.IsEliminated)) ban.Votes[n.Id] = true;
+    for (int i = 0; i < 30; i++) { p.Gold = 1e9; eng.AdvanceOneDay(); }
+    var lawsBefore = s.ActiveAssemblyPolicies.Select(x => (x.TypeId, x.TargetId, x.ProductId, x.ExpirationDate)).ToList();
+    Check(lawsBefore.Count(l => l.TypeId == "production_ban" && l.ProductId == "wheat" && l.TargetId == "") == 1, "(the production ban passed)");
+    await eng.SaveAsync();
+    s.AssemblyProposals.Clear(); s.ActiveAssemblyPolicies.Clear();
+    await eng.LoadAsync();
+    var s2 = eng.State;
+    Check(s2.AssemblyProposals.Select(x => (x.TypeId, x.TargetId, x.ProductId, x.EffectDurationDays)).SequenceEqual(before.Select(x => (x.TypeId, x.TargetId, x.ProductId, x.EffectDurationDays))), "proposals keep their type, country, product and term");
+    Check(s2.ActiveAssemblyPolicies.Select(x => (x.TypeId, x.TargetId, x.ProductId, x.ExpirationDate)).SequenceEqual(lawsBefore), "the law keeps its scope, its product and its end date");
+    Check(AssemblyService.ProductionBlock(s2, "wheat") is not null && AssemblyService.ProductionBlock(s2, "bread") is null, "and still binds wheat only after loading");
+}
+
+using (var eng = NewDipEngine(223))
+{
+    // Military Training Restriction affects only its country: the AI's recruiting is halved, the player's training takes twice as long.
+    var s = eng.State; var p = s.PlayerNation; var persia = Ai(eng, "persia"); var spain = Ai(eng, "spain");
+    foreach (var n in new[] { persia, spain }) { n.BaseSoldiers = 20_000; n.Units = UnitCatalog.SeedArmy(1000); n.Gold = 1e9; }
+    s.ActiveAssemblyPolicies.Add(new ActiveAssemblyPolicy { TypeId = "military_restriction", TargetId = persia.Id, ActivationDate = s.CurrentDate, ExpirationDate = s.CurrentDate.AddDays(100) });
+    int p0 = persia.Soldiers, s0 = spain.Soldiers;
+    AiWorldService.Economy(s, persia); AiWorldService.Economy(s, spain);
+    int addedPersia = persia.Soldiers - p0, addedSpain = spain.Soldiers - s0;
+    Check(addedSpain > 40 && Math.Abs(addedPersia - addedSpain / 2) <= 1, $"the restricted country recruits half as much ({addedPersia} against {addedSpain}); the other is untouched");
+
+    p.Gold = 1e9; p.Wood = 1e7; p.Iron = 1e7; p.AddMilitaryItem("pike", 10_000); p.AddMilitaryItem("helmet", 10_000);
+    Check(eng.StartRecruitment(UnitType.Pikeman, 1000) is null, "(the player recruits normally)");
+    double normalDays = p.RecruitmentQueue.Last().TotalDays; p.RecruitmentQueue.Clear();
+    s.ActiveAssemblyPolicies.Add(new ActiveAssemblyPolicy { TypeId = "military_restriction", TargetId = p.Id, ActivationDate = s.CurrentDate, ExpirationDate = s.CurrentDate.AddDays(100) });
+    Check(eng.StartRecruitment(UnitType.Pikeman, 1000) is null, "(and under the restriction too)");
+    Check(p.RecruitmentQueue.Last().TotalDays > normalDays, "a restriction on the player makes its soldiers train for longer");
+    s.ActiveAssemblyPolicies.Clear();
+    p.RecruitmentQueue.Clear();
+    Check(eng.StartRecruitment(UnitType.Pikeman, 1000) is null, "(recruiting again)");
+    Check(p.RecruitmentQueue.Last().TotalDays == normalDays, "and once the law is gone, training is normal again");
+}
+
+using (var eng = NewDipEngine(224))
+{
+    // Weapon sales: one law stops every purchase and sale of military equipment, with any country.
+    var s = eng.State; var p = s.PlayerNation; var persia = Ai(eng, "persia"); var france = Ai(eng, "france");
+    p.Gold = 1e9; p.Helmets = 1000; persia.Helmets = 5000; france.Helmets = 5000; persia.Gold = 1e9; france.Gold = 1e9; persia.Wood = 1e6; france.Wood = 1e6; p.Wood = 1e6;
+    Embassy(eng, persia, france);
+    Check(eng.BuyProduct(persia.Id, "helmet", 10) is null && eng.SellProduct(france.Id, "helmet", 10, 500) is null, "(before the law: equipment trades normally)");
+    PassLaw(eng, "weapon_sales_ban", null, null, 100);
+    Check(eng.BuyProduct(persia.Id, "helmet", 10) is { } b1 && b1.Contains("prohibited") && eng.BuyProduct(france.Id, "pike", 10) is { } b2 && b2.Contains("Assembly"), "buying military equipment is refused from every country");
+    Check(eng.SellProduct(persia.Id, "helmet", 10, 500) is { } sl1 && sl1.Contains("prohibited") && eng.SellProduct(france.Id, "dagger", 10, 500) is not null, "selling it is refused to every country");
+    double gold = p.Gold, helmets = p.Helmets;
+    eng.SellProduct(persia.Id, "helmet", 10, 500);
+    Check(p.Gold == gold && p.Helmets == helmets, "(a refused sale moved nothing)");
+    Check(eng.BuyProduct(persia.Id, "wood", 10) is null && eng.SellProduct(france.Id, "wood", 10, 100) is null, "everything that is not military equipment still trades");
+    for (int i = 0; i < 101; i++) { p.Gold = 1e9; eng.AdvanceOneDay(); }
+    Check(eng.BuyProduct(persia.Id, "helmet", 10) is null, "after the term, equipment trades again");
+    // A retired country-by-country embargo from an older save still holds for its own country only.
+    s.ActiveAssemblyPolicies.Add(new ActiveAssemblyPolicy { TypeId = "weapon_embargo", TargetId = persia.Id, ActivationDate = s.CurrentDate, ExpirationDate = s.CurrentDate.AddDays(50) });
+    Check(eng.BuyProduct(persia.Id, "helmet", 10) is not null && eng.BuyProduct(france.Id, "helmet", 10) is null, "an old embargo still holds, for its country only");
+}
+
+using (var eng = NewDipEngine(225))
+{
+    // Production ban: only the chosen product, in every country's production — the player's, an AI country's and an annexed territory's.
+    using var control = NewDipEngine(225);
+    var s = eng.State; var p = s.PlayerNation; var persia = Ai(eng, "persia"); var spain = Ai(eng, "spain");
+    var sc = control.State; var pc = sc.PlayerNation; var persiaC = Ai(control, "persia"); var spainC = Ai(control, "spain");
+    foreach (var (st, player, ai, terr) in new[] { (s, p, persia, spain), (sc, pc, persiaC, spainC) })
+    {
+        player.ProductionBuildings["farm"] = 50; player.ProductionBuildings["bakery"] = 50; ai.ProductionBuildings["farm"] = 50; ai.ProductionBuildings["bakery"] = 50;
+        player.Mines = 10; player.Iron = 1000; player.Helmets = 0;
+        Warfare.AnnexNation(st, player, terr);
+        terr.ProductionBuildings["farm"] = 40; terr.ProductionBuildings["bakery"] = 40;
+        player.MilitaryCraftQueue.Add(new MilitaryCraftProject { RecipeId = "helmet", DaysLeft = 1, TotalDays = 5 });
+    }
+    s.ActiveAssemblyPolicies.Add(new ActiveAssemblyPolicy { TypeId = "production_ban", TargetId = "", ProductId = "wheat", ActivationDate = s.CurrentDate, ExpirationDate = s.CurrentDate.AddDays(60) });
+    s.ActiveAssemblyPolicies.Add(new ActiveAssemblyPolicy { TypeId = "production_ban", TargetId = "", ProductId = "iron", ActivationDate = s.CurrentDate, ExpirationDate = s.CurrentDate.AddDays(60) });
+    s.ActiveAssemblyPolicies.Add(new ActiveAssemblyPolicy { TypeId = "production_ban", TargetId = "", ProductId = "helmet", ActivationDate = s.CurrentDate, ExpirationDate = s.CurrentDate.AddDays(60) });
+    eng.AdvanceOneDay(); control.AdvanceOneDay();
+
+    Check(pc.GetProduct("Wheat") - p.GetProduct("Wheat") > 400, "the player's farms make no wheat while it is prohibited");
+    Check(persiaC.GetProduct("Wheat") - persia.GetProduct("Wheat") > 400, "nor do an AI country's");
+    Check(spainC.GetProduct("Wheat") - spain.GetProduct("Wheat") > 300, "nor an annexed territory's");
+    Check(Math.Abs(pc.GetProduct("Bread") - p.GetProduct("Bread")) < 1e-6 && Math.Abs(persiaC.GetProduct("Bread") - persia.GetProduct("Bread")) < 1e-6 && Math.Abs(spainC.GetProduct("Bread") - spain.GetProduct("Bread")) < 1e-6,
+        "bread, which is not prohibited, is made exactly as before everywhere");
+    Check(pc.Helmets - p.Helmets >= 10 && p.Helmets == 0 && p.MilitaryCraftQueue.Count == 0, "a batch of helmets finishing under the ban comes to nothing (and the order ends)");
+    Check(s.Inbox.Any(m => m.Topic == InboxTopic.Production && m.Summary.Contains("prohibited")), "the player is told");
+    Check(Math.Abs(pc.Wood - p.Wood) < 1e-6 && Math.Abs(pc.Stone - p.Stone) < 1e-6, "other products are untouched");
+
+    // Cannot start what cannot be made.
+    p.Gold = 1e9; p.Wood = 1e7; p.Stone = 1e7; p.Iron = 1e7; p.Copper = 1e7; p.Lead = 1e7;
+    Check(eng.StartMilitaryCraft("helmet") is { } c1 && c1.Contains("prohibited") && eng.StartMilitaryCraft("dagger") is null, "crafting a prohibited item cannot be started; another can");
+    Check(eng.BuildProduction("farm", 1) is { } b1 && b1.Contains("Wheat") && eng.MaxBuildProduction("farm").Max == 0 && eng.BuildProduction("bakery", 1) is null, "a mill for the prohibited product cannot be built; others can");
+    Check(eng.StartConstruction(BuildingType.Mine) is { } m1 && m1.Contains("Iron") && eng.StartConstruction(BuildingType.Farm) is null, "nor a mine while iron is prohibited, but a farm is fine");
+    spain.GoodsInventory["Wheat"] = 0; p.Gold = 1e9; spain.Wood = 1e7; spain.Stone = 1e7; spain.Iron = 1e7;
+    Check(eng.BuildProductionInTerritory(spain.Id, "farm", 1) is { } t1 && t1.Contains("Wheat") && eng.BuildProductionInTerritory(spain.Id, "bakery", 1) is null, "the same in an annexed territory");
+    Check(eng.ReportTerritory(spain.Id)!.MillList.Single(m => m.Id == "farm").OutputPerDay == 0 && eng.ReportTerritory(spain.Id)!.MillList.Single(m => m.Id == "bakery").OutputPerDay > 0, "and its report shows the prohibited mills idle");
+
+    // The law ends: production resumes.
+    for (int i = 0; i < 61; i++) { p.Gold = 1e9; eng.AdvanceOneDay(); }
+    Check(AssemblyService.BannedProducts(s).Count == 0 && eng.BuildProduction("farm", 1) is null, "after its term the product can be made again");
+}
+
+using (var eng = NewDipEngine(229))
+{
+    // Raw materials, measured in isolation: the same world with and without the ban, nothing else different.
+    using var control = NewDipEngine(229);
+    foreach (var e in new[] { eng, control }) { var pl = e.State.PlayerNation; pl.ProductionBuildings.Clear(); pl.Workshops = 0; pl.Mines = 10; pl.Sawmills = 5; pl.Iron = 1_000_000; pl.Wood = 1_000_000; }   // (a deep stock, so the people's daily need for wood cannot hide the difference)   // (no mills or workshops that use iron and wood either: only the mines and sawmills matter)
+    eng.State.ActiveAssemblyPolicies.Add(new ActiveAssemblyPolicy { TypeId = "production_ban", TargetId = "", ProductId = "iron", ActivationDate = eng.State.CurrentDate, ExpirationDate = eng.State.CurrentDate.AddDays(30) });
+    double i0 = eng.State.PlayerNation.Iron, w0 = eng.State.PlayerNation.Wood, ci0 = control.State.PlayerNation.Iron, cw0 = control.State.PlayerNation.Wood;
+    eng.AdvanceOneDay(); control.AdvanceOneDay();
+    // (the two worlds are identical but for the law, so their difference is exactly what the ban took away)
+    double ironLost = (control.State.PlayerNation.Iron - ci0) - (eng.State.PlayerNation.Iron - i0);
+    Check(Math.Abs(ironLost - 10 * Balance.IronPerMinePerDay) < 1e-3, $"while iron is prohibited the mines' {ironLost:N0} iron a day is not dug");
+    Check(Math.Abs((eng.State.PlayerNation.Wood - w0) - (control.State.PlayerNation.Wood - cw0)) < 1e-3, "the sawmills are not affected by an iron ban");
+    eng.State.ActiveAssemblyPolicies.Clear();
+    eng.State.ActiveAssemblyPolicies.Add(new ActiveAssemblyPolicy { TypeId = "production_ban", TargetId = "", ProductId = "wood", ActivationDate = eng.State.CurrentDate, ExpirationDate = eng.State.CurrentDate.AddDays(30) });
+    double w1 = eng.State.PlayerNation.Wood, cw1 = control.State.PlayerNation.Wood;
+    eng.AdvanceOneDay(); control.AdvanceOneDay();
+    double woodLost = (control.State.PlayerNation.Wood - cw1) - (eng.State.PlayerNation.Wood - w1);
+    Check(Math.Abs(woodLost - 5 * Balance.WoodPerSawmillPerDay) < 1e-3, $"while wood is prohibited the sawmills' {woodLost:N0} wood a day is not cut");
+}
+
+using (var eng = NewDipEngine(226))
+{
+    // Annexation: one law forbids it for everyone, in every validation — and an AI conqueror is bound like the player.
+    var s = eng.State; var p = s.PlayerNation; var persia = Ai(eng, "persia"); var spain = Ai(eng, "spain"); var easter = Ai(eng, "easter");
+    PassLaw(eng, "annexation_ban", null, null, 200);
+    var law = s.ActiveAssemblyPolicies.Single();
+    Check(law.TargetId == "" && TreatyService.AnnexationBlock(s, persia.Id) is { } b1 && b1.Contains("any country") && TreatyService.AnnexationBlock(s, p.Id) is not null && TreatyService.AnnexationBlock(s, easter.Id) is not null,
+        "no country, the player's included, can be annexed");
+
+    // The player: no invasion, no annexation after a victory.
+    p.Units = UnitCatalog.SeedArmy(6000); persia.Units = UnitCatalog.SeedArmy(3500);
+    eng.DeclareWar(persia.Id);
+    Check(!eng.LaunchInvasion(persia.Id, 3000).ok && !eng.ConfirmAttack(persia.Id, 3000).Ok && p.Soldiers == 6000, "the player cannot launch an invasion");
+    s.PendingVictories.Add(new VictoryDecision { LoserId = persia.Id, LoserName = persia.Name, WonDate = s.CurrentDate, ExpiresDate = s.CurrentDate.AddDays(30) });
+    persia.AtWarWithPlayer = true;
+    Check(eng.ResolveVictory(persia.Id, VictoryChoice.Annex).Outcome == DipOutcome.Invalid && !persia.IsEliminated && eng.PendingVictory(persia.Id) is not null, "nor choose to annex a beaten country");
+    Check(eng.ResolveVictory(persia.Id, VictoryChoice.Resources).Ok && !persia.IsEliminated, "(the other choices still work)");
+    Check(eng.ProposePeace(spain.Id, new[] { PeaceTerm.Annexation(spain.Id, p.Id) }).Outcome == DipOutcome.Invalid, "nor accept a surrender by treaty");
+
+    // An AI conqueror: the battle is won, the war goes on, nothing is taken.
+    var eastSpain = Ai(eng, "france");
+    s.Wars.Add(new WarRecord { AggressorId = spain.Id, DefenderId = easter.Id, StartDate = s.CurrentDate, Aim = WarAim.Conquest });
+    double w0 = spain.Gold, l0 = easter.Gold;
+    VictoryService.ResolveForAi(s, spain, easter);
+    Check(!easter.IsEliminated && spain.Gold == w0 && easter.Gold == l0 && AiWorldService.AtWar(s, spain.Id, easter.Id) && HasLog(eng, "cannot annex it"), "an AI conqueror cannot annex either: the war goes on and nothing changes hands");
+
+    // An enemy army that breaks the player's home army cannot take the country.
+    persia.AtWarWithPlayer = true; p.Units = UnitCatalog.SeedArmy(200); persia.Units = UnitCatalog.SeedArmy(10_000);
+    var march = TreatyService.LaunchMarch(s, persia, p, 4000)!;
+    for (int i = 0; i < march.TotalDays; i++) { p.Gold = 1e9; eng.AdvanceOneDay(); }
+    Check(!p.IsEliminated && !s.Defeated && s.Movements.Any(m => m.Text.Contains("cannot annex")), "an invader that wins the field cannot annex the player's country while the ban holds");
+
+    // Without the law the same invasion ends the country (so the guard above is not vacuous).
+    using var control = NewDipEngine(226);
+    var cs = control.State; var cp = cs.PlayerNation; var cpersia = Ai(control, "persia");
+    cpersia.AtWarWithPlayer = true; cp.Units = UnitCatalog.SeedArmy(200); cpersia.Units = UnitCatalog.SeedArmy(10_000);
+    var cmarch = TreatyService.LaunchMarch(cs, cpersia, cp, 4000)!;
+    for (int i = 0; i < cmarch.TotalDays; i++) { cp.Gold = 1e9; control.AdvanceOneDay(); }
+    Check(cp.IsEliminated, "(without the ban, that army annexes the player)");
+
+    // The law ends.
+    for (int i = 0; i < 201; i++) { p.Gold = 1e9; eng.AdvanceOneDay(); if (p.IsEliminated) break; }
+    Check(TreatyService.AnnexationBlock(s, persia.Id) is null || p.IsEliminated, "after its term annexation is allowed again");
+}
+
+using (var eng = NewDipEngine(227))
+{
+    // War: one law forbids new declarations by anyone; wars under way go on; it ends with its term.
+    var s = eng.State; var p = s.PlayerNation; var persia = Ai(eng, "persia"); var spain = Ai(eng, "spain");
+    p.Units = UnitCatalog.SeedArmy(6000);
+    Check(eng.DeclareWar(spain.Id) is null && spain.AtWarWithPlayer, "(a war is already under way)");
+    PassLaw(eng, "war_ban", null, null, 1000);
+    p.Units = UnitCatalog.SeedArmy(6000);   // the month of voting went by: restore the home army so the checks below mean something
+    int wars0 = s.Wars.Count;
+    Check(TreatyService.WarDeclarationBlock(s) is { } why && why.Contains("forbidden declaring war"), "the Assembly's ban is in force");
+
+    int soldiers = p.Soldiers;
+    Check(soldiers == 6000, "(the home army is 6,000)");
+    Check(eng.DeclareWar(persia.Id) is { } refused && refused.Contains("Assembly") && !persia.AtWarWithPlayer, "the player cannot declare war");
+    Check(!eng.ConfirmAttack(persia.Id, 2000).Ok && eng.ConfirmAttack(persia.Id, 2000).Message.Contains("forbidden declaring war") && !persia.AtWarWithPlayer && p.Soldiers == soldiers && s.MarchingArmies.Count == 0,
+        "nor start one by sending troops: no war, and no soldier leaves");
+    Check(eng.PlanAttack(persia.Id)?.BlockReason?.Contains("Assembly") == true, "the attack popup says why");
+    var already = eng.ConfirmAttack(spain.Id, 2000);
+    Check(spain.AtWarWithPlayer && already.Ok && !already.WarDeclared, "a war already under way goes on, and its armies can still be sent");
+
+    // AI countries: directly, and through the daily simulation.
+    var france = Ai(eng, "france");
+    AiWorldService.DeclareWarOnPlayer(s, persia);
+    AiWorldService.DeclareWar(s, persia, france, new Random(1));
+    AiWorldService.DeclareWar(s, france, persia, new Random(2));
+    Check(!persia.AtWarWithPlayer && s.Wars.Count == wars0, "AI countries cannot declare war, on the player or on each other");
+    for (int i = 0; i < 700; i++) { p.Gold = 1e9; eng.AdvanceOneDay(); p.Units = UnitCatalog.SeedArmy(20_000); }
+    Check(s.Wars.Count == wars0 && s.OtherNations.Count(n => n.AtWarWithPlayer) <= 1, "over two years of simulation no AI country starts a war (only the one already under way)");
+
+    using var control = NewDipEngine(227);
+    var cs = control.State;
+    for (int i = 0; i < 700; i++) { cs.PlayerNation.Gold = 1e9; control.AdvanceOneDay(); cs.PlayerNation.Units = UnitCatalog.SeedArmy(20_000); }
+    Check(cs.Wars.Count > 0 || cs.OtherNations.Any(n => n.AtWarWithPlayer), "(without the ban the same world does go to war)");
+    Check(s.Wars.Count == wars0, "(and the banned one still has no new war)");
+
+    // Expired: war can be declared again.
+    s.ActiveAssemblyPolicies.Clear();
+    Check(TreatyService.WarDeclarationBlock(s) is null && eng.DeclareWar(persia.Id) is null && persia.AtWarWithPlayer, "once the law is gone, war can be declared again");
+}
+
+using (var eng = NewDipEngine(228))
+{
+    // The war ban also stops an AI country declaring war over a refused tribute demand.
+    var s = eng.State; var p = s.PlayerNation; var persia = Ai(eng, "persia");
+    p.Units = UnitCatalog.SeedArmy(100); persia.Units = UnitCatalog.SeedArmy(20_000);
+    s.ActiveAssemblyPolicies.Add(new ActiveAssemblyPolicy { TypeId = "war_ban", TargetId = "", ActivationDate = s.CurrentDate, ExpirationDate = s.CurrentDate.AddDays(1000) });
+    for (int i = 0; i < 40; i++) { s.PlayerNation.DiplomacyCooldowns.Clear(); eng.DemandTribute(persia.Id); }
+    Check(!persia.AtWarWithPlayer, "a refused tribute demand never leads to a war while the ban holds");
+    s.ActiveAssemblyPolicies.Clear();
+    for (int i = 0; i < 80 && !persia.AtWarWithPlayer; i++) { s.PlayerNation.DiplomacyCooldowns.Clear(); eng.DemandTribute(persia.Id); }
+    Check(persia.AtWarWithPlayer, "(without it, the same demands do)");
+}
+
+Console.WriteLine("== 74. The political map: natural coasts, exact shared borders, islands, capitals, annexation, old saves ==");
+{
+    // ---- helpers over the polygons the game really has
+    static bool MgInRing(double x, double y, List<MapPoint> ring)
+    {
+        bool inside = false;
+        for (int i = 0, j = ring.Count - 1; i < ring.Count; j = i++)
+        {
+            double xi = ring[i].X, yi = ring[i].Y, xj = ring[j].X, yj = ring[j].Y;
+            if ((yi > y) != (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) inside = !inside;
+        }
+        return inside;
+    }
+    static bool MgInShape(double x, double y, List<List<MapPoint>> polygons) => polygons.Any(r => MgInRing(x, y, r));
+    static string MgEdgeKey(MapPoint a, MapPoint b) =>
+        (a.X < b.X || (a.X == b.X && a.Y <= b.Y)) ? $"{a.X:R},{a.Y:R}|{b.X:R},{b.Y:R}" : $"{b.X:R},{b.Y:R}|{a.X:R},{a.Y:R}";
+
+    var eng = new GameEngine(new SimulationService(74), new SaveService(saveFolder));
+    var st = eng.State;
+    var shapes = new List<(string Id, string Kind, List<List<MapPoint>> Polys)>();
+    foreach (var n in st.AllNations()) shapes.Add((n.Id, "nation", n.Territory));
+    foreach (var r in st.NeutralRegions) shapes.Add(("n:" + r.Name, "neutral", r.Polygons));
+    foreach (var r in st.FrontierRegions) shapes.Add(("f:" + r.Name, "frontier", r.Polygons));
+    var allRings = shapes.SelectMany(s => s.Polys.Select(p => (s.Id, s.Kind, Ring: p))).ToList();
+
+    Check(st.MapVersion == WorldGeometry.Version && st.NeutralRegions.Count == 13 && st.FrontierRegions.Count == 3, "a new game carries the current map edition: 41 countries, 13 neutral territories (Greenland and Svalbard are new), 3 frontier regions");
+    Check(allRings.All(r => r.Ring.Count >= 4 && r.Ring[0].X == r.Ring[^1].X && r.Ring[0].Y == r.Ring[^1].Y), "every polygon is a closed ring of at least three corners");
+    Check(allRings.All(r => r.Ring.All(p => double.IsFinite(p.X) && double.IsFinite(p.Y) && p.X >= 0 && p.X <= 2200 && p.Y >= 0 && p.Y <= 1150)), "all points lie inside the 2200 x 1150 map");
+
+    // ---- shared borders are the same points on both sides
+    var uses = new Dictionary<string, List<string>>();
+    foreach (var (id, _, ring) in allRings)
+        for (int i = 0; i < ring.Count - 1; i++)
+        {
+            if (ring[i].X == ring[i + 1].X && ring[i].Y == ring[i + 1].Y) continue;
+            var k = MgEdgeKey(ring[i], ring[i + 1]);
+            if (!uses.TryGetValue(k, out var l)) uses[k] = l = new();
+            l.Add(id);
+        }
+    int sharedEdges = uses.Values.Count(u => u.Count == 2 && u[0] != u[1]);
+    Check(uses.Values.All(u => u.Count <= 2), "no border segment is claimed by three polygons");
+    Check(sharedEdges > 3000, $"neighbours meet along identical segments ({sharedEdges:N0} shared border segments, each the same two points in both realms)");
+
+    // no T-junction defects: a corner of one realm never sits on, or beside, another realm's edge without being one of that edge's own corners
+    {
+        var segs = new List<(string Id, MapPoint A, MapPoint B)>();
+        foreach (var (id, _, ring) in allRings) for (int i = 0; i < ring.Count - 1; i++) segs.Add((id, ring[i], ring[i + 1]));
+        var grid = new Dictionary<(int, int), List<int>>();
+        for (int s = 0; s < segs.Count; s++)
+            for (int gx = (int)Math.Floor(Math.Min(segs[s].A.X, segs[s].B.X) / 8); gx <= (int)Math.Floor(Math.Max(segs[s].A.X, segs[s].B.X) / 8); gx++)
+                for (int gy = (int)Math.Floor(Math.Min(segs[s].A.Y, segs[s].B.Y) / 8); gy <= (int)Math.Floor(Math.Max(segs[s].A.Y, segs[s].B.Y) / 8); gy++)
+                { if (!grid.TryGetValue((gx, gy), out var l)) grid[(gx, gy)] = l = new(); l.Add(s); }
+        int defects = 0;
+        foreach (var (id, _, ring) in allRings)
+            foreach (var p in ring.Take(ring.Count - 1))
+                if (grid.TryGetValue(((int)Math.Floor(p.X / 8), (int)Math.Floor(p.Y / 8)), out var near))
+                    foreach (int s in near)
+                    {
+                        var (sid, a, b) = segs[s]; if (sid == id) continue;
+                        if ((p.X == a.X && p.Y == a.Y) || (p.X == b.X && p.Y == b.Y)) continue;
+                        double dx = b.X - a.X, dy = b.Y - a.Y, len2 = dx * dx + dy * dy; if (len2 == 0) continue;
+                        double t = ((p.X - a.X) * dx + (p.Y - a.Y) * dy) / len2; if (t <= 0 || t >= 1) continue;
+                        double dist = Math.Abs((p.X - a.X) * dy - (p.Y - a.Y) * dx) / Math.Sqrt(len2);
+                        if (dist < 0.04) defects++;
+                    }
+        Check(defects == 0, $"no gap or overlap at a junction: no corner lies on another realm's border ({defects} found)");
+    }
+
+    // ---- no overlaps, almost no gaps: probe the whole map on a regular grid
+    {
+        int probes = 0, overlaps = 0, covered = 0;
+        for (double y = 3; y < 1150; y += 5)
+            for (double x = 3; x < 2200; x += 5)
+            {
+                probes++;
+                int owners = shapes.Count(s => s.Polys.Any(r => MgInRing(x, y, r)));
+                if (owners > 1) overlaps++; else if (owners == 1) covered++;
+            }
+        Check(overlaps == 0, $"no point of the map belongs to two realms ({probes:N0} probes)");
+        Check(covered > 30_000, $"the political map covers the land ({covered:N0} probes fall in a country, neutral land or frontier region)");
+    }
+
+    // ---- no boxes, regular polygons or ruler-straight edges: the geometry is the land's, not a drawing
+    {
+        bool MgRegular(List<MapPoint> r)
+        {
+            var pts = r.Take(r.Count - 1).ToList(); if (pts.Count < 5 || pts.Count > 14) return false;
+            double cx = pts.Average(p => p.X), cy = pts.Average(p => p.Y);
+            var rad = pts.Select(p => Math.Sqrt((p.X - cx) * (p.X - cx) + (p.Y - cy) * (p.Y - cy))).ToList(); double m = rad.Average();
+            return m > 0 && Math.Sqrt(rad.Sum(v => (v - m) * (v - m)) / rad.Count) / m < 0.06;
+        }
+        double MgArea(List<MapPoint> r) { double a = 0; for (int i = 0; i < r.Count - 1; i++) a += r[i].X * r[i + 1].Y - r[i + 1].X * r[i].Y; return Math.Abs(a) / 2; }
+        bool MgBox(List<MapPoint> r)
+        {
+            double w = r.Max(p => p.X) - r.Min(p => p.X), h = r.Max(p => p.Y) - r.Min(p => p.Y);
+            return r.Count <= 9 && w * h > 0 && MgArea(r) / (w * h) > 0.88;
+        }
+        int axis = 0;
+        foreach (var (_, _, ring) in allRings)
+            for (int i = 0; i < ring.Count - 1; i++)
+            {
+                var a = ring[i]; var b = ring[i + 1];
+                bool frame = (a.X == 0 && b.X == 0) || (a.Y == 0 && b.Y == 0) || (a.X == 2200 && b.X == 2200) || (a.Y == 1150 && b.Y == 1150);
+                if (!frame && (a.X == b.X || a.Y == b.Y) && Math.Abs(a.X - b.X) + Math.Abs(a.Y - b.Y) > 25) axis++;
+            }
+        Check(allRings.Count(r => MgRegular(r.Ring)) == 0, "no polygon is a regular octagon or other regular shape (the old Venice, Genoa, Papal States, Scotland, Crimea, UAE, Micronesia and Easter Island were)");
+        Check(allRings.Count(r => MgBox(r.Ring)) == 0, "no polygon is a rectangle (the old Tibet, Hejaz, Jurchen and frontier-region boxes were)");
+        Check(axis == 0, "no border or coast runs ruler-straight along the map's axes (the old Russia cut at x = 1250 and the Egypt-Libya line at x = 485 did)");
+        Check(allRings.All(r => MgArea(r.Ring) > 4), "no polygon is a sliver or a dot");
+    }
+
+    // ---- who owns what: preserved lands, islands and exclaves are still separate polygons of the right owner
+    bool MgHas(string id, double x0, double y0, double x1, double y1) => shapes.First(s => s.Id == id).Polys.Any(r => { double cx = r.Average(p => p.X), cy = r.Average(p => p.Y); return cx >= x0 && cx <= x1 && cy >= y0 && cy <= y1; });
+    Check(MgHas("spain", 1440, 560, 1530, 700) && MgHas("spain", 1030, 640, 1075, 690) && MgHas("spain", 330, 355, 360, 395) && MgHas("spain", 380, 360, 440, 400), "the Iberian Union keeps its overseas possessions as separate polygons: the Philippines, Ceylon, Sardinia and southern Italy / Sicily");
+    Check(MgHas("venice", 470, 400, 530, 430), "Venice holds Crete as an exclave of its own");
+    Check(st.AllNations().First(n => n.Id == "morocco").Territory.Count >= 3 && st.AllNations().First(n => n.Id == "japan").Territory.Count >= 3, "island and exclave countries keep several polygons (Japan's islands, Morocco's Saharan outpost and the Canaries)");
+    Check(st.AllNations().First(n => n.Id == "micronesia").Territory.Count >= 2 && st.AllNations().First(n => n.Id == "easter").Territory.Count >= 1 && st.FrontierRegions.All(r => r.Polygons.Count >= 2), "the Pacific islands and the frontier archipelagos are islands, in several pieces");
+    {
+        var tibet = st.NeutralRegions.First(r => r.Name == "Tibet");
+        var ming = st.AllNations().First(n => n.Id == "ming");
+        Check(tibet.Polygons.Count >= 1 && MgInShape(tibet.LabelX, tibet.LabelY, tibet.Polygons) && !MgInShape(tibet.LabelX, tibet.LabelY, ming.Territory), "Tibet is a neutral plateau of its own and no longer lies inside Ming (it used to be a rectangle drawn over it)");
+        Check(st.NeutralRegions.All(r => MgInShape(r.LabelX, r.LabelY, r.Polygons)) && st.FrontierRegions.All(r => MgInShape(r.LabelX, r.LabelY, r.Polygons)), "every neutral and frontier region is named on its own land, not in the sea");
+        var egypt = st.AllNations().First(n => n.Id == "ottoman");
+        Check(MgInShape(575, 470, egypt.Territory), "Egypt, the Nile Delta and Sinai are Ottoman land (they were missing, with the Ottoman rectangle drawn in the Arabian desert instead)");
+    }
+
+    // ---- capitals: inside their own realm, on land; the moved ones, listed
+    var stock = new Dictionary<string, (double X, double Y)>
+    {
+        ["ottoman"] = (604, 382), ["spain"] = (206, 368), ["france"] = (281, 308), ["england"] = (221, 247), ["dutch"] = (307, 256), ["austria"] = (389, 297), ["poland"] = (555, 287), ["russia"] = (814, 179),
+        ["sweden"] = (418, 156), ["venice"] = (372, 317), ["persia"] = (783, 433), ["mughal"] = (1040, 515), ["ming"] = (1299, 393), ["japan"] = (1611, 407), ["kazakh"] = (909, 298), ["morocco"] = (165, 465),
+        ["denmark"] = (437, 127), ["crimea"] = (593, 309), ["ethiopia"] = (646, 649), ["siam"] = (1262, 611), ["korea"] = (1528, 363), ["bukhara"] = (899, 358), ["hre"] = (356, 258), ["scotland"] = (209, 209),
+        ["genoa"] = (334, 329), ["papal"] = (386, 349), ["italy"] = (350, 320), ["croatia"] = (412, 321), ["vietnam"] = (1309, 582), ["burma"] = (1219, 544), ["ahom"] = (1199, 498), ["yuan"] = (1296, 299),
+        ["nepal"] = (1097, 477), ["kongo"] = (485, 778), ["jurchens"] = (1464, 360), ["cambodia"] = (1300, 617), ["laos"] = (1288, 568), ["malaysia"] = (1267, 693), ["uae"] = (796, 512), ["micronesia"] = (1750, 690), ["easter"] = (2120, 900),
+    };
+    var moved = st.AllNations().Where(n => stock.TryGetValue(n.Id, out var s0) && (Math.Abs(n.MapX - s0.X) > 0.01 || Math.Abs(n.MapY - s0.Y) > 0.01)).Select(n => n.Id).OrderBy(x => x).ToList();
+    Check(stock.Count == 41 && moved.SequenceEqual(new[] { "denmark", "dutch", "jurchens", "uae", "venice" }), $"only five capitals moved with the map (Copenhagen onto the Danish isles; Holland, Venice, Hetu Ala and Julfar onto their own coast): {string.Join(", ", moved)}");
+    Check(st.AllNations().All(n => MgInShape(n.MapX, n.MapY, n.Territory)), "every one of the 41 capitals lies inside its own country's territory (Denmark's, Croatia's, Vietnam's, Ahom's and Laos's lay in a neighbour's)");
+    Check(st.AllNations().Where(n => moved.Contains(n.Id)).All(n => Math.Sqrt(Math.Pow(n.MapX - stock[n.Id].X, 2) + Math.Pow(n.MapY - stock[n.Id].Y, 2)) <= 12 || n.Id == "denmark"), "a harbour capital moved at most a dozen map units");
+    Check(st.AllNations().First(n => n.Id == "denmark").CapitalName == "Copenhagen", "Denmark-Norway's capital is Copenhagen, not the country's own name");
+    Check(WorldGeometry.Capitals.Count == 5 && WorldGeometry.Capitals.All(kv => st.AllNations().First(n => n.Id == kv.Key) is var n && n.MapX == kv.Value.X && n.MapY == kv.Value.Y && n.CapitalName == kv.Value.Name), "the table of moved capitals (used to update old saves) agrees with the capitals a new game starts with");
+
+    // ---- march times after the coordinate changes: the same rule, from valid capitals
+    Check(Balance.MarchSpeedPerDay == 30 && Balance.MarchFallbackDays == 20, "the movement speed and the fallback are untouched (30 map units a day)");
+    {
+        var all = st.AllNations().ToList(); bool every = true; int pairs = 0;
+        foreach (var a in all) foreach (var b in all)
+        {
+            var route = MapGeography.Route(a, b); pairs++;
+            double d = Math.Sqrt(Math.Pow(a.MapX - b.MapX, 2) + Math.Pow(a.MapY - b.MapY, 2));
+            if (route.UsedFallback || route.Distance is null || route.Days != Math.Max(1, (int)Math.Ceiling(d / Balance.MarchSpeedPerDay))) every = false;
+        }
+        Check(every && MapGeography.MissingCapitals(st).Count == 0, $"all {pairs:N0} capital-to-capital marches are valid and take distance / 30 days, rounded up, never less than one");
+        var den = all.First(n => n.Id == "denmark"); var swe = all.First(n => n.Id == "sweden"); var hre = all.First(n => n.Id == "hre"); var rus = all.First(n => n.Id == "russia");
+        Check(MapGeography.Route(den, swe).Days == 4 && MapGeography.Route(den, hre).Days == 2, "Copenhagen is four days from Stockholm and two from the Empire (from the Arctic, where the old coordinate put it, the same marches took two and six days)");
+        Check(MapGeography.Route(all.First(n => n.Id == "ottoman"), all.First(n => n.Id == "persia")).Days == Math.Max(1, (int)Math.Ceiling(Math.Sqrt(Math.Pow(604 - 783, 2) + Math.Pow(382 - 433, 2)) / 30.0)), "capitals that did not move march exactly as before (Constantinople to Isfahan)");
+    }
+
+    // ---- selection: on either side of a real border the tap finds the two different realms
+    {
+        var edges = new List<(MapPoint A, MapPoint B, string One, string Two)>();
+        var byKey = new Dictionary<string, (MapPoint A, MapPoint B)>();
+        foreach (var (id, _, ring) in allRings) for (int i = 0; i < ring.Count - 1; i++) byKey.TryAdd(MgEdgeKey(ring[i], ring[i + 1]), (ring[i], ring[i + 1]));
+        int tested = 0, right = 0; int step = 0;
+        foreach (var kv in uses.Where(u => u.Value.Count == 2 && u.Value[0] != u.Value[1] && u.Value.All(v => !v.StartsWith("f:"))))
+        {
+            if (step++ % 9 != 0) continue;
+            var (a, b) = byKey[kv.Key]; double dx = b.X - a.X, dy = b.Y - a.Y, len = Math.Sqrt(dx * dx + dy * dy); if (len < 1.5) continue;
+            double mx = (a.X + b.X) / 2, my = (a.Y + b.Y) / 2, nx = -dy / len, ny = dx / len;
+            string Who(double x, double y) { var hit = shapes.Where(s => s.Polys.Any(r => MgInRing(x, y, r))).Select(s => s.Id).ToList(); return hit.Count == 1 ? hit[0] : "?"; }
+            string p1 = Who(mx + nx * 0.3, my + ny * 0.3), p2 = Who(mx - nx * 0.3, my - ny * 0.3); tested++;
+            if (p1 != "?" && p2 != "?" && p1 != p2 && new[] { p1, p2 }.OrderBy(x => x).SequenceEqual(kv.Value.OrderBy(x => x))) right++;
+        }
+        Check(tested > 300 && right >= tested * 0.97, $"tapping either side of a border finds its two realms: {right} of {tested} sampled borders ({(100.0 * right / tested):0.0}%)");
+    }
+
+    // ---- annexation: the realm's polygons grow, the annexed country's list empties, and the lands touch along identical segments
+    {
+        var e2 = new GameEngine(new SimulationService(75), new SaveService(saveFolder));
+        var s2 = e2.State; var player = s2.PlayerNation; var persia = s2.OtherNations.First(n => n.Id == "persia");
+        int home = player.Territory.Count, theirs = persia.Territory.Count, total = home + theirs;
+        Warfare.AnnexNation(s2, player, persia);
+        Check(player.Territory.Count == total && persia.Territory.Count == 0 && player.AnnexedPolygonCount == theirs, "annexing a country hands its polygons to the winner's realm and empties its own list (ownership data intact)");
+        var homeKeys = new HashSet<string>(); var annexedKeys = new HashSet<string>();
+        for (int r = 0; r < player.Territory.Count; r++) { var ring = player.Territory[r]; for (int i = 0; i < ring.Count - 1; i++) (r < home ? homeKeys : annexedKeys).Add(MgEdgeKey(ring[i], ring[i + 1])); }
+        Check(homeKeys.Overlaps(annexedKeys), "the annexed land meets its new master along exactly the same segments, so the map can draw it as one realm without a border (the renderer hides edges shared by two polygons of one realm)");
+        Check(s2.AnnexedBy(player.Id).Single().Id == "persia" && persia.AnnexedById == player.Id, "the annexed country is recorded under its master");
+    }
+
+    // ---- saves made under the old map: the map is redrawn, ownership is not touched
+    {
+        var e3 = new GameEngine(new SimulationService(76), new SaveService(saveFolder));
+        var s3 = e3.State; var player = s3.PlayerNation; var persia = s3.OtherNations.First(n => n.Id == "persia"); var dutch = s3.OtherNations.First(n => n.Id == "dutch"); var den = s3.OtherNations.First(n => n.Id == "denmark");
+        Warfare.AnnexNation(s3, player, persia);
+        // make it look like a save from the stylised map: boxes for every realm, old capitals, old neutral/frontier shapes, no map edition
+        List<List<MapPoint>> MgBox(double x, double y) => new() { new() { new(x, y), new(x + 20, y), new(x + 20, y + 20), new(x, y + 20), new(x, y) } };
+        foreach (var n in s3.AllNations()) n.Territory = n.IsEliminated ? new() : MgBox(n.MapX, n.MapY);
+        player.Territory.Add(new() { new(0, 0), new(5, 0), new(5, 5), new(0, 0) }); player.AnnexedPolygonCount = 1;   // (Persia's old land, appended)
+        s3.NeutralRegions.RemoveAll(r => r.Name is "Greenland" or "Svalbard"); s3.NeutralRegions.First(r => r.Name == "Tibet").Polygons = MgBox(1100, 420);
+        s3.FrontierRegions.RemoveAt(2);   // one frontier region was already colonised
+        s3.FrontierRegions[0].Polygons = MgBox(40, 220);
+        dutch.MapX = 307; dutch.MapY = 256; dutch.CapitalName = "Holland";   // stock capital: gets moved
+        den.MapX = 500; den.MapY = 500; den.CapitalName = "Hafnia";         // edited in the save: stays
+        s3.MapVersion = 0;
+        await e3.SaveAsync(); await e3.LoadAsync();
+        var up = e3.State;
+        var upPlayer = up.PlayerNation; var upPersia = up.OtherNations.First(n => n.Id == "persia");
+        Check(up.MapVersion == WorldGeometry.Version, "loading an old save brings its map up to the current edition");
+        Check(upPlayer.Territory.Count == WorldGeometry.Nation(upPlayer.Id).Count + WorldGeometry.Nation("persia").Count && upPlayer.AnnexedPolygonCount == WorldGeometry.Nation("persia").Count && upPersia.Territory.Count == 0 && upPersia.IsEliminated && upPersia.AnnexedById == upPlayer.Id,
+            "an annexed country's lands come back in its master's realm (home lands plus the annexed country's), who owns what unchanged");
+        Check(up.OtherNations.Where(n => !n.IsEliminated).All(n => n.Territory.Count == WorldGeometry.Nation(n.Id).Count), "every other country gets its redrawn lands");
+        Check(up.NeutralRegions.Count == 13 && up.NeutralRegions.All(r => r.Polygons.SelectMany(p => p).Count() == WorldGeometry.Neutral(r.Name).SelectMany(p => p).Count() && r.LabelX == WorldGeometry.Label(r.Name).X) && up.NeutralRegions.Any(r => r.Name == "Greenland"), "neutral regions are redrawn point for point and the new ones added");
+        Check(up.FrontierRegions.Count == 2 && up.FrontierRegions.All(r => r.Polygons.SelectMany(p => p).Count() == WorldGeometry.Frontier(r.Name).SelectMany(p => p).Count()), "frontier regions still open are redrawn point for point; the colonised one stays gone");
+        var upDutch = up.OtherNations.First(n => n.Id == "dutch"); var upDen = up.OtherNations.First(n => n.Id == "denmark");
+        Check(upDutch.MapY == 267 && upDen.MapX == 500 && upDen.CapitalName == "Hafnia", "a stock capital that the map moved is moved in the save too, one the save had already changed is left alone");
+        await e3.LoadAsync();
+        Check(e3.State.MapVersion == WorldGeometry.Version && e3.State.PlayerNation.Territory.Count == upPlayer.Territory.Count, "(loading the same save again gives the same map)");
+    }
 }
 
 Console.WriteLine(failures == 0 ? "\nALL CHECKS PASSED" : $"\n{failures} CHECK(S) FAILED");

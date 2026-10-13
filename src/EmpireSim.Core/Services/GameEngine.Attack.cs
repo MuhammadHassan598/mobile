@@ -60,6 +60,7 @@ public sealed partial class GameEngine
         {
             // A non-aggression pact, an alliance or a guarantee we gave forbids declaring war.
             if (TreatyService.ForbidsAttack(State, State.PlayerNation.Id, target.Id) is { } forbidden) return forbidden;
+            if (TreatyService.WarDeclarationBlock(State) is { } warBanned) return warBanned;
             if (CooldownMessage("attack", target) is { } wait) return $"You cannot declare war on {target.Name} again yet. {wait}";
         }
         // An Assembly ban means the country could not be taken: the army is not sent.
