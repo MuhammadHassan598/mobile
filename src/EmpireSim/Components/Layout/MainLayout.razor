@@ -1,6 +1,7 @@
 @inherits LayoutComponentBase
 @inject GameEngine Engine
 @inject NavigationManager Nav
+@inject NavigationHistory History
 @implements IDisposable
 
 <div class="page">
@@ -13,13 +14,10 @@
             <VictoryBanner />
             <PeaceBanner />
         }
-        @if (IsMapPage)
-        {
-            @* the full-screen map has no top bar: the same Back button floats at its top right *@
-            <BackButton Floating="true" />
-        }
         <main class="@(IsMapPage ? "map-full" : null)">
-            <article class="content @(IsMapPage ? "content-map" : null)">
+            @* The Back ribbon hangs from the top-right corner of the page content (not from the status bar above it); a page's first row keeps clear of it. *@
+            <article class="content @(IsMapPage ? "content-map" : null) @(!IsMapPage && History.CanGoBack ? "has-back" : null)">
+                <BackButton Floating="@IsMapPage" />
                 @Body
             </article>
         </main>
@@ -37,7 +35,11 @@
     private bool IsMapPage =>
         Nav.ToBaseRelativePath(Nav.Uri).Trim('/').StartsWith("map", StringComparison.OrdinalIgnoreCase);
 
-    protected override void OnInitialized() => Engine.StateChanged += OnStateChanged;
+    protected override void OnInitialized()
+    {
+        Engine.StateChanged += OnStateChanged;
+        History.Changed += OnStateChanged;   // (the ribbon appears when there is somewhere to go back to, and the first row makes room for it)
+    }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -51,5 +53,9 @@
     }
 
     private void OnStateChanged() => InvokeAsync(StateHasChanged);
-    public void Dispose() => Engine.StateChanged -= OnStateChanged;
+    public void Dispose()
+    {
+        Engine.StateChanged -= OnStateChanged;
+        History.Changed -= OnStateChanged;
+    }
 }

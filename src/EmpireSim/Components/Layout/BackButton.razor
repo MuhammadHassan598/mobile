@@ -1,22 +1,26 @@
 @inject NavigationHistory History
 @implements IDisposable
 
-@* THE Back button of the whole app: one round arrow, in the same place on every screen (the right end of the top bar; floating at the top
-   right of the full-screen map). It does exactly what the device's Back does (NavigationHistory.Back): close the topmost popup or card,
-   else return to the screen the player came from. Hidden (its space kept) on the main screen, where there is nowhere to go back to. *@
+@* THE Back button of the whole app: a dark maroon pennant hanging from the top-right corner of the page content, flush with the screen's right edge,
+   with a notched left edge and a thin cream ring around a cream chevron (the design of the reference screenshot). It is placed once, by MainLayout, as
+   the first thing in the page area, which reserves room for it in the page's first row (see "the Back ribbon" in app.css); it is never part of the
+   global gold / rating / population bar. On the full-screen map, which has no page header, it hangs from the top-right corner of the screen instead.
+   It does exactly what the device's Back does (NavigationHistory.Back): close the topmost popup or card, else return to the screen the player came
+   from. It is not drawn on the main screen, where there is nowhere to go back to. *@
 @if (History.CanGoBack)
 {
-    <button class="back-btn @(Floating ? "floating" : "")" type="button" aria-label="Back" title="Back" @onclick="Press">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12H5.5M11.5 5.5L5 12l6.5 6.5" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" /></svg>
+    <button class="back-ribbon @(Floating ? "floating" : "")" type="button" aria-label="Back" title="Back" @onclick="Press">
+        <span class="back-ribbon-body">
+            <svg viewBox="0 0 32 32" aria-hidden="true">
+                <circle cx="16" cy="16" r="15.2" fill="none" stroke="currentColor" stroke-opacity="0.78" stroke-width="1.4" />
+                <path d="M20.4 6.2 L10.6 16 L20.4 25.8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="butt" stroke-linejoin="miter" />
+            </svg>
+        </span>
     </button>
-}
-else if (!Floating)
-{
-    <span class="back-slot" aria-hidden="true"></span>
 }
 
 @code {
-    /// <summary>Floats over the page (the full-screen map has no top bar); otherwise it sits in the top bar's own row.</summary>
+    /// <summary>Hangs from the screen's top-right corner (the full-screen map) instead of from the top-right corner of the page content.</summary>
     [Parameter] public bool Floating { get; set; }
 
     protected override void OnInitialized() => History.Changed += OnChanged;

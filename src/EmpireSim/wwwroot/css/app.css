@@ -608,40 +608,40 @@ main.map-full .province-card {
     white-space: nowrap; user-select: none;
 }
 
-/* ---- THE Back button (components/Layout/BackButton.razor): one round arrow, the same on every screen ----
-   In the top bar it is the last item of the row (its space is kept, empty, on the main screen so the bar never jumps); on the full-screen map,
-   which has no top bar, it floats at the top right. Size and colours are variables so the one button is tuned in one place. */
+/* ---- the Back ribbon (components/Layout/BackButton.razor): THE one Back button, the same on every screen ----
+   A dark maroon pennant hanging from the top-right corner of the page content, flush with the screen's right edge: notched left edge, a thin
+   cream ring (32 px) around a cream chevron (20 px tall). Measured from the reference screenshot: at least 47 px visible (the ring sits 13 px from the notch and 3-5 px from the screen edge) x 48 px, notch 8-9 px deep, fill #3a1223 to #411528.
+   It is the first child of the page area (MainLayout), absolutely placed, and the page's first row (its header) is given room beside it, so it
+   never covers a title or a list; it is not part of the global status bar. On the full-screen map it hangs from the screen's top right instead. */
 :root {
-    --back-size: 40px;
-    --back-ink: #f5e6c4;
-    --back-edge: #2e1c0c;
-    --back-ring: rgba(201, 162, 39, 0.75);
+    --back-w: 50px;
+    --back-h: 48px;
+    --back-ink: #ecdab2;
 }
-.back-btn, .back-slot { flex: 0 0 var(--back-size); width: var(--back-size); height: var(--back-size); }
-.back-slot { visibility: hidden; }
-.back-btn {
-    display: flex; align-items: center; justify-content: center; padding: 0; cursor: pointer;
-    border-radius: 50%; border: 2px solid var(--back-edge); color: var(--back-ink);
-    background: radial-gradient(circle at 35% 28%, #a5733f, #6b4623 55%, #3d2610);
-    box-shadow: inset 0 0 0 2px var(--back-ring), 0 2px 5px rgba(0,0,0,.55);
+.content { position: relative; }
+.back-ribbon {
+    position: absolute; z-index: 5; top: 12px; right: 0;
+    width: calc(var(--back-w) + env(safe-area-inset-right, 0px)); height: var(--back-h);
+    padding: 0; margin: 0; border: 0; background: none; cursor: pointer; color: var(--back-ink);
+    filter: drop-shadow(0 3px 2px rgba(0, 0, 0, 0.38));
     -webkit-tap-highlight-color: transparent;
 }
-.back-btn svg { width: 22px; height: 22px; display: block; filter: drop-shadow(0 1px 1px rgba(0,0,0,.6)); }
-.back-btn:active { transform: translateY(1px); box-shadow: inset 0 0 0 2px var(--back-ring), 0 1px 2px rgba(0,0,0,.6); }
-.back-btn:focus-visible { outline: 2px solid #ffd700; outline-offset: 2px; }
-.back-btn.floating {
-    position: fixed; z-index: 190;
-    top: calc(10px + env(safe-area-inset-top, 0px)); right: 10px;
+.back-ribbon-body {
+    display: flex; align-items: center; justify-content: flex-start; width: 100%; height: 100%;
+    padding-left: 13px; padding-right: env(safe-area-inset-right, 0px);
+    background: linear-gradient(#411528, #3a1223 50%, #371222);
+    box-shadow: inset 0 1px 0 rgba(255, 235, 200, 0.22);
+    clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%, 4px 76%, 9px 50%, 4px 24%);
 }
-/* narrow phones: the top bar keeps one row (the arrow a little smaller there; the floating one on the map stays full size) */
-@media (max-width: 420px) {
-    .woodbar { --back-size: 36px; gap: 6px; padding: 8px; }
-    .woodbar .wood-pill { padding: 5px 6px; }
+.back-ribbon svg { width: 32px; height: 32px; display: block; }
+.back-ribbon:active .back-ribbon-body { filter: brightness(1.35); }
+.back-ribbon:focus-visible { outline: 2px solid #ffd700; outline-offset: -3px; }
+.back-ribbon.floating { position: fixed; z-index: 190; top: calc(12px + env(safe-area-inset-top, 0px)); }
+/* the page's first row (its header) makes room for the ribbon: the right of it is kept clear and it is as tall as the ribbon */
+.content.has-back > .back-ribbon + * > :first-child {
+    box-sizing: border-box; min-height: calc(var(--back-h) + 4px); padding-right: calc(var(--back-w) + 6px);
 }
-@media (max-width: 340px) {
-    .woodbar .build-tag { display: none; }
-    .woodbar .wood-pill { font-size: 0.74rem; padding: 4px 4px; }
-}
+
 .select-build { text-align: center; margin: 2px 0 6px; color: rgba(60, 45, 25, 0.6); }
 .backdrop { width: 100%; height: auto; border-radius: 6px; display: block; }
 

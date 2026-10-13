@@ -6034,7 +6034,9 @@ Console.WriteLine("== 77. Navigation: one history behind one Back button; layers
             string Text(string f) => File.ReadAllText(f).Replace("\r\n", "\n");
 
             var buttons = razor.Where(f => Text(f).Contains("<BackButton")).Select(Path.GetFileName).OrderBy(x => x).ToList();
-            Check(buttons.SequenceEqual(new[] { "MainLayout.razor", "TopBar.razor" }), $"the Back button is placed only by the shared layout (top bar, and floating on the map): {string.Join(", ", buttons)}");
+            Check(buttons.SequenceEqual(new[] { "MainLayout.razor" }), $"the Back button is placed once, by the shared layout, in the page area (never in the global status bar, never by a page): {string.Join(", ", buttons)}");
+            string css = Text(Path.Combine(root, "src", "EmpireSim", "wwwroot", "css", "app.css"));
+            Check(!Text(Path.Combine(root, "src", "EmpireSim", "Components", "Layout", "TopBar.razor")).Contains("Back") && !css.Contains(".back-btn") && css.Contains(".back-ribbon") && css.Contains("clip-path") && css.Contains(".content.has-back > .back-ribbon + * > :first-child"), "the status bar has no Back control, the round gold button is gone, and the maroon ribbon reserves room in the first row of every page");
             var pageBacks = pages.Where(f => System.Text.RegularExpressions.Regex.IsMatch(Text(f), @"class=""[a-z]+-back""|◀ BACK|>‹ ")).Select(Path.GetFileName).ToList();
             Check(pageBacks.Count == 0, $"no page has a Back button of its own ({string.Join(", ", pageBacks)})");
             var goHome = pages.Where(f => Text(f).Contains("NavigateTo(\"/\")")).Select(Path.GetFileName).ToList();
