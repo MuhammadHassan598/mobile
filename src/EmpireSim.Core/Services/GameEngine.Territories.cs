@@ -18,6 +18,13 @@ public sealed partial class GameEngine
     /// <summary>A territory the player rules, by id (null for anything else).</summary>
     public Nation? Territory(string territoryId) => AnnexedStateService.Find(State, State.PlayerNation, territoryId);
 
+    /// <summary>The colonies the player's country owns (settled land, not conquered countries), in the order they were founded.</summary>
+    public List<Nation> OwnedColonyTerritories => State.ColoniesOf(State.PlayerNation.Id);
+
+    /// <summary>Reports for every colony the player owns.</summary>
+    public List<TerritoryReport> ColonyReports() =>
+        OwnedColonyTerritories.Select(t => AnnexedStateService.Report(State, State.PlayerNation, t)).ToList();
+
     public TerritoryReport? ReportTerritory(string territoryId) =>
         Territory(territoryId) is { } t ? AnnexedStateService.Report(State, State.PlayerNation, t) : null;
 
@@ -80,7 +87,7 @@ public sealed partial class GameEngine
     public long RealmDailyIncome()
     {
         var player = State.PlayerNation;
-        double territories = AnnexedTerritories.Sum(t => AnnexedStateService.TaxRevenue(player, t) + AnnexedStateService.OtherIncome(State, t));
+        double territories = State.TerritoriesOf(player.Id).Sum(t => AnnexedStateService.TaxRevenue(player, t) + AnnexedStateService.OtherIncome(State, t));   // annexed countries and colonies, each once
         return EstimateDailyIncome(player) + (long)territories;
     }
 

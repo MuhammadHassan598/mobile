@@ -117,8 +117,16 @@ public static class PeaceService
     /// <summary>What a whole country is worth if it changes hands: its liquid wealth and its people.</summary>
     public static double Worth(Nation n) => LiquidWealth(n) + n.Population * Balance.PeaceValuePerPerson;
 
-    private static double ColonyValue(Colony c) =>
-        c.Population * Balance.PeaceValuePerPerson + (c.Farms + c.Mines) * Balance.PeaceValuePerBuilding;
+    /// <summary>What a colony is worth: its people and its buildings (for a colony that is a territory of its own, those of its own record).</summary>
+    private static double ColonyValue(GameState state, Colony c)
+    {
+        if (c.IsTerritory && state.AllNations().FirstOrDefault(n => n.Id == c.Id) is { } record)
+        {
+            int buildings = record.Farms + record.Mines + record.Sawmills + record.Workshops + record.ProductionBuildings.Values.Sum();
+            return record.Population * Balance.PeaceValuePerPerson + buildings * Balance.PeaceValuePerBuilding;
+        }
+        return c.Population * Balance.PeaceValuePerPerson + (c.Farms + c.Mines) * Balance.PeaceValuePerBuilding;
+    }
 
     /// <summary>What a term is worth, in gold, to the country that receives it (and costs the one that gives it).</summary>
     public static double TermValue(GameState state, PeaceTerm t)
@@ -127,7 +135,7 @@ public static class PeaceService
         {
             case PeaceTermKind.Gold: return t.Amount;
             case PeaceTermKind.Goods: return t.Amount * (TradeCatalog.Get(t.ProductId)?.BasePricePer1000 ?? 0) / 1000;
-            case PeaceTermKind.Colony: return state.Colonies.FirstOrDefault(c => c.Id == t.ColonyId) is { } c ? ColonyValue(c) : 0;
+            case PeaceTermKind.Colony: return state.Colonies.FirstOrDefault(c => c.Id == t.ColonyId) is { } c ? ColonyValue(state, c) : 0;
             case PeaceTermKind.Annexation: return Find(state, t.GiverId) is { } giver ? Worth(giver) : 0;
             default: return 0;
         }
@@ -201,6 +209,8 @@ public static class PeaceService
                     if (colony is null) return "That colony does not exist.";
                     if (colony.OwnerId != giver.Id) return $"{giver.Name} does not own {colony.Name}.";
                     if (!colonies.Add(colony.Id)) return $"{colony.Name} is listed twice.";
+                    // A colony that is a territory of its own holds its people and buildings itself: nothing is taken from the giver's totals.
+                    if (colony.IsTerritory) break;
                     // Several colonies from one giver are checked together: its people and buildings must cover all of them.
                     var sum = colonyTotals.GetValueOrDefault(giver.Id);
                     sum = (sum.People + colony.Population, sum.Farms + colony.Farms, sum.Mines + colony.Mines);
@@ -412,7 +422,7 @@ public static class PeaceService
                 break;
             case PeaceTermKind.Colony:
                 var colony = state.Colonies.First(c => c.Id == t.ColonyId);
-                TreatyService.TransferColony(colony, giver, receiver);
+                TreatyService.TransferColony(state, colony, giver, receiver);
                 state.LogMovement(MovementKind.Colony, MovementStatus.Completed, giver, receiver,
                     $"{giver.Name} ceded the colony of {colony.Name} to {receiver.Name} under the peace terms.", military: true);
                 break;
@@ -695,7 +705,7 @@ public static class PeaceService
             double ask = Math.Floor(Math.Min(due, player.Gold * 0.6) / 10) * 10;
             if (ask >= 50) terms.Add(PeaceTerm.Gold(player.Id, ai.Id, ask));
             if (lev.Lean >= 0.6 && due - ask > lev.Scale * 0.25
-                && state.Colonies.Where(c => c.OwnerId == player.Id).OrderBy(ColonyValue).FirstOrDefault() is { } colony)
+                && state.Colonies.Where(c => c.OwnerId == player.Id).OrderBy(c => ColonyValue(state, c)).FirstOrDefault() is { } colony)
                 terms.Add(PeaceTerm.Colony(player.Id, ai.Id, colony.Id));
         }
         else if (lev.Lean <= -0.15)

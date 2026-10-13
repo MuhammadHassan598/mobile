@@ -165,4 +165,24 @@ function meander(a, b, amp, minStep, seed) {
   return rec(a, b, amp, 0);
 }
 
-module.exports = { W, H, fillPoly, polyArea, components, extractArcs, dp, chaikin, meander, hash };
+// Distance from every land pixel to the nearest sea pixel (chamfer 1 / 1.414), capped; sea pixels are 0.
+function distanceToSea(land, cap) {
+  const d = new Float32Array(W * H);
+  for (let i = 0; i < d.length; i++) d[i] = land[i] ? 1e9 : 0;
+  const R = 1.4142;
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const i = y * W + x; let v = d[i]; if (v === 0) continue;
+    if (x > 0) v = Math.min(v, d[i - 1] + 1);
+    if (y > 0) { v = Math.min(v, d[i - W] + 1); if (x > 0) v = Math.min(v, d[i - W - 1] + R); if (x < W - 1) v = Math.min(v, d[i - W + 1] + R); }
+    d[i] = v;
+  }
+  for (let y = H - 1; y >= 0; y--) for (let x = W - 1; x >= 0; x--) {
+    const i = y * W + x; let v = d[i]; if (v === 0) continue;
+    if (x < W - 1) v = Math.min(v, d[i + 1] + 1);
+    if (y < H - 1) { v = Math.min(v, d[i + W] + 1); if (x < W - 1) v = Math.min(v, d[i + W + 1] + R); if (x > 0) v = Math.min(v, d[i + W - 1] + R); }
+    d[i] = Math.min(v, cap);
+  }
+  return d;
+}
+
+module.exports = { distanceToSea, W, H, fillPoly, polyArea, components, extractArcs, dp, chaikin, meander, hash };

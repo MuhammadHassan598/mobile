@@ -183,8 +183,18 @@ public sealed class Nation
     /// <summary>The country that annexed this one (null while it is independent). Everything it had now belongs to that country.</summary>
     public string? AnnexedById { get; set; }
 
-    /// <summary>The day it was annexed.</summary>
+    /// <summary>The day it was annexed (for a colony: the day it was founded).</summary>
     public DateOnly? AnnexedDate { get; set; }
+
+    /// <summary>
+    /// True for the local record of a COLONY: land settled peacefully by <see cref="AnnexedById"/> (here the colony's owner), not a conquered
+    /// country. It is not a country (it is eliminated like an annexed one: no treasury, army or diplomacy) and lives as a territory of its owner
+    /// with its own people, tax, stocks and buildings, ticked by the same daily simulation; but it is listed as a colony, never as an annexed state.
+    /// </summary>
+    public bool IsColony { get; set; }
+
+    /// <summary>The colony region this record is the colony of (see <see cref="FrontierRegion.Id"/>); empty for a country.</summary>
+    public string ColonyRegionId { get; set; } = "";
 
     /// <summary>
     /// The crown domains this country draws a daily income from (<see cref="Balance.CrownDomainIncomePerDay"/> each): its own, plus the
@@ -396,6 +406,9 @@ public sealed class Nation
 
     /// <summary>Fractional deaths from shortages carried over until they reach a whole person.</summary>
     public double ShortageDeathCarry { get; set; }
+
+    /// <summary>The fraction of a person a colony's births have come to but not yet delivered (see <see cref="PopulationService.TakeBirths"/>).</summary>
+    public double BirthCarry { get; set; }
 
     /// <summary>Unmet share (percentage points) of each item's need on the last day.</summary>
     public Dictionary<string, double> ShortagePct { get; set; } = new();

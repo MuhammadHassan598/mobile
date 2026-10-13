@@ -878,33 +878,20 @@ public sealed partial class GameEngine : IDisposable
 
     // ---------------- Colonisation ----------------
 
-    /// <summary>Sends a colony expedition to an uncharted region.</summary>
+    /// <summary>What a colonisation mission to a region would cost the player, how long it would take, and whether it can be sent now (null = no such region).</summary>
+    public ColonyQuote? QuoteColony(string regionId) =>
+        State.RegionOf(regionId) is { } region ? ColonizationService.Quote(State, State.PlayerNation, region) : null;
+
+    /// <summary>Sends a colonisation mission to a colony region. The cost is taken once, now; the colony exists only when the mission lands.</summary>
     public string? FoundColony(string regionId)
     {
-        var region = State.FrontierRegions.FirstOrDefault(r => r.Id == regionId);
-        if (region is null) return "Region not found.";
-        if (State.ActiveExpedition is not null) return "An expedition is already at sea.";
-        var n = State.PlayerNation;
-        if (n.Warships < Balance.ColonyWarshipsRequired)
-            return $"Need {Balance.ColonyWarshipsRequired} warships to carry the colonists.";
-        if (!n.CanPay(Balance.ColonyCostGold)) return "Not enough Gold.";
-        if (n.GetProduct("Wheat") < Balance.ColonyCostFood) return "Not enough Wheat for the voyage.";
-        if (n.Population < Balance.ColonyColonists) return "Not enough people to spare.";
-
-        n.PayGold(Balance.ColonyCostGold);
-        n.AddProduct("Wheat", -Balance.ColonyCostFood);
-        n.Population -= Balance.ColonyColonists;
-        State.ActiveExpedition = new ColonyExpedition
-        {
-            RegionId = region.Id,
-            RegionName = region.Name,
-            DaysLeft = Balance.ColonyDays,
-            TotalDays = Balance.ColonyDays,
-        };
-        State.LogMovement(MovementKind.Colony, MovementStatus.UnderWay, n.Id, n.Name, region.Id, region.Name, $"A colony expedition sails for {region.Name} ({Balance.ColonyDays} days).");
-        StateChanged?.Invoke();
-        return null;
+        var (mission, error) = ColonizationService.Start(State, State.PlayerNation, regionId);
+        if (mission is not null) StateChanged?.Invoke();
+        return error;
     }
+
+    /// <summary>The player's mission under way, if any.</summary>
+    public ColonizationMission? PlayerMission => ColonizationService.ActiveMission(State, State.PlayerNation.Id);
 
     // ---------------- Military ----------------
 

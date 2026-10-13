@@ -437,27 +437,30 @@ Console.WriteLine("== 12. Colonisation ==");
 using (var engine11 = new GameEngine(new SimulationService(), new SaveService(saveFolder)))
 {
     var n11 = engine11.State.PlayerNation;
-    Check(engine11.State.FrontierRegions.Count == 3, "three uncharted regions at start");
+    Check(engine11.State.FrontierRegions.Count == WorldGeometry.FrontierNames.Count && engine11.State.FrontierRegions.Count >= 30
+          && engine11.State.FrontierRegions.All(r => r.Status == ColonyStatus.Unclaimed && r.Polygons.Count > 0), "dozens of colony regions at the start, all unclaimed, each with land of its own");
+    var region = engine11.State.FrontierRegions.First(r => r.Name == "Swahili Coast");
 
     n11.Warships = 0;
-    Check(engine11.FoundColony(engine11.State.FrontierRegions[0].Id) is not null,
-        "colony refused without warships");
+    Check(engine11.FoundColony(region.Id) is not null, "a colony mission is refused without warships");
     n11.Warships = 5;
     n11.Gold = 100_000;
     n11.GoodsInventory["Wheat"] = 100_000;
-    var region = engine11.State.FrontierRegions[0];
-    Check(engine11.FoundColony(region.Id) is null, "colony expedition launched");
-    Check(engine11.State.ActiveExpedition is not null, "expedition at sea");
-    Check(engine11.FoundColony(engine11.State.FrontierRegions[1].Id) is not null,
-        "second expedition blocked while one is at sea");
+    n11.Wood = 100_000;
+    var quote = engine11.QuoteColony(region.Id)!;
+    double gold0 = n11.Gold, wheat0 = n11.GetProduct("Wheat"), wood0 = n11.Wood; long pop0 = n11.Population;
+    Check(engine11.FoundColony(region.Id) is null, "the colony mission is sent");
+    Check(engine11.PlayerMission is { } mission && mission.RegionId == region.Id && region.Status == ColonyStatus.MissionInProgress, "it is a mission under way, and the region is claimed");
+    Check(Math.Abs(gold0 - n11.Gold - quote.Gold) < 1e-6 && Math.Abs(wheat0 - n11.GetProduct("Wheat") - quote.Wheat) < 1e-6 && Math.Abs(wood0 - n11.Wood - quote.Wood) < 1e-6 && pop0 - n11.Population == quote.Settlers,
+        "the cost is taken once, now: gold, wheat, wood and the settlers from the home people");
+    Check(engine11.FoundColony(engine11.State.FrontierRegions.First(r => r.Name == "Java").Id) is not null, "a second mission is refused while one is under way");
 
-    long popBefore = n11.Population;
-    int farmsBefore = n11.Farms;
-    for (int i = 0; i < 30; i++) engine11.AdvanceOneDay();
-    Check(engine11.State.FrontierRegions.Count == 2, "region removed from the frontier");
-    Check(engine11.State.ActiveExpedition is null, "expedition completes");
-    Check(n11.Population > popBefore, "colony settlers join the homeland");
-    Check(n11.Farms > farmsBefore, "colony adds farms to the homeland");
+    for (int i = 0; i < quote.Days - 1; i++) engine11.AdvanceOneDay();
+    Check(engine11.State.ColoniesOf(n11.Id).Count == 0 && region.Status == ColonyStatus.MissionInProgress, "nothing is founded before the mission lands");
+    engine11.AdvanceOneDay();
+    Check(region.Status == ColonyStatus.Colonized && engine11.PlayerMission is null, "on its completion date the colony is founded");
+    var colony = engine11.State.ColoniesOf(n11.Id).Single();
+    Check(colony.Population == quote.Settlers && colony.IsColony && colony.IsEliminated && colony.AnnexedById == n11.Id, "its people are the settlers, in a territory of its own under the player");
     Check(n11.ColoniesFounded == 1, "colony counter increments");
 }
 
@@ -1576,23 +1579,25 @@ using (var eng = NewDipEngine(23))
 {
     var p = eng.State.PlayerNation;
     var persia = Ai(eng, "persia");
-    p.Warships = 5; p.Gold = 100_000; p.GoodsInventory["Wheat"] = 100_000;
-    var region = eng.State.FrontierRegions[0];
+    p.Warships = 5; p.Gold = 100_000; p.GoodsInventory["Wheat"] = 100_000; p.Wood = 100_000;
+    var region = eng.State.FrontierRegions.First(r => r.Name == "Aden Coast");
     Check(eng.State.Colonies.Count == 0, "no colony records at the start");
+    int days = eng.QuoteColony(region.Id)!.Days;
     eng.FoundColony(region.Id);
-    for (int i = 0; i < Balance.ColonyDays; i++) eng.AdvanceOneDay();
+    for (int i = 0; i < days; i++) eng.AdvanceOneDay();
     var colony = eng.State.Colonies.Single();
     Check(colony.Name == region.Name && colony.OwnerId == p.Id && colony.FoundedById == p.Id, "a founded colony is recorded with its owner");
-    Check(colony.Population == Balance.ColonyStartPopulation && colony.Farms == 8 && colony.Mines == 2, "the record holds what the colony added to the nation");
+    var record = eng.State.AllNations().Single(n => n.Id == colony.Id);
+    Check(colony.IsTerritory && record.IsColony && record.AnnexedById == p.Id && colony.Population == 0, "the record is a territory of its own: its people and buildings are in its own record, not totals added to the nation");
     Check(p.ColoniesFounded == 1, "the existing colony counter is unchanged");
 
-    long pPop = p.Population, tPop = persia.Population;
-    int pFarms = p.Farms, tFarms = persia.Farms, pMines = p.Mines, tMines = persia.Mines;
+    long pPop = p.Population, tPop = persia.Population, colPop = record.Population;
+    int pFarms = p.Farms, tFarms = persia.Farms, pMines = p.Mines, tMines = persia.Mines, polys = record.Territory.Count;
     int rating = Rate(persia);
     var r = eng.PresentColonyTo(persia.Id, colony.Id);
-    Check(r.Ok && colony.OwnerId == persia.Id, "the colony changes owner");
-    Check(p.Population == pPop - colony.Population && persia.Population == tPop + colony.Population, "its people move to the new owner");
-    Check(p.Farms == pFarms - 8 && persia.Farms == tFarms + 8 && p.Mines == pMines - 2 && persia.Mines == tMines + 2, "its buildings move to the new owner");
+    Check(r.Ok && colony.OwnerId == persia.Id && record.AnnexedById == persia.Id, "the colony changes owner: its record is now ruled by the new owner");
+    Check(p.Population == pPop && persia.Population == tPop && record.Population == colPop && record.Territory.Count == polys, "nothing is counted twice: its people and land stay in its own record");
+    Check(p.Farms == pFarms && persia.Farms == tFarms && p.Mines == pMines && persia.Mines == tMines, "no buildings move between the countries' own totals");
     Check(Rate(persia) == rating + Balance.ColonyGiftRatingGain, "presenting a colony warms relations");
     Check(eng.PresentColonyTo(persia.Id, colony.Id).Outcome == DipOutcome.Invalid, "a colony you gave away is no longer yours to give");
     Check(!eng.CheckDiplomaticAction("colony", persia.Id).Available, "and the action closes when you own none");
@@ -1812,11 +1817,12 @@ using (var eng = NewDipEngine(31))
     Check(Has(MovementKind.March, MovementStatus.Completed, p.Id, nepal.Id), "the battle on arrival is recorded as done");
 
     // Colonies.
-    p.Warships = 5; p.Gold = 100_000; p.GoodsInventory["Wheat"] = 100_000;
-    var region = eng.State.FrontierRegions[0];
+    p.Warships = 5; p.Gold = 100_000; p.GoodsInventory["Wheat"] = 100_000; p.Wood = 100_000;
+    var region = eng.State.FrontierRegions.First(r => r.Name == "Aden Coast");
+    int colonyDays = eng.QuoteColony(region.Id)!.Days;
     eng.FoundColony(region.Id);
     Check(Has(MovementKind.Colony, MovementStatus.UnderWay, p.Id, region.Id), "an expedition is recorded: us to the region, under way");
-    for (int i = 0; i < Balance.ColonyDays; i++) { p.Gold = 1_000_000; eng.AdvanceOneDay(); }
+    for (int i = 0; i < colonyDays; i++) { p.Gold = 1_000_000; eng.AdvanceOneDay(); }
     Check(Has(MovementKind.Colony, MovementStatus.Completed, p.Id, region.Id), "the founding is recorded when the colony is established");
     var spainC = Ai(eng, "mughal");
     eng.PresentColonyTo(spainC.Id, eng.State.Colonies[0].Id);
@@ -1917,8 +1923,10 @@ using (var eng = NewDipEngine(37))
     var worldMarch = TreatyService.LaunchMarch(s, Ai(eng, "mughal"), Ai(eng, "japan"), 800)!;   // two other countries: not the player's business
     Embassy(eng, france);
     eng.BuyProduct(france.Id, "wheat", 1000);
-    p.Warships = 5; p.Gold = 100_000; p.GoodsInventory["Wheat"] = 100_000;
-    eng.FoundColony(s.FrontierRegions[0].Id);
+    p.Warships = 5; p.Gold = 100_000; p.GoodsInventory["Wheat"] = 100_000; p.Wood = 100_000;
+    var colonyRegion = s.FrontierRegions.First(r => r.Name == "Aden Coast");
+    int colonyDaysQuoted = eng.QuoteColony(colonyRegion.Id)!.Days;
+    eng.FoundColony(colonyRegion.Id);
 
     var all = MovementReport.ActiveMissions(s);
     Check(s.MarchingArmies.Contains(worldMarch) && !all.Any(x => x.FromId == worldMarch.AttackerNationId), "(an army marching between two other countries is under way, but not listed)");
@@ -1937,7 +1945,7 @@ using (var eng = NewDipEngine(37))
     var ship = all.Single(x => x.Kind == MovementKind.Goods);
     Check(ship.FromId == france.Id && ship.LocationId == p.Id && ship.DaysLeft is >= 3 and <= 7 && ship.Text.Contains("Wheat"), "a shipment in transit shows its goods and delivery date");
     var exp = all.Single(x => x.Kind == MovementKind.Colony);
-    Check(exp.DaysLeft == Balance.ColonyDays && exp.LocationName == s.ActiveExpedition!.RegionName, "the colony expedition shows its destination and days left");
+    Check(exp.DaysLeft == colonyDaysQuoted && exp.LocationName == colonyRegion.Name, "the colony mission shows its destination and days left");
     var dues = all.Select(x => x.Due ?? DateOnly.MaxValue).ToList();
     Check(dues.SequenceEqual(dues.OrderBy(x => x)), "missions are ordered by arrival, stationed ones last");
 
@@ -2958,7 +2966,7 @@ Console.WriteLine("== 53. The AI world over four years: stability, determinism, 
         if (s.OtherNations.Where(n => n.IsEliminated).Any(n => s.Treaties.Any(t => t.Involves(n.Id)))) { ok = false; problem = "an eliminated country still has treaties"; }
     }
     var events = s.Movements.Select(m => $"{m.Date:yyyy-MM-dd} {m.Kind} {m.Text}").ToList();
-    return (events, s.OtherNations.Count(n => n.IsEliminated),
+    return (events, s.OtherNations.Count(n => n.IsEliminated && !n.IsColony),
         s.Movements.Count(m => m.Kind == MovementKind.War && m.Text.Contains("declared war") && m.ToId != s.PlayerNation.Id),
         s.Movements.Count(m => m.Text.Contains("formed a defensive alliance")),
         s.Movements.Count(m => m.Text.Contains("made peace")), ok, problem);
@@ -5322,7 +5330,8 @@ Console.WriteLine("== 74. The political map: natural coasts, exact shared border
     foreach (var r in st.FrontierRegions) shapes.Add(("f:" + r.Name, "frontier", r.Polygons));
     var allRings = shapes.SelectMany(s => s.Polys.Select(p => (s.Id, s.Kind, Ring: p))).ToList();
 
-    Check(st.MapVersion == WorldGeometry.Version && st.NeutralRegions.Count == 13 && st.FrontierRegions.Count == 3, "a new game carries the current map edition: 41 countries, 13 neutral territories (Greenland and Svalbard are new), 3 frontier regions");
+    Check(st.MapVersion == WorldGeometry.Version && st.NeutralRegions.Count == WorldGeometry.NeutralNames.Count && st.NeutralRegions.Count == 10 && st.FrontierRegions.Count == WorldGeometry.FrontierNames.Count && st.FrontierRegions.Count == 34,
+        "a new game carries the current map edition: 41 countries, 10 neutral territories that stay unsettled, 34 colony regions carved out of the rest");
     Check(allRings.All(r => r.Ring.Count >= 4 && r.Ring[0].X == r.Ring[^1].X && r.Ring[0].Y == r.Ring[^1].Y), "every polygon is a closed ring of at least three corners");
     Check(allRings.All(r => r.Ring.All(p => double.IsFinite(p.X) && double.IsFinite(p.Y) && p.X >= 0 && p.X <= 2200 && p.Y >= 0 && p.Y <= 1150)), "all points lie inside the 2200 x 1150 map");
 
@@ -5413,7 +5422,8 @@ Console.WriteLine("== 74. The political map: natural coasts, exact shared border
     Check(MgHas("spain", 1440, 560, 1530, 700) && MgHas("spain", 1030, 640, 1075, 690) && MgHas("spain", 330, 355, 360, 395) && MgHas("spain", 380, 360, 440, 400), "the Iberian Union keeps its overseas possessions as separate polygons: the Philippines, Ceylon, Sardinia and southern Italy / Sicily");
     Check(MgHas("venice", 470, 400, 530, 430), "Venice holds Crete as an exclave of its own");
     Check(st.AllNations().First(n => n.Id == "morocco").Territory.Count >= 3 && st.AllNations().First(n => n.Id == "japan").Territory.Count >= 3, "island and exclave countries keep several polygons (Japan's islands, Morocco's Saharan outpost and the Canaries)");
-    Check(st.AllNations().First(n => n.Id == "micronesia").Territory.Count >= 2 && st.AllNations().First(n => n.Id == "easter").Territory.Count >= 1 && st.FrontierRegions.All(r => r.Polygons.Count >= 2), "the Pacific islands and the frontier archipelagos are islands, in several pieces");
+    Check(st.AllNations().First(n => n.Id == "micronesia").Territory.Count >= 2 && st.AllNations().First(n => n.Id == "easter").Territory.Count >= 1 && new[] { "Western Isles", "Southern Reaches", "Far Eastern Isles" }.All(nm => st.FrontierRegions.First(r => r.Name == nm).Polygons.Count >= 2) && st.FrontierRegions.All(r => r.Polygons.Count >= 1),
+        "the Pacific islands and the three archipelagos are islands, in several pieces (and every colony region has land)");
     {
         var tibet = st.NeutralRegions.First(r => r.Name == "Tibet");
         var ming = st.AllNations().First(n => n.Id == "ming");
@@ -5461,7 +5471,7 @@ Console.WriteLine("== 74. The political map: natural coasts, exact shared border
         var byKey = new Dictionary<string, (MapPoint A, MapPoint B)>();
         foreach (var (id, _, ring) in allRings) for (int i = 0; i < ring.Count - 1; i++) byKey.TryAdd(MgEdgeKey(ring[i], ring[i + 1]), (ring[i], ring[i + 1]));
         int tested = 0, right = 0; int step = 0;
-        foreach (var kv in uses.Where(u => u.Value.Count == 2 && u.Value[0] != u.Value[1] && u.Value.All(v => !v.StartsWith("f:"))))
+        foreach (var kv in uses.Where(u => u.Value.Count == 2 && u.Value[0] != u.Value[1]))   // (colony regions included: tapping one finds it, and its neighbour)
         {
             if (step++ % 9 != 0) continue;
             var (a, b) = byKey[kv.Key]; double dx = b.X - a.X, dy = b.Y - a.Y, len = Math.Sqrt(dx * dx + dy * dy); if (len < 1.5) continue;
@@ -5495,9 +5505,12 @@ Console.WriteLine("== 74. The political map: natural coasts, exact shared border
         List<List<MapPoint>> MgBox(double x, double y) => new() { new() { new(x, y), new(x + 20, y), new(x + 20, y + 20), new(x, y + 20), new(x, y) } };
         foreach (var n in s3.AllNations()) n.Territory = n.IsEliminated ? new() : MgBox(n.MapX, n.MapY);
         player.Territory.Add(new() { new(0, 0), new(5, 0), new(5, 5), new(0, 0) }); player.AnnexedPolygonCount = 1;   // (Persia's old land, appended)
-        s3.NeutralRegions.RemoveAll(r => r.Name is "Greenland" or "Svalbard"); s3.NeutralRegions.First(r => r.Name == "Tibet").Polygons = MgBox(1100, 420);
-        s3.FrontierRegions.RemoveAt(2);   // one frontier region was already colonised
-        s3.FrontierRegions[0].Polygons = MgBox(40, 220);
+        s3.NeutralRegions.RemoveAll(r => r.Name is "Svalbard"); s3.NeutralRegions.First(r => r.Name == "Tibet").Polygons = MgBox(1100, 420);
+        s3.NeutralRegions.Add(new NeutralTerritory { Name = "Greenland", Polygons = MgBox(600, 40) });   // (a neutral territory of the old map that is now carved into colony regions)
+        s3.FrontierRegions.Clear();
+        foreach (var old in new[] { "Western Isles", "Southern Reaches" }) s3.FrontierRegions.Add(new FrontierRegion { Id = old, Name = old, Polygons = MgBox(40, 220) });   // the two that were still open
+        var legacyColony = new Colony { Name = "Far Eastern Isles", OwnerId = player.Id, FoundedById = player.Id, FoundedDate = new DateOnly(1601, 6, 1), Population = 1000, Farms = 2, Mines = 1 };
+        s3.Colonies.Add(legacyColony);   // the third had been colonised under the old rules
         dutch.MapX = 307; dutch.MapY = 256; dutch.CapitalName = "Holland";   // stock capital: gets moved
         den.MapX = 500; den.MapY = 500; den.CapitalName = "Hafnia";         // edited in the save: stays
         s3.MapVersion = 0;
@@ -5508,12 +5521,274 @@ Console.WriteLine("== 74. The political map: natural coasts, exact shared border
         Check(upPlayer.Territory.Count == WorldGeometry.Nation(upPlayer.Id).Count + WorldGeometry.Nation("persia").Count && upPlayer.AnnexedPolygonCount == WorldGeometry.Nation("persia").Count && upPersia.Territory.Count == 0 && upPersia.IsEliminated && upPersia.AnnexedById == upPlayer.Id,
             "an annexed country's lands come back in its master's realm (home lands plus the annexed country's), who owns what unchanged");
         Check(up.OtherNations.Where(n => !n.IsEliminated).All(n => n.Territory.Count == WorldGeometry.Nation(n.Id).Count), "every other country gets its redrawn lands");
-        Check(up.NeutralRegions.Count == 13 && up.NeutralRegions.All(r => r.Polygons.SelectMany(p => p).Count() == WorldGeometry.Neutral(r.Name).SelectMany(p => p).Count() && r.LabelX == WorldGeometry.Label(r.Name).X) && up.NeutralRegions.Any(r => r.Name == "Greenland"), "neutral regions are redrawn point for point and the new ones added");
-        Check(up.FrontierRegions.Count == 2 && up.FrontierRegions.All(r => r.Polygons.SelectMany(p => p).Count() == WorldGeometry.Frontier(r.Name).SelectMany(p => p).Count()), "frontier regions still open are redrawn point for point; the colonised one stays gone");
+        Check(up.NeutralRegions.Count == 10 && up.NeutralRegions.All(r => r.Polygons.SelectMany(p => p).Count() == WorldGeometry.Neutral(r.Name).SelectMany(p => p).Count() && r.LabelX == WorldGeometry.Label(r.Name).X) && up.NeutralRegions.Any(r => r.Name == "Svalbard") && up.NeutralRegions.All(r => r.Name != "Greenland"),
+            "neutral regions are redrawn point for point, the missing one added, and a territory that is now colony regions is dropped");
+        Check(up.FrontierRegions.Count == 34 && up.FrontierRegions.All(r => r.Polygons.SelectMany(p => p).Count() == WorldGeometry.Frontier(r.Name).SelectMany(p => p).Count() && r.Id == ColonyCatalog.IdOf(r.Name)),
+            "every colony region exists after the upgrade, redrawn point for point, with its stable id");
+        Check(up.FrontierRegions.Count(r => r.Status == ColonyStatus.Colonized) == 1 && up.FrontierRegions.First(r => r.Name == "Far Eastern Isles") is { Status: ColonyStatus.Colonized } fe && fe.ColonyId == legacyColony.Id
+              && up.FrontierRegions.Count(r => r.Status == ColonyStatus.Unclaimed) == 33,
+            "the region colonised under the old rules is that colony's land; every other one is open");
         var upDutch = up.OtherNations.First(n => n.Id == "dutch"); var upDen = up.OtherNations.First(n => n.Id == "denmark");
         Check(upDutch.MapY == 267 && upDen.MapX == 500 && upDen.CapitalName == "Hafnia", "a stock capital that the map moved is moved in the save too, one the save had already changed is left alone");
         await e3.LoadAsync();
         Check(e3.State.MapVersion == WorldGeometry.Version && e3.State.PlayerNation.Territory.Count == upPlayer.Territory.Count, "(loading the same save again gives the same map)");
+    }
+}
+
+Console.WriteLine("== 75. Colonisation: neutral land settled by missions, one claim each, AI colonisers, colonies run by their owner, save and load ==");
+{
+    void Fund(Nation n) { n.Gold = 5_000_000; n.GoodsInventory["Wheat"] = 1_000_000; n.Wood = 1_000_000; n.Warships = Math.Max(n.Warships, 6); n.Population = Math.Max(n.Population, 8_000_000); }
+    ColonyQuote Q(GameState gs, Nation n, FrontierRegion r) => ColonizationService.Quote(gs, n, r);
+    FrontierRegion SeaRegion(GameState gs, params Nation[] by) => gs.FrontierRegions.First(r => r.Status == ColonyStatus.Unclaimed && by.All(n => !Q(gs, n, r).Overland));
+    int ColoniesIn(GameState gs, FrontierRegion r) => gs.Colonies.Count(c => c.RegionId == r.Id);
+    string Shape(List<List<MapPoint>> rings) => string.Join(";", rings.Select(r => string.Join(" ", r.Select(pt => $"{pt.X:R},{pt.Y:R}"))));
+
+    // ---- the catalogue and its price list
+    {
+        var e0 = NewDipEngine(750); var g = e0.State; var p0 = g.PlayerNation;
+        var quotes = g.FrontierRegions.Select(r => Q(g, p0, r)).ToList();
+        Check(quotes.Count == 34 && quotes.All(q => q.Gold > 0 && q.Wheat > 0 && q.Wood > 0 && q.Settlers > 0 && q.Days >= 1 && q.Completion == g.CurrentDate.AddDays(q.Days)),
+            "every colony region has a real price (gold, wheat, wood, settlers), a duration and an estimated completion date");
+        var bySize = quotes.Where(q => !q.Overland).GroupBy(q => q.Size).OrderBy(gp => gp.Key).Select(gp => gp.Average(q => q.Gold)).ToList();
+        Check(bySize.Count >= 3 && bySize.Zip(bySize.Skip(1), (a, b) => a < b).All(x => x), "a bigger region costs more gold: small < medium < large < vast, on average");
+        Check(quotes.Select(q => q.Gold).Distinct().Count() >= 12 && quotes.Select(q => q.Days).Distinct().Count() >= 8, "prices and durations differ from region to region (not one flat figure)");
+        Check(g.FrontierRegions.All(r => r.Status == ColonyStatus.Unclaimed && r.Id == ColonyCatalog.IdOf(r.Name) && r.Id.Length > 0) && g.FrontierRegions.Select(r => r.Id).Distinct().Count() == 34, "34 distinct stable ids, all unclaimed at the start");
+        Check(quotes.Where(q => !q.Overland).All(q => q.Warships == Balance.ColonyWarshipsRequired) && quotes.Where(q => q.Overland).All(q => q.Warships == 0), "a region across the sea needs the fleet; one on land the country already holds does not");
+        var touching = g.OtherNations.SelectMany(n => g.FrontierRegions.Select(r => (n, r))).FirstOrDefault(x => ColonizationService.IsOverland(g, x.n, x.r));
+        var overQ = touching.n is null ? null : Q(g, touching.n, touching.r);
+        Check(overQ is not null && overQ.Overland && overQ.Warships == 0 && overQ.Days <= Balance.ColonyMaxOverlandDays, $"a country whose land touches {touching.r?.Name} reaches it overland, on foot ({overQ?.Days} days)");
+        Check(g.FrontierRegions.All(r => !g.AllNations().Any(n => n.Id == r.Id)), "no colony region id is also a country's id (a tap on the map finds one or the other)");
+        Check(g.FrontierRegions.All(r => ColonizationService.AreaKm2(r) > 0 && ColonizationService.AreaKm2(r) % 1000 == 0), "every region has an area to show, in thousands of square kilometres");
+        Fund(p0);
+        Check(g.FrontierRegions.All(r => { var qq = Q(g, p0, r); return (qq.Block is null) == ColonizationService.Requirements(g, p0, qq).All(x => x.Met) && qq.Block is null; }), "a funded country meets every requirement of every open region, and the popup's ticks agree with the verdict");
+        p0.Gold = 0;
+        Check(g.FrontierRegions.All(r => { var qq = Q(g, p0, r); var reqs = ColonizationService.Requirements(g, p0, qq); return qq.Block is not null && !reqs.All(x => x.Met) && !reqs.First(x => x.Label == "Gold").Met; }), "with an empty treasury every region is blocked, and the popup crosses the gold");
+    }
+
+    // ---- the player sends a mission
+    using (var eng = NewDipEngine(751))
+    {
+        var s = eng.State; var p = s.PlayerNation; Fund(p);
+        var region = SeaRegion(s, p); var q = eng.QuoteColony(region.Id)!;
+        Check(q.Block is null && q.Warships == Balance.ColonyWarshipsRequired && !q.Overland, "a funded country can send a mission across the sea");
+        (double G, double W, double Wo, long Pop, int Ships) Snap() => (p.Gold, p.GetProduct("Wheat"), p.Wood, p.Population, p.Warships);
+        void Refused(string label, string needle)
+        {
+            var before = Snap(); var err = eng.FoundColony(region.Id);
+            Check(err is not null && err.Contains(needle) && Snap() == before && region.Status == ColonyStatus.Unclaimed && s.ColonizationMissions.Count == 0 && eng.PlayerMission is null,
+                $"{label}: refused with the reason, nothing taken, nothing claimed ({err})");
+        }
+        double g0 = p.Gold; p.Gold = q.Gold - 10; Refused("not enough gold", "treasury"); p.Gold = g0;
+        double w0 = p.GetProduct("Wheat"); p.GoodsInventory["Wheat"] = q.Wheat - 1; Refused("not enough wheat", "wheat"); p.GoodsInventory["Wheat"] = w0;
+        double wo0 = p.Wood; p.Wood = q.Wood - 1; Refused("not enough wood", "wood"); p.Wood = wo0;
+        int sh0 = p.Warships; p.Warships = Balance.ColonyWarshipsRequired - 1; Refused("no fleet to carry them", "warships"); p.Warships = sh0;
+        long pop0 = p.Population; p.Population = q.Settlers * Balance.ColonyHomeMultiple - 1; Refused("too few people at home", "Too few people"); p.Population = pop0;
+        Check(eng.FoundColony("nowhere") == "Region not found." && s.ColonizationMissions.Count == 0, "a region that does not exist is refused");
+
+        var before1 = Snap(); int homePolys = p.Territory.Count;
+        Check(eng.FoundColony(region.Id) is null, "the mission is sent");
+        var m = eng.PlayerMission!;
+        Check(Math.Abs(before1.G - p.Gold - q.Gold) < 1e-6 && Math.Abs(before1.W - p.GetProduct("Wheat") - q.Wheat) < 1e-6 && Math.Abs(before1.Wo - p.Wood - q.Wood) < 1e-6 && before1.Pop - p.Population == q.Settlers && p.Warships == before1.Ships,
+            "the cost is taken once, at the start: gold, wheat, wood and the settlers (the fleet is held, not spent)");
+        Check(m.RegionId == region.Id && m.OwnerId == p.Id && m.StartDate == s.CurrentDate && m.CompletionDate == q.Completion && m.TotalDays == q.Days && m.Gold == q.Gold && m.Wheat == q.Wheat && m.Wood == q.Wood && m.Settlers == q.Settlers && m.Status == MissionStatus.InProgress,
+            "it is recorded: start date, completion date and everything committed");
+        Check(region.Status == ColonyStatus.MissionInProgress && region.MissionId == m.Id && ColonizationService.StatusText(s, region).Contains("in progress") && eng.QuoteColony(region.Id)!.Block is not null, "the region is claimed, says so, and cannot be sent to again");
+        var before2 = Snap();
+        Check(eng.FoundColony(region.Id) is { } again && again.Contains("already on their way") && Snap() == before2 && s.ColonizationMissions.Count == 1, "sending it a second time (a double tap) sends nothing and charges nothing");
+        var other = s.FrontierRegions.First(r => r.Status == ColonyStatus.Unclaimed);
+        Check(eng.FoundColony(other.Id) is { } busy && busy.Contains("One at a time") && Snap() == before2, "a country sends one mission at a time");
+        Check(s.Inbox.Any(i => i.Topic == InboxTopic.Colony && i.Summary.Contains(region.Name)), "the inbox reports that the mission set out");
+
+        // never instant
+        for (int i = 0; i < q.Days - 1; i++) eng.AdvanceOneDay();
+        Check(region.Status == ColonyStatus.MissionInProgress && s.Colonies.Count == 0 && m.DaysLeft(s.CurrentDate) == 1 && m.Progress(s.CurrentDate) > 0 && m.Progress(s.CurrentDate) < 1, "one day before the landing nothing is founded: the mission is under way, nearly there");
+        eng.AdvanceOneDay();
+        Check(region.Status == ColonyStatus.Colonized && m.Status == MissionStatus.Completed && m.EndDate == s.CurrentDate && eng.PlayerMission is null && s.Colonies.Count == 1, "on the completion date the colony is founded and the mission is completed");
+        Check(s.Inbox.Any(i => i.Topic == InboxTopic.Colony && i.Summary.Contains("landed")), "the inbox reports the landing");
+
+        // the colony: its own territory under the owner
+        var col = s.ColoniesOf(p.Id).Single();
+        Check(col.Id == "colony-" + region.Id && col.Name == region.Name && col.IsColony && col.IsEliminated && col.AnnexedById == p.Id && region.ColonyId == col.Id && col.CapitalName.Length > 0,
+            "a colony is a territory of its own, with its own name and settlement, ruled by its founder");
+        Check(Shape(col.Territory) == Shape(region.Polygons) && p.Territory.Count == homePolys, "it holds exactly the region's land, and the founder's own land is untouched");
+        Check(s.ColoniesOf(p.Id).Count == 1 && s.TerritoriesOf(p.Id).Count == 1 && s.AnnexedBy(p.Id).Count == 0 && eng.AnnexedTerritories.Count == 0 && eng.TerritoryReports().Count == 0, "it is a colony, not an annexed state: the Annexed States list stays empty");
+        Check(eng.OwnedColonyTerritories.Single().Id == col.Id && eng.ColonyReports().Single() is { IsColony: true } rep && rep.Id == col.Id, "it appears in the Colonies list, and its report says so");
+        Check(p.ColoniesFounded == 1 && s.Colonies.Single().FoundedById == p.Id && s.Colonies.Single().FoundedDate == s.CurrentDate && s.Colonies.Single().IsTerritory, "its founder, date and kind are recorded");
+        Check(col.Population > 0 && col.Gold == 0 && eng.RealmPopulation == p.Population + col.Population, "the colony's people are its own, it holds no gold of its own, and the realm counts its people once");
+
+        // management by the owner
+        var persia = Ai(eng, "persia");
+        Check(eng.TerritoryAuthority(col.Id) is null && AnnexedStateService.Authority(s, persia, col) is { } why && why.Contains("only its owner"), "only its owner can manage it");
+        var rates = new TaxRates { Peasants = 30, Craftsmen = 30, MilitaryPersonnel = 5, Merchants = 30, Spies = 5, Saboteurs = 5 };
+        var homePeasants = p.TaxRates.Peasants;
+        Check(eng.SetTerritoryTaxRates(col.Id, rates) is null && col.TaxRates.Peasants == 30 && p.TaxRates.Peasants == homePeasants, "the owner sets the colony's tax rates (its own, not the nation's)");
+        p.Gold = 1e9; col.Wood = 1e7; col.Stone = 1e7; col.Iron = 1e7;
+        var mill = ProductionCatalog.All.Where(mm => mm.WoodCost > 0 && mm.BuildDays >= 4).OrderBy(mm => mm.GoldCost).First();
+        int millsBefore = col.ProductionBuildings.Values.Sum();
+        Check(eng.BuildProductionInTerritory(col.Id, mill.Id, 1) is null && eng.ReportTerritory(col.Id)!.UnderConstruction == 1, "the owner builds in it, from its own stocks");
+        col.GoodsInventory["Wheat"] = 5000; double homeWheat = p.GetProduct("Wheat");
+        Check(eng.ShipTerritoryStock(col.Id, "wheat", 400) is null && Math.Abs(p.GetProduct("Wheat") - homeWheat - 400) < 1e-6 && Math.Abs(col.GetProduct("Wheat") - 4600) < 1e-6, "the owner ships stock home: it leaves the colony and arrives once");
+        double expectedColonyIncome = AnnexedStateService.TaxRevenue(p, col) + AnnexedStateService.OtherIncome(s, col);
+        Check(expectedColonyIncome > 0 && eng.RealmDailyIncome() == GameEngine.EstimateDailyIncome(p) + (long)expectedColonyIncome, $"its tax and workings add {expectedColonyIncome:N0} a day to the realm's income, once");
+        long popNow = col.Population;
+        for (int i = 0; i < 30; i++) { eng.AdvanceOneDay(); p.Gold = Math.Max(p.Gold, 1_000_000); }
+        Check(col.Population != popNow && col.ProductionBuildings.Values.Sum() >= millsBefore + 1 && col.ConstructionQueue.Count == 0, "the colony lives on its own: people born and dying, the build finishing");
+
+        // a conquered country is a different thing, and the two lists never mix
+        var spain = Ai(eng, "spain"); Warfare.AnnexNation(s, p, spain);
+        Check(eng.AnnexedTerritories.Single().Id == spain.Id && eng.OwnedColonyTerritories.Single().Id == col.Id && eng.TerritoryReports().All(r2 => !r2.IsColony) && eng.ColonyReports().All(r2 => r2.IsColony), "an annexed country and a colony live side by side, each only in its own list");
+        Check(eng.RealmPopulation == p.Population + col.Population + spain.Population && s.TerritoriesOf(p.Id).Count == 2, "...and the realm counts every one of them once");
+    }
+
+    // ---- competing claims: one winner, never two colonies
+    using (var eng = NewDipEngine(752))
+    {
+        var s = eng.State; var p = s.PlayerNation; var a = Ai(eng, "france"); var b = Ai(eng, "spain");
+        Fund(p); Fund(a); Fund(b);
+        var region = SeaRegion(s, p, a, b);
+        double bGold = b.Gold, bWheat = b.GetProduct("Wheat"); long bPop = b.Population;
+        double aGold = a.Gold; long aPop = a.Population, aTotal = s.TotalPopulation(a);
+        var (ma, ea) = ColonizationService.Start(s, a, region.Id);
+        var (mb, eb) = ColonizationService.Start(s, b, region.Id);
+        Check(ma is not null && ea is null && mb is null && eb is not null && eb.Contains("claimed by") && region.MissionId == ma.Id, "two countries claim one region on the same day: the first claim stands, the second is told who has it");
+        Check(b.Gold == bGold && b.GetProduct("Wheat") == bWheat && b.Population == bPop && s.ColonizationMissions.Count == 1, "the loser pays nothing");
+        var pg = p.Gold; Check(eng.FoundColony(region.Id) is { } pe && pe.Contains("claimed by") && p.Gold == pg, "the player is refused it too, while another's mission is under way");
+        Check(a.Gold == aGold - ma!.Gold && a.Population == aPop - ma.Settlers && s.TotalPopulation(a) == aTotal - ma.Settlers, "the winner paid its gold once, and its settlers left its people");
+        s.CurrentDate = ma.CompletionDate;
+        ColonizationService.Advance(s); ColonizationService.Advance(s);
+        Check(ColoniesIn(s, region) == 1 && s.Colonies.Single().OwnerId == a.Id && region.Status == ColonyStatus.Colonized && ma.Status == MissionStatus.Completed && s.ColoniesOf(a.Id).Count == 1, "it lands once (advancing twice on the same day founds one colony), owned by the first claimant");
+        var rec = s.ColoniesOf(a.Id).Single();
+        Check(rec.Population == ma.Settlers && a.Population == aPop - ma.Settlers && s.TotalPopulation(a) == aTotal && a.Gold == aGold - ma.Gold && rec.Gold == 0, "landing moves nothing twice: the colony's people are exactly the settlers, the owner's totals unchanged, no gold appears");
+        Check(ColonizationService.Start(s, b, region.Id).Error is { } e1 && e1.Contains("already a colony of") && eng.FoundColony(region.Id) is { } e2 && e2.Contains("already a colony") && ColoniesIn(s, region) == 1, "a colonised region can be claimed by nobody else");
+        Check(ColonizationService.OwnerOf(s, region)?.Id == a.Id, "(the owner of the colonised region is read from the colony)");
+
+        // a mission whose claimant falls is lost, and the region is free again for the next
+        var r2 = SeaRegion(s, a, b);
+        var (m2, _) = ColonizationService.Start(s, b, r2.Id); double afterStart = b.Gold;
+        b.IsEliminated = true; s.CurrentDate = m2!.CompletionDate; ColonizationService.Advance(s);
+        Check(m2.Status == MissionStatus.Failed && r2.Status == ColonyStatus.Unclaimed && r2.MissionId is null && ColoniesIn(s, r2) == 0 && b.Gold == afterStart && m2.Outcome.Contains("fell"), "a mission whose country has fallen is lost (its cost is not refunded) and the region is free again");
+        var c = Ai(eng, "england"); Fund(c);
+        var (m3, _e3) = ColonizationService.Start(s, c, r2.Id);
+        Check(m3 is not null && r2.MissionId == m3.Id, "...so another country can claim it");
+        s.CurrentDate = m3!.CompletionDate; ColonizationService.Advance(s);
+        Check(ColoniesIn(s, r2) == 1 && s.Colonies.Last().OwnerId == c.Id, "and settles it");
+
+        // a mission that lost its fleet fails; one whose claim was tampered with fails instead of settling twice
+        var d = Ai(eng, "dutch"); Fund(d);
+        var r3 = SeaRegion(s, d); var (m4, _) = ColonizationService.Start(s, d, r3.Id); double dGold = d.Gold;
+        d.Warships = 0; s.CurrentDate = m4!.CompletionDate; ColonizationService.Advance(s);
+        Check(m4.Status == MissionStatus.Failed && r3.Status == ColonyStatus.Unclaimed && ColoniesIn(s, r3) == 0 && d.Gold == dGold && s.Inbox.Any(i => i.Topic == InboxTopic.Colony && i.Summary.Contains("fleet")), "a mission whose fleet is gone is lost, reported in the inbox, not refunded");
+        d.Warships = 6; var r4 = SeaRegion(s, d); var (m5, _) = ColonizationService.Start(s, d, r4.Id);
+        r4.MissionId = "someone-else"; s.CurrentDate = m5!.CompletionDate; ColonizationService.Advance(s);
+        Check(m5.Status == MissionStatus.Failed && ColoniesIn(s, r4) == 0, "a mission whose claim no longer stands is lost, never a second colony");
+        Check(s.FrontierRegions.All(r => ColoniesIn(s, r) <= 1) && s.Colonies.Select(x => x.Id).Distinct().Count() == s.Colonies.Count, "no region ever holds two colonies");
+    }
+
+    // ---- the AI colonises by the same rules, from its own stores
+    using (var eng = NewDipEngine(753))
+    {
+        var s = eng.State; s.CurrentDate = s.AiWorldStartDate.AddDays(Balance.AiColonyStartDays + 5);
+        var able = s.OtherNations.Where(n => !n.IsEliminated && n.Population >= Balance.AiColonyMinPopulation && ColonizationService.Appetite(n) >= Balance.AiColonyAppetiteMin && !AiWorldService.AtWarAny(s, n)).ToList();
+        Check(able.Count >= 5 && able.Count < s.OtherNations.Count(n => !n.IsEliminated), $"some countries have the appetite and the people, not all of them ({able.Count} of {s.OtherNations.Count})");
+        var n1 = able[0]; var rng = new Random(5);
+        n1.Gold = 0; for (int i = 0; i < 3000; i++) ColonizationService.AiThink(s, n1, rng);
+        Check(ColonizationService.ActiveMission(s, n1.Id) is null, "a country with an empty treasury never sends a mission");
+        Fund(n1); n1.AtWarWithPlayer = true; for (int i = 0; i < 3000; i++) ColonizationService.AiThink(s, n1, rng);
+        Check(ColonizationService.ActiveMission(s, n1.Id) is null, "nor does one at war");
+        n1.AtWarWithPlayer = false; var savedDate = s.CurrentDate; s.CurrentDate = s.AiWorldStartDate.AddDays(30); for (int i = 0; i < 3000; i++) ColonizationService.AiThink(s, n1, rng);
+        Check(ColonizationService.ActiveMission(s, n1.Id) is null, "nor does one in the first months of the game");
+        s.CurrentDate = savedDate;
+        (double G, double W, double Wo, long Pop) snap = default; int tries = 0;
+        for (; tries < 6000 && ColonizationService.ActiveMission(s, n1.Id) is null; tries++) { snap = (n1.Gold, n1.GetProduct("Wheat"), n1.Wood, n1.Population); ColonizationService.AiThink(s, n1, rng); }
+        var am = ColonizationService.ActiveMission(s, n1.Id);
+        Check(am is not null, $"a country with the means and the appetite eventually sends one (after {tries} thoughts)");
+        Check(Math.Abs(snap.G - n1.Gold - am!.Gold) < 1e-6 && Math.Abs(snap.W - n1.GetProduct("Wheat") - am.Wheat) < 1e-6 && Math.Abs(snap.Wo - n1.Wood - am.Wood) < 1e-6 && snap.Pop - n1.Population == am.Settlers && am.Gold > 0,
+            "it pays the very cost the player would, from its own treasury, stores and people");
+        Check(am.TotalDays >= 1 && am.CompletionDate == am.StartDate.AddDays(am.TotalDays) && s.FrontierRegions.First(r => r.Id == am.RegionId).Status == ColonyStatus.MissionInProgress, "its mission has a duration and a completion date and claims its region");
+        Check(s.Inbox.Any(i => i.Topic == InboxTopic.Colony && i.Summary.Contains(n1.Name) && i.Summary.Contains("claimed")), "the player's inbox hears of the claim");
+
+        // a handful at a time, never the same region twice
+        foreach (var n in able) Fund(n);
+        for (int round = 0; round < 3000; round++)
+            foreach (var n in able) ColonizationService.AiThink(s, n, rng);
+        var running = s.ColonizationMissions.Where(mm => mm.Status == MissionStatus.InProgress).ToList();
+        Check(running.Count <= Balance.AiColonyConcurrent && running.Count >= 2, $"only a few AI missions run at once: {running.Count} (limit {Balance.AiColonyConcurrent})");
+        Check(running.Select(mm => mm.RegionId).Distinct().Count() == running.Count && running.Select(mm => mm.OwnerId).Distinct().Count() == running.Count, "each is under way to its own region from its own country");
+        var lastDue = running.Max(mm => mm.CompletionDate);
+        while (s.CurrentDate <= lastDue) eng.AdvanceOneDay();
+        Check(running.All(mm => mm.Status != MissionStatus.InProgress), "without the player, the missions land (or fail) by themselves on their dates");
+        Check(s.Colonies.Count == s.ColonizationMissions.Count(mm => mm.Status == MissionStatus.Completed) && s.FrontierRegions.All(r => ColoniesIn(s, r) <= 1), "one colony per completed mission, one per region");
+        Check(s.Colonies.All(cl => s.AllNations().Any(n => n.Id == cl.OwnerId && !n.IsColony) && s.AllNations().Any(n => n.Id == cl.Id && n.IsColony && n.AnnexedById == cl.OwnerId && n.Population > 0)), "every AI colony has its owner and its own record with people");
+    }
+
+    // ---- a world left alone: colonisation spreads, in order
+    using (var eng = NewDipEngine(754))
+    {
+        var s = eng.State; int peak = 0; int days = 4 * 365;
+        for (int i = 0; i < days; i++)
+        {
+            eng.AdvanceOneDay();
+            int aiRunning = s.ColonizationMissions.Count(mm => mm.Status == MissionStatus.InProgress && mm.OwnerId != s.PlayerNation.Id);
+            peak = Math.Max(peak, aiRunning);
+        }
+        var founded = s.Colonies.Where(cl => cl.FoundedById != s.PlayerNation.Id).ToList();
+        Check(peak <= Balance.AiColonyConcurrent && peak >= 1, $"no more than {Balance.AiColonyConcurrent} AI missions were ever under way at once (peak {peak})");
+        Check(founded.Count >= 3 && founded.Count <= 20, $"in four years a few of the {s.FrontierRegions.Count} regions are settled, not all of them: {founded.Count}");
+        Check(founded.Select(cl => cl.FoundedById).Distinct().Count() >= 3 && founded.Select(cl => cl.FoundedDate).Distinct().Count() >= 3, "by several countries, on different days");
+        Check(s.FrontierRegions.All(r => ColoniesIn(s, r) <= 1 && (r.Status != ColonyStatus.Colonized || (r.ColonyId is not null && s.Colonies.Any(cl => cl.Id == r.ColonyId && cl.RegionId == r.Id)))
+                                         && (r.Status != ColonyStatus.MissionInProgress || s.ColonizationMissions.Any(mm => mm.Id == r.MissionId && mm.Status == MissionStatus.InProgress))), "every region's status agrees with its colony and its mission");
+        Check(s.ColonizationMissions.Count(mm => mm.Status == MissionStatus.Completed) == s.Colonies.Count && s.OtherNations.Count(n => n.IsColony) == s.Colonies.Count, "one colony record, one local record, one completed mission each");
+        Check(s.Inbox.Count(i => i.Topic == InboxTopic.Colony) >= 3, "the player's inbox followed what happened");
+        var shapes = s.AllNations().Where(n => n.Territory.Count > 0).GroupBy(n => Shape(n.Territory)).ToDictionary(gp => gp.Key, gp => gp.Count());
+        Check(s.OtherNations.Where(n => n.IsColony).All(rec => rec.Population > 0 && rec.Territory.Count > 0 && shapes[Shape(rec.Territory)] == 1), "every colony holds land and people of its own, shared with nobody");
+    }
+
+    // ---- save and load: a mission under way, and a colony
+    using (var eng = NewDipEngine(755))
+    {
+        var s = eng.State; var p = s.PlayerNation; Fund(p);
+        var region = SeaRegion(s, p); var q = eng.QuoteColony(region.Id)!;
+        eng.FoundColony(region.Id);
+        for (int i = 0; i < 5; i++) eng.AdvanceOneDay();
+        var m0 = eng.PlayerMission!; string mid = m0.Id; var due = m0.CompletionDate; var start = m0.StartDate; double goldAt = p.Gold; long popAt = p.Population; double wheatAt = p.GetProduct("Wheat");
+        int homePolys = p.Territory.Count;
+        await eng.SaveAsync(); await eng.LoadAsync();
+        var s2 = eng.State; var p2 = s2.PlayerNation; var reg2 = s2.FrontierRegions.First(r => r.Id == region.Id);
+        Check(eng.PlayerMission is { } m2 && m2.Id == mid && m2.CompletionDate == due && m2.StartDate == start && m2.TotalDays == q.Days && m2.Status == MissionStatus.InProgress && m2.Gold == q.Gold && reg2.Status == ColonyStatus.MissionInProgress && reg2.MissionId == mid,
+            "a mission under way comes back from a save with its dates, its cost and its claim");
+        Check(p2.Gold == goldAt && p2.Population == popAt && p2.GetProduct("Wheat") == wheatAt && s2.ColonizationMissions.Count == 1, "loading takes nothing a second time and starts nothing again");
+        Check(eng.FoundColony(region.Id) is not null && p2.Gold == goldAt, "the claim still holds after loading");
+        while (s2.CurrentDate < due.AddDays(-1)) eng.AdvanceOneDay();
+        Check(s2.Colonies.Count == 0 && reg2.Status == ColonyStatus.MissionInProgress, "after loading, the mission is still not done the day before it lands (it did not restart or finish early)");
+        eng.AdvanceOneDay();
+        Check(s2.CurrentDate == due && s2.Colonies.Count == 1 && reg2.Status == ColonyStatus.Colonized && s2.ColonizationMissions.Single().Status == MissionStatus.Completed, "it lands on the date that was promised");
+        var col = s2.ColoniesOf(p2.Id).Single(); long colPop = col.Population; string colShape = Shape(col.Territory); string colId = col.Id;
+        await eng.SaveAsync(); await eng.LoadAsync();
+        var s3 = eng.State; var p3 = s3.PlayerNation; var col3 = s3.ColoniesOf(p3.Id).Single();
+        Check(s3.Colonies.Count == 1 && col3.Id == colId && col3.IsColony && col3.Population == colPop && Shape(col3.Territory) == colShape && p3.Territory.Count == homePolys
+              && s3.FrontierRegions.First(r => r.Id == region.Id) is { Status: ColonyStatus.Colonized } r3 && r3.ColonyId == colId && p3.ColoniesFounded == 1,
+            "a colony survives a save: its owner, people, land and the region's state");
+        Check(eng.AnnexedTerritories.Count == 0 && eng.OwnedColonyTerritories.Single().Id == colId && eng.ColonyReports().Single().Population == colPop, "it is still a colony, not an annexed state, and is listed");
+        for (int i = 0; i < 40; i++) eng.AdvanceOneDay();
+        Check(s3.Colonies.Count == 1 && s3.ColonizationMissions.Count(mm => mm.Status == MissionStatus.Completed) == 1 && s3.ColonizationMissions.Count == 1 && s3.OtherNations.Count(n => n.IsColony) == 1 && p3.ColoniesFounded == 1,
+            "running on after loading never founds it again, restarts it or charges it again");
+        Check(s3.ColoniesOf(p3.Id).Single().Population != colPop, "(and the colony keeps living)");
+    }
+
+    // ---- an old save with an expedition at sea becomes a mission
+    using (var eng = NewDipEngine(756))
+    {
+        var s = eng.State; var p = s.PlayerNation;
+        var reg = s.FrontierRegions.First(r => r.Name == "Swahili Coast"); reg.Id = "old-guid-1";
+        s.ActiveExpedition = new ColonyExpedition { RegionId = "old-guid-1", RegionName = "Swahili Coast", DaysLeft = 10, TotalDays = 40 };
+        s.MapVersion = 0; double goldAt = p.Gold;
+        await eng.SaveAsync(); await eng.LoadAsync();
+        var s2 = eng.State; var up = s2.FrontierRegions.First(r => r.Name == "Swahili Coast"); var today = s2.CurrentDate;
+        Check(s2.ActiveExpedition is null && eng.PlayerMission is { } um && um.RegionId == ColonyCatalog.IdOf("Swahili Coast") && um.CompletionDate == today.AddDays(10) && um.TotalDays == 40 && up.Status == ColonyStatus.MissionInProgress && up.MissionId == um.Id && up.Id == ColonyCatalog.IdOf("Swahili Coast"),
+            "an old save's expedition at sea becomes a mission with the days it had left, and its region is claimed");
+        Check(s2.PlayerNation.Gold == goldAt, "(nothing is charged for it again)");
+        for (int i = 0; i < 10; i++) eng.AdvanceOneDay();
+        Check(s2.Colonies.Count == 1 && up.Status == ColonyStatus.Colonized && s2.ColoniesOf(s2.PlayerNation.Id).Single().Name == "Swahili Coast", "and it lands as promised");
     }
 }
 

@@ -680,7 +680,7 @@
 
     // Countries that were annexed are no longer states of their own: they are listed here under the country that took them.
     private RenderFragment AnnexedList() => @<text>
-        @if (Engine.State.OtherNations.Where(n => n.IsEliminated).OrderBy(n => n.AnnexedDate).ThenBy(n => n.Name).ToList() is { Count: > 0 } fallen)
+        @if (Engine.State.OtherNations.Where(n => n.IsEliminated && !n.IsColony).OrderBy(n => n.AnnexedDate).ThenBy(n => n.Name).ToList() is { Count: > 0 } fallen)
         {
             <div class="dip-annexed">
                 <div class="dip-annexed-title">🏳 Annexed — now part of the country that took them</div>

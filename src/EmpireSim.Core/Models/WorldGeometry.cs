@@ -23,6 +23,30 @@ public static partial class WorldGeometry
     /// <summary>Where a neutral or frontier region's name is written (map units).</summary>
     public static (double X, double Y) Label(string name) => Labels[name];
 
+    public static NeutralTerritory NewNeutralRegion(string name)
+    {
+        var (x, y) = Label(name);
+        return new NeutralTerritory { Name = name, LabelX = x, LabelY = y, Polygons = Neutral(name) };
+    }
+
+    /// <summary>A neutral territory per name of <see cref="NeutralNames"/>: the land nobody may settle.</summary>
+    public static List<NeutralTerritory> NewNeutralRegions() => NeutralNames.Select(NewNeutralRegion).ToList();
+
+    /// <summary>An unclaimed colony region (see <see cref="ColonyCatalog"/> for its character), with its stable id.</summary>
+    public static FrontierRegion NewFrontierRegion(string name)
+    {
+        var (x, y) = Label(name);
+        var site = ColonyCatalog.Get(name);
+        return new FrontierRegion
+        {
+            Id = ColonyCatalog.IdOf(name), Name = name, LabelX = x, LabelY = y, Polygons = Frontier(name),
+            Landmass = site?.Landmass ?? "", Terrain = site?.Terrain ?? ColonyTerrain.Archipelago,
+        };
+    }
+
+    /// <summary>Every colony region, unclaimed, in the catalogue's order.</summary>
+    public static List<FrontierRegion> NewFrontierRegions() => FrontierNames.Select(NewFrontierRegion).ToList();
+
     /// <summary>
     /// Brings the map of a save made under an older <see cref="GameState.MapVersion"/> up to date: the redrawn coastlines and borders replace the
     /// old polygons, while who owns what stays exactly as it was. A realm is its own lands plus the lands of every country it has annexed
@@ -65,6 +89,8 @@ public static partial class WorldGeometry
             n.CapitalName = capital.Name;
         }
 
+        // Neutral land: redrawn by name; a territory that was carved entirely into colony regions (Ireland, Iceland, Greenland) is gone.
+        state.NeutralRegions.RemoveAll(r => !NeutralNames.Contains(r.Name));
         foreach (var name in NeutralNames)
         {
             var (x, y) = Label(name);
@@ -75,16 +101,65 @@ public static partial class WorldGeometry
             region.LabelY = y;
         }
 
-        foreach (var region in state.FrontierRegions)
+        UpgradeColonyRegions(state);
+        state.MapVersion = Version;
+    }
+
+    /// <summary>
+    /// Colony regions of an older save: the expedition that was at sea becomes a mission (what it cost was paid long ago), every region of the
+    /// catalogue exists with its stable id (one that was colonised under the old rules is there as a colony owned by whoever founded it), and
+    /// the land of every colony is the region's.
+    /// </summary>
+    private static void UpgradeColonyRegions(GameState state)
+    {
+        // The expedition first, while its region still has the id it had when it sailed.
+        var expedition = state.ActiveExpedition;
+        FrontierRegion? sailing = expedition is null ? null
+            : state.FrontierRegions.FirstOrDefault(r => r.Id == expedition.RegionId || r.Name == expedition.RegionName);
+
+        foreach (var name in FrontierNames)
         {
-            if (!Frontiers.ContainsKey(region.Name)) continue;
-            var (x, y) = Label(region.Name);
-            region.Polygons = Frontier(region.Name);
+            var region = state.FrontierRegions.FirstOrDefault(r => r.Name == name);
+            if (region is null)
+            {
+                state.FrontierRegions.Add(region = NewFrontierRegion(name));
+                // A region missing from an old save was colonised under the old rules: it is that colony's land now.
+                var legacy = state.Colonies.FirstOrDefault(c => c.Name == name && c.RegionId.Length == 0);
+                if (legacy is not null) { region.Status = ColonyStatus.Colonized; region.ColonyId = legacy.Id; }
+                continue;
+            }
+            var (x, y) = Label(name);
+            region.Id = ColonyCatalog.IdOf(name);
+            region.Polygons = Frontier(name);
             region.LabelX = x;
             region.LabelY = y;
+            var site = ColonyCatalog.Get(name);
+            if (site is not null) { region.Landmass = site.Landmass; region.Terrain = site.Terrain; }
         }
 
-        state.MapVersion = Version;
+        if (expedition is not null)
+        {
+            var region = sailing is null ? null : state.FrontierRegions.FirstOrDefault(r => r.Name == sailing.Name);
+            if (region is not null && region.Status == ColonyStatus.Unclaimed)
+            {
+                var player = state.PlayerNation;
+                var mission = new ColonizationMission
+                {
+                    RegionId = region.Id, RegionName = region.Name, OwnerId = player.Id, OwnerName = player.Name,
+                    TotalDays = expedition.TotalDays, StartDate = state.CurrentDate.AddDays(-(expedition.TotalDays - expedition.DaysLeft)),
+                    CompletionDate = state.CurrentDate.AddDays(expedition.DaysLeft),
+                    Gold = 20, Wheat = 3000, Settlers = 2000, WarshipsRequired = 0,   // (what the old rules took, paid at the start)
+                };
+                state.ColonizationMissions.Add(mission);
+                region.Status = ColonyStatus.MissionInProgress;
+                region.MissionId = mission.Id;
+            }
+            state.ActiveExpedition = null;
+        }
+
+        foreach (var colony in state.AllNations().Where(n => n.IsColony))
+            if (state.FrontierRegions.FirstOrDefault(r => r.Id == colony.ColonyRegionId) is { } land)
+                colony.Territory = Frontier(land.Name);
     }
 
     private static List<List<MapPoint>> Parse(string rings)

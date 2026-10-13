@@ -16,7 +16,7 @@ public sealed record TerritoryReport(
     double SafeTaxThreshold, double TaxDeathIncreasePct,
     int Farms, int Mines, int Sawmills, int Workshops, int Mills, int UnderConstruction,
     IReadOnlyList<TerritoryMill> MillList, IReadOnlyList<TerritoryItem> Items, IReadOnlyList<string> ShortItems,
-    string Status, bool Absorbed)
+    string Status, bool Absorbed, bool IsColony = false)
 {
     /// <summary>Farms, mines, sawmills, workshops and production buildings: every facility that works in the territory.</summary>
     public int Facilities => Farms + Mines + Sawmills + Workshops + Mills;
@@ -34,30 +34,34 @@ public sealed record TaxPreview(double RevenuePerDay, double RevenueChange, doub
     double SafeThreshold, double ExtraDeathPct, double ExtraDeathsPerDay, bool ShortageNow);
 
 /// <summary>
-/// Annexed States. A country that has been annexed is not a country any more (it is <see cref="Nation.IsEliminated"/>: no treasury, army,
+/// Annexed States and Colonies. A country that has been annexed is not a country any more (it is <see cref="Nation.IsEliminated"/>: no treasury, army,
 /// diplomacy, decisions or Assembly vote), but its land and people live on as a TERRITORY of the country that annexed it
 /// (<see cref="Nation.AnnexedById"/>). The territory keeps its own local economy in its own record — people, taxed workforce and tax
 /// rates, stocks, buildings and building queue — so each territory can be managed separately, nothing is counted twice, and the daily
 /// simulation (<c>SimulationService.AdvanceTerritory</c>) runs it by exactly the formulas of every other economy, with its tax and any
 /// gold it digs credited to its master. The master (player or AI) is the only authority over it: every operation here is checked
-/// against <see cref="Authority"/>.
+/// against <see cref="Authority"/>. A COLONY (<see cref="Nation.IsColony"/>: land settled peacefully, not conquered) is a territory in just the same
+/// way and shares all of this; it is listed separately and is never treated as an annexed state.
 /// </summary>
 public static class AnnexedStateService
 {
-    /// <summary>The territories a country rules, in the order they were annexed.</summary>
+    /// <summary>The annexed countries a country rules, in the order they were annexed (colonies are separate: see <see cref="ColoniesOf"/>).</summary>
     public static List<Nation> TerritoriesOf(GameState state, Nation owner) => state.AnnexedBy(owner.Id);
 
-    /// <summary>Why <paramref name="owner"/> may not manage this territory (null = it may): it must be an annexed country under that very owner.</summary>
+    /// <summary>The colonies a country owns, in the order they were founded.</summary>
+    public static List<Nation> ColoniesOf(GameState state, Nation owner) => state.ColoniesOf(owner.Id);
+
+    /// <summary>Why <paramref name="owner"/> may not manage this territory (null = it may): it must be an annexed country or a colony under that very owner.</summary>
     public static string? Authority(GameState state, Nation owner, Nation? territory)
     {
         if (territory is null) return "No such territory.";
         if (owner.IsEliminated) return $"{owner.Name} no longer rules anything.";
         if (!territory.IsEliminated || territory.AnnexedById is null)
-            return $"{territory.Name} is an independent country, not an annexed territory.";
+            return $"{territory.Name} is an independent country, not an annexed territory or a colony.";
         if (territory.AnnexedById != owner.Id)
         {
             string master = state.AllNations().FirstOrDefault(n => n.Id == territory.AnnexedById)?.Name ?? "another country";
-            return $"{territory.Name} belongs to {master}: only its master can manage it.";
+            return $"{territory.Name} belongs to {master}: only its {(territory.IsColony ? "owner" : "master")} can manage it.";
         }
         return null;
     }
@@ -135,7 +139,7 @@ public static class AnnexedStateService
             TaxRevenue(owner, territory), OtherIncome(state, territory), territory.TaxApproval, TaxationService.ApprovalLabel(territory.TaxApproval),
             territory.LastSafeTaxThreshold, territory.LastTaxDeathIncreasePct,
             territory.Farms, territory.Mines, territory.Sawmills, territory.Workshops, millCount, territory.ConstructionQueue.Count,
-            mills, items, shortItems, status, absorbed);
+            mills, items, shortItems, status, absorbed, territory.IsColony);
     }
 
     // ================= Taxes =================

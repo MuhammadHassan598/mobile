@@ -133,9 +133,9 @@ public static class MovementReport
                 $"{c.Quantity:N0} {goods} from {seller} to {buyer}", 1 - Math.Clamp((double)left / total, 0, 1), c.DeliveryDate, left));
         }
 
-        if (state.ActiveExpedition is { } ex)
-            missions.Add(new Mission(MovementKind.Colony, player.Id, player.Name, ex.RegionId, ex.RegionName,
-                $"Colony expedition sailing for {ex.RegionName}", ex.Progress, today.AddDays(ex.DaysLeft), ex.DaysLeft));
+        foreach (var m in state.ColonizationMissions.Where(m => m.Status == MissionStatus.InProgress))
+            missions.Add(new Mission(MovementKind.Colony, m.OwnerId, m.OwnerName, m.RegionId, m.RegionName,
+                $"Colonists of {m.OwnerName} {(m.Overland ? "marching overland to" : "sailing for")} {m.RegionName}", m.Progress(today), m.CompletionDate, m.DaysLeft(today)));
 
         foreach (var net in state.SpyNetworks)
             missions.Add(new Mission(MovementKind.Mission, player.Id, player.Name, net.TargetNationId, net.TargetNationName,

@@ -31,8 +31,14 @@ public sealed class GameState
     /// <summary>Neutral territories: drawn on the map, owned by no crown.</summary>
     public List<NeutralTerritory> NeutralRegions { get; set; } = new();
 
-    /// <summary>The colony expedition currently at sea (one at a time).</summary>
+    /// <summary>
+    /// The colony expedition that was at sea in a save from before colonisation missions (kept only so such a save can be read; it is turned
+    /// into a mission on load and is always null afterwards).
+    /// </summary>
     public ColonyExpedition? ActiveExpedition { get; set; }
+
+    /// <summary>Colonisation missions, under way and finished, of every country (the player's and the AI's), oldest first.</summary>
+    public List<ColonizationMission> ColonizationMissions { get; set; } = new();
 
     /// <summary>Armies currently marching to invade.</summary>
     public List<MarchingArmy> MarchingArmies { get; set; } = new();
@@ -52,14 +58,24 @@ public sealed class GameState
     public IEnumerable<Nation> LiveOtherNations() => OtherNations.Where(n => !n.IsEliminated);
 
     /// <summary>Everyone under a country's rule, counted once: its own people and those of the territories it has annexed.</summary>
-    public long TotalPopulation(Nation n) => n.Population + AnnexedBy(n.Id).Sum(t => t.Population);
+    public long TotalPopulation(Nation n) => n.Population + TerritoriesOf(n.Id).Sum(t => t.Population);
 
     /// <summary>A country's Assembly voting power, counting the people of its territories (an annexed territory itself has none).</summary>
     public int VotingPowerOf(Nation n) => AssemblyService.VotingPower(n, AllNations().ToList());
 
     /// <summary>The countries that were annexed by <paramref name="nationId"/> (and now belong to it), oldest first.</summary>
     public List<Nation> AnnexedBy(string nationId) =>
+        AllNations().Where(n => n.AnnexedById == nationId && !n.IsColony).OrderBy(n => n.AnnexedDate).ThenBy(n => n.Name).ToList();
+
+    /// <summary>The colonies that <paramref name="nationId"/> owns (the local records of settled land, never conquered countries), oldest first.</summary>
+    public List<Nation> ColoniesOf(string nationId) =>
+        AllNations().Where(n => n.IsColony && n.AnnexedById == nationId).OrderBy(n => n.AnnexedDate).ThenBy(n => n.Name).ToList();
+
+    /// <summary>Everything a country rules besides itself: annexed countries and colonies. Each is counted once.</summary>
+    public List<Nation> TerritoriesOf(string nationId) =>
         AllNations().Where(n => n.AnnexedById == nationId).OrderBy(n => n.AnnexedDate).ThenBy(n => n.Name).ToList();
+
+    public FrontierRegion? RegionOf(string regionId) => FrontierRegions.FirstOrDefault(r => r.Id == regionId);
 
     /// <summary>
     /// Player-facing warnings, rebuilt every tick. Only critical warnings
@@ -706,30 +722,10 @@ public sealed class GameState
         state.OtherNations = nations.Where(n => n != player).ToList();
 
         // Neutral territories: drawn on the map, owned by no crown.
-                state.NeutralRegions = new List<NeutralTerritory>
-        {
-            new() { Name = "Ireland", LabelX = 168, LabelY = 248, Polygons = WorldGeometry.Neutral("Ireland") },
-            new() { Name = "Iceland", LabelX = 63, LabelY = 140, Polygons = WorldGeometry.Neutral("Iceland") },
-            new() { Name = "Switzerland", LabelX = 322, LabelY = 305, Polygons = WorldGeometry.Neutral("Switzerland") },
-            new() { Name = "Sahara", LabelX = 341, LabelY = 533, Polygons = WorldGeometry.Neutral("Sahara") },
-            new() { Name = "West Africa", LabelX = 351, LabelY = 656, Polygons = WorldGeometry.Neutral("West Africa") },
-            new() { Name = "Arabia", LabelX = 736, LabelY = 551, Polygons = WorldGeometry.Neutral("Arabia") },
-            new() { Name = "East Africa", LabelX = 542, LabelY = 610, Polygons = WorldGeometry.Neutral("East Africa") },
-            new() { Name = "South Africa", LabelX = 492, LabelY = 971, Polygons = WorldGeometry.Neutral("South Africa") },
-            new() { Name = "Tibet", LabelX = 1165, LabelY = 434, Polygons = WorldGeometry.Neutral("Tibet") },
-            new() { Name = "Siberia", LabelX = 1359, LabelY = 172, Polygons = WorldGeometry.Neutral("Siberia") },
-            new() { Name = "East Indies", LabelX = 1669, LabelY = 786, Polygons = WorldGeometry.Neutral("East Indies") },
-            new() { Name = "Greenland", LabelX = 25, LabelY = 40, Polygons = WorldGeometry.Neutral("Greenland") },
-            new() { Name = "Svalbard", LabelX = 414, LabelY = 17, Polygons = WorldGeometry.Neutral("Svalbard") },
-        };;
+                state.NeutralRegions = WorldGeometry.NewNeutralRegions();
 
-        // Uncharted frontier regions, open to colonisation.
-                        state.FrontierRegions = new List<FrontierRegion>
-        {
-            new() { Name = "Western Isles", LabelX = 69, LabelY = 245, Polygons = WorldGeometry.Frontier("Western Isles") },
-            new() { Name = "Southern Reaches", LabelX = 1233, LabelY = 1021, Polygons = WorldGeometry.Frontier("Southern Reaches") },
-            new() { Name = "Far Eastern Isles", LabelX = 1846, LabelY = 815, Polygons = WorldGeometry.Frontier("Far Eastern Isles") },
-        };;
+        // Colony regions: unclaimed land and islands that any country can settle with a colonisation mission.
+        state.FrontierRegions = WorldGeometry.NewFrontierRegions();
 
         // Seed historically-accurate starting production buildings (1600 economies)
         foreach (var nation in nations)

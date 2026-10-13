@@ -8,6 +8,7 @@
     <canvas id="gameMap" class="map-canvas"></canvas>
     <AttackDialog TargetId="@_attackId" OnClose="AttackClosed" OnSent="AttackSent" />
     <PeaceDialog NationId="@_peaceId" OnClose="() => _peaceId = null" />
+    <ColonyDialog RegionId="@_colonyId" OnClose="() => _colonyId = null" OnSent="ColonySent" />
 
     @if (_selectedNation is not null || _selectedFrontier is not null || _selectedNeutral is not null)
     {
@@ -30,10 +31,26 @@
                             <span class="owner-dot" style="background:#4A4438"></span>
                             <span class="muted">Neutral territory</span>
                         }
-                        else
+                        else if (_selectedFrontier is not null)
                         {
-                            <span class="owner-dot" style="background:#6B7280"></span>
-                            <span class="muted">Uncharted territory</span>
+                            var holder = FrontierHolder(_selectedFrontier);
+                            <span class="owner-dot" style="background:@(holder?.ColorHex ?? "#C9952B")"></span>
+                            @switch (_selectedFrontier.Status)
+                            {
+                                case ColonyStatus.Colonized:
+                                    <span class="muted">Colony of @(holder?.Name ?? "another country")</span>
+                                    @if (holder?.IsPlayer == true)
+                                    {
+                                        <span class="you-badge">YOU</span>
+                                    }
+                                    break;
+                                case ColonyStatus.MissionInProgress:
+                                    <span class="muted">Claimed by @(holder?.Name ?? "another country") · mission in progress</span>
+                                    break;
+                                default:
+                                    <span class="muted">Unclaimed colony region</span>
+                                    break;
+                            }
                         }
                     </div>
                 </div>
@@ -65,6 +82,14 @@
                         <button class="inline-btn" @onclick='() => Nav.NavigateTo("/annexed")'>🏳️ Manage annexed states…</button>
                     }
                 }
+                @if (Engine.State.ColoniesOf(_selectedNation.Id) is { Count: > 0 } colonies)
+                {
+                    <div class="annexed-note">⛵ Colonies: @string.Join(", ", colonies.Select(c => $"{c.Name} ({c.AnnexedDate:dd-MM-yyyy})"))</div>
+                    @if (_selectedNation.IsPlayer)
+                    {
+                        <button class="inline-btn" @onclick='() => Nav.NavigateTo("/colonies")'>⛵ Manage colonies…</button>
+                    }
+                }
                 @if (_selectedNation.IsEliminated && _selectedNation.AnnexedById is { } masterId)
                 {
                     <div class="annexed-note">🏳 Annexed by @(Engine.State.AllNations().FirstOrDefault(n => n.Id == masterId)?.Name ?? "another country") on @_selectedNation.AnnexedDate?.ToString("dd-MM-yyyy")</div>
@@ -86,39 +111,97 @@
                 <div class="cards">
                     <div class="card"><div class="label">Status</div><div class="value">Neutral territory</div></div>
                 </div>
-                <p class="page-hint">Beyond the reach of crowns — no ruler claims this land.</p>
+                <p class="page-hint">Beyond the reach of crowns — no ruler claims this land, and nobody can settle it.</p>
             }
-            else
+            else if (_selectedFrontier is not null)
             {
-                <div class="cards">
-                    <div class="card"><div class="label">Status</div><div class="value">Uncharted</div></div>
-                </div>
-                @if (Engine.State.ActiveExpedition is not null)
-                {
-                    <div class="build-row">
-                        <div class="build-info">
-                            <div class="build-name">Expedition to @Engine.State.ActiveExpedition.RegionName</div>
-                            <div class="progress"><div class="progress-fill" style="width:@((Engine.State.ActiveExpedition.Progress * 100).ToString("N0"))%"></div></div>
-                        </div>
-                        <div class="build-days">@((Engine.State.ActiveExpedition.Progress * 100).ToString("N0"))% · @Engine.State.ActiveExpedition.DaysLeft d</div>
-                    </div>
-                }
-                else
-                {
-                    <button class="inline-btn" @onclick="() => Colonize(_selectedFrontier!.Id)">
-                        ⛵ Found colony (@Currency.Cost(Balance.ColonyCostGold) · @Balance.ColonyCostFood.ToString("N0") food · @Balance.ColonyWarshipsRequired warships)
-                    </button>
-                }
+                @ColonyCard(_selectedFrontier)
             }
         </div>
     }
     else
     {
-        <div class="map-hint">Drag to pan · scroll or pinch to zoom · tap a country</div>
+        <div class="map-hint">Drag to pan · scroll or pinch to zoom · tap a country or an amber colony region</div>
     }
 </div>
 
 @code {
+    /// <summary>The popup of a colony region: its status and area, and by status what it would cost to settle, who is on the way, or who owns it.</summary>
+    private RenderFragment ColonyCard(FrontierRegion region) => @<text>
+        @{
+            var state = Engine.State;
+            var player = state.PlayerNation;
+            var size = ColonizationService.SizeOf(ColonizationService.AreaOf(region));
+            var mission = region.Status == ColonyStatus.MissionInProgress ? state.ColonizationMissions.FirstOrDefault(m => m.Id == region.MissionId) : null;
+            var colony = region.Status == ColonyStatus.Colonized ? state.Colonies.FirstOrDefault(c => c.Id == region.ColonyId) : null;
+            var record = colony is null ? null : state.AllNations().FirstOrDefault(n => n.Id == colony.Id);
+            var site = ColonyCatalog.Get(region.Name);
+        }
+        <div class="cards">
+            <div class="card"><div class="label">Status</div><div class="value">@(region.Status switch { ColonyStatus.Colonized => "Colonised", ColonyStatus.MissionInProgress => "Mission under way", _ => "Unclaimed" })</div></div>
+            <div class="card"><div class="label">Area</div><div class="value">≈ @ColonizationService.AreaKm2(region).ToString("N0") km²</div></div>
+            <div class="card"><div class="label">Size</div><div class="value">@ColonizationService.SizeName(size)</div></div>
+        </div>
+        @if (site is not null)
+        {
+            <p class="page-hint">@site.Blurb@(region.Landmass.Length > 0 ? $" Part of {region.Landmass}." : "")</p>
+        }
+
+        @switch (region.Status)
+        {
+            case ColonyStatus.Unclaimed:
+                var q = Engine.QuoteColony(region.Id)!;
+                <div class="mp-sub">Cost and requirements (for @player.Name)</div>
+                @foreach (var rq in ColonizationService.Requirements(state, player, q))
+                {
+                    <div class="mp-req @(rq.Met ? "ok" : "bad")"><span>@(rq.Met ? "✓" : "✗") @rq.Icon @rq.Label</span><span>@rq.Need <small>· have @rq.Have</small></span></div>
+                }
+                <div class="mp-when">⏱ <b>@q.Days days</b> @(q.Overland ? "overland" : "by sea") · estimated landing <b>@q.Completion.ToString("dd-MM-yyyy")</b></div>
+                @if (q.Block is { } why)
+                {
+                    <div class="warning">🔒 @why</div>
+                }
+                <button class="inline-btn" disabled="@(q.Block is not null)" @onclick="() => _colonyId = region.Id">⛵ Send Colonization Mission…</button>
+                break;
+
+            case ColonyStatus.MissionInProgress:
+                @if (mission is not null)
+                {
+                    double progress = mission.Progress(state.CurrentDate);
+                    <div class="build-row">
+                        <div class="build-info">
+                            <div class="build-name">⛵ @mission.OwnerName's colonists @(mission.Overland ? "march to" : "sail for") @region.Name</div>
+                            <div class="progress"><div class="progress-fill" style="width:@((progress * 100).ToString("N0"))%"></div></div>
+                        </div>
+                        <div class="build-days">@((progress * 100).ToString("N0"))% · @mission.DaysLeft(state.CurrentDate) d</div>
+                    </div>
+                    <div class="mp-when">Started <b>@mission.StartDate.ToString("dd-MM-yyyy")</b> · lands <b>@mission.CompletionDate.ToString("dd-MM-yyyy")</b> · @mission.Settlers.ToString("N0") settlers</div>
+                    <p class="page-hint">The land is claimed: nobody else can settle it while these colonists are on their way.</p>
+                }
+                break;
+
+            default:
+                @if (colony is not null && record is not null)
+                {
+                    var owner = state.AllNations().FirstOrDefault(n => n.Id == colony.OwnerId);
+                    <div class="cards">
+                        <div class="card"><div class="label">Settlement</div><div class="value">@record.CapitalName</div></div>
+                        <div class="card"><div class="label">Founded</div><div class="value">@colony.FoundedDate.ToString("dd-MM-yyyy")</div></div>
+                        <div class="card"><div class="label">People</div><div class="value">@record.Population.ToString("N0")</div></div>
+                    </div>
+                    @if (owner?.IsPlayer == true)
+                    {
+                        <button class="inline-btn" @onclick='() => Nav.NavigateTo($"/colonies/{record.Id}")'>⛵ Manage @region.Name…</button>
+                    }
+                    else
+                    {
+                        <p class="page-hint">A colony of @(owner?.Name ?? "another country"): it has no ruler of its own, and its owner governs it.</p>
+                    }
+                }
+                break;
+        }
+    </text>;
+
     private DotNetObjectReference<Map>? _dotNetRef;
     private Nation? _selectedNation;
     private FrontierRegion? _selectedFrontier;
@@ -127,6 +210,10 @@
     private string? _battleReport;
     private string? _attackId;
     private string? _peaceId;
+    private string? _colonyId;
+
+    /// <summary>A region to open on (from the Colonies list: "show on map").</summary>
+    [SupplyParameterFromQuery(Name = "focus")] public string? Focus { get; set; }
 
     private string SelectedName =>
         _selectedNation?.Name ?? _selectedFrontier?.Name ?? _selectedNeutral?.Name ?? "";
@@ -143,27 +230,52 @@
         _battleReport = result.Message;
     }
 
-    private void Colonize(string regionId)
+    // The colony popup confirmed a mission: say when the colonists land.
+    private void ColonySent()
     {
-        _error = Engine.FoundColony(regionId);
+        _colonyId = null;
+        _error = null;
+        var mission = Engine.PlayerMission;
+        _battleReport = mission is null ? null : $"Colonists are on their way to {mission.RegionName}: they land on {mission.CompletionDate:dd-MM-yyyy}.";
+    }
+
+    /// <summary>The country a colony region is claimed by or belongs to (null while it is unclaimed).</summary>
+    private Nation? FrontierHolder(FrontierRegion region)
+    {
+        var state = Engine.State;
+        string? ownerId = region.Status switch
+        {
+            ColonyStatus.Colonized => state.Colonies.FirstOrDefault(c => c.Id == region.ColonyId)?.OwnerId,
+            ColonyStatus.MissionInProgress => state.ColonizationMissions.FirstOrDefault(m => m.Id == region.MissionId)?.OwnerId,
+            _ => null,
+        };
+        return ownerId is null ? null : state.AllNations().FirstOrDefault(n => n.Id == ownerId);
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
         {
+            double focusX = Engine.State.PlayerNation.MapX, focusY = Engine.State.PlayerNation.MapY;
+            if (!string.IsNullOrEmpty(Focus) && Engine.State.RegionOf(Focus) is { } region)
+            {
+                _selectedFrontier = region;
+                focusX = region.LabelX;
+                focusY = region.LabelY;
+            }
             _dotNetRef = DotNetObjectReference.Create(this);
-            await JS.InvokeVoidAsync("empireMap.init", "gameMap", _dotNetRef,
-                Engine.State.PlayerNation.MapX, Engine.State.PlayerNation.MapY);
+            await JS.InvokeVoidAsync("empireMap.init", "gameMap", _dotNetRef, focusX, focusY);
             await RenderMapAsync();
+            if (_selectedFrontier is not null) StateHasChanged();
         }
     }
 
     private async Task RenderMapAsync()
     {
+        var state = Engine.State;
         // Draw large territories first so small nations (city-states, khanates)
         // render on top and stay tappable.
-        var nations = Engine.State.AllNations()
+        var nations = state.AllNations()
             .Where(n => !n.IsEliminated && n.Territory.Count > 0)
             .OrderByDescending(n => n.Territory.Sum(t => PolyArea(t)))
             .Select(n => new
@@ -177,26 +289,41 @@
                 labelX = n.MapX,
                 labelY = n.MapY,
                 // The old capitals of the countries this one has annexed: their lands are drawn as part of this realm.
-                annexedCities = Engine.State.AnnexedBy(n.Id)
-                    .Select(a => new { name = a.CapitalName, country = a.Name, x = a.MapX, y = a.MapY })
+                annexedCities = state.AnnexedBy(n.Id)
+                    .Select(a => new { name = a.CapitalName, country = a.Name, x = a.MapX, y = a.MapY, minScale = 0.0 })
                     .ToList(),
             })
             .ToList();
         _mapSignature = MapSignature();
 
-        var frontier = Engine.State.FrontierRegions.Select(r => new
+        // Colony regions: open (amber, dashed), claimed by a mission (the claimant's colour, hatched, with its progress), or settled
+        // (the owner's colour, part of its realm: the settlement shows once zoomed in).
+        var frontier = state.FrontierRegions.Select(r =>
         {
-            id = r.Id,
-            name = r.Name,
-            kind = "frontier",
-            painted = true,
-            color = "#6B7280",
-            polygons = r.Polygons,
-            labelX = r.LabelX,
-            labelY = r.LabelY,
+            var holder = FrontierHolder(r);
+            var mission = r.Status == ColonyStatus.MissionInProgress ? state.ColonizationMissions.FirstOrDefault(m => m.Id == r.MissionId) : null;
+            var record = r.Status == ColonyStatus.Colonized ? state.AllNations().FirstOrDefault(n => n.Id == r.ColonyId) : null;
+            bool settled = r.Status == ColonyStatus.Colonized && holder is not null;
+            return new
+            {
+                id = r.Id,
+                name = r.Name,
+                kind = settled ? "colony" : "frontier",
+                status = r.Status switch { ColonyStatus.Colonized => "colonized", ColonyStatus.MissionInProgress => "mission", _ => "unclaimed" },
+                painted = r.Terrain == ColonyTerrain.Archipelago,
+                color = holder?.ColorHex ?? "#C9952B",
+                realm = settled ? holder!.Id : r.Id,
+                progress = mission?.Progress(state.CurrentDate) ?? 0.0,
+                polygons = r.Polygons,
+                labelX = r.LabelX,
+                labelY = r.LabelY,
+                annexedCities = settled && record is not null
+                    ? new List<object> { new { name = record.CapitalName, country = r.Name, x = r.LabelX, y = r.LabelY + 11, minScale = 1.0 } }
+                    : new List<object>(),
+            };
         });
 
-        var neutral = Engine.State.NeutralRegions.Select(r => new
+        var neutral = state.NeutralRegions.Select(r => new
         {
             id = r.Id,
             name = r.Name,
@@ -208,7 +335,7 @@
         });
 
         // Neutrals form the background; nations draw over them (small first
-        // within nations so enclaves stay tappable); frontiers sit in open ocean.
+        // within nations so enclaves stay tappable); colony regions sit on top (they share exact borders with whatever lies beside them).
         var shapes = neutral.Cast<object>().Concat(nations).Concat(frontier).ToList();
 
         await JS.InvokeVoidAsync("empireMap.render",
@@ -239,23 +366,28 @@
         StateHasChanged();
     }
 
-    // The map follows the world: when a country is annexed (by the player or by an AI country) while this page is open, its lands are
-    // redrawn as part of the winner's realm at once, instead of waiting for the next tap.
+    // The map follows the world: when a country is annexed or a colony is claimed, landed or lost (by the player or by an AI country) while
+    // this page is open, it is redrawn at once, instead of waiting for the next tap.
     private string _mapSignature = "";
 
-    private string MapSignature() => string.Join(";", Engine.State.AllNations()
-        .Select(n => $"{n.Id}:{n.IsEliminated}:{n.Territory.Count}:{n.AnnexedPolygonCount}:{n.ColorHex}"));
+    private string MapSignature() =>
+        string.Join(";", Engine.State.AllNations().Select(n => $"{n.Id}:{n.IsEliminated}:{n.Territory.Count}:{n.AnnexedPolygonCount}:{n.ColorHex}"))
+        + "|" + string.Join(";", Engine.State.FrontierRegions.Select(r =>
+            $"{r.Id}:{r.Status}:{r.MissionId}:{r.ColonyId}:{FrontierHolder(r)?.ColorHex}:{(int)((Engine.State.ColonizationMissions.FirstOrDefault(m => m.Id == r.MissionId)?.Progress(Engine.State.CurrentDate) ?? 0) * 10)}"));
 
     protected override void OnInitialized() => Engine.StateChanged += OnStateChanged;
 
     private void OnStateChanged() => InvokeAsync(async () =>
     {
-        if (_dotNetRef is null || MapSignature() == _mapSignature) return;
-        // The selected country may just have been annexed: its lands now belong to the winner, so select the winner.
-        if (_selectedNation is { IsEliminated: true, AnnexedById: { } masterId })
-            _selectedNation = Engine.State.AllNations().FirstOrDefault(n => n.Id == masterId) ?? _selectedNation;
-        await RenderMapAsync();
-        StateHasChanged();
+        if (_dotNetRef is null) return;
+        if (MapSignature() != _mapSignature)
+        {
+            // The selected country may just have been annexed: its lands now belong to the winner, so select the winner.
+            if (_selectedNation is { IsEliminated: true, AnnexedById: { } masterId })
+                _selectedNation = Engine.State.AllNations().FirstOrDefault(n => n.Id == masterId) ?? _selectedNation;
+            await RenderMapAsync();
+        }
+        StateHasChanged();   // (the open card shows a mission's progress and a price that moves with the treasury)
     });
 
     public async ValueTask DisposeAsync()

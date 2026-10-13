@@ -53,7 +53,7 @@ public sealed class SimulationService
         VictoryService.Advance(state);
         PeaceService.Advance(state);
         ResearchService.Advance(state);
-        AdvanceColonisation(state);
+        ColonizationService.Advance(state);
         AdvanceMarches(state);
         CheckDefeat(state);
     }
@@ -119,7 +119,7 @@ public sealed class SimulationService
         }
 
         // Population always grows; starvation comes only from item shortages (ConsumptionService).
-        nation.Population += PopulationService.DailyBirths(nation);
+        nation.Population += PopulationService.TakeBirths(nation);
 
         // ---- Treasury: taxation system ----
         nation.EnsureTaxationInitialized();
@@ -539,42 +539,6 @@ public sealed class SimulationService
 
         // Treaties lapse, loans come home, embassies and alliances warm relations.
         TreatyService.Advance(state);
-    }
-
-    /// <summary>Colony expeditions sail on; arrivals found new provinces.</summary>
-    private static void AdvanceColonisation(GameState state)
-    {
-        var expedition = state.ActiveExpedition;
-        if (expedition is null) return;
-
-        expedition.DaysLeft--;
-        if (expedition.DaysLeft > 0) return;
-
-        var region = state.FrontierRegions.FirstOrDefault(r => r.Id == expedition.RegionId);
-        if (region is not null)
-        {
-            state.FrontierRegions.Remove(region);
-            var home = state.PlayerNation;
-            home.Population += Balance.ColonyStartPopulation;
-            home.Farms += 8;
-            home.Mines += 2;
-            home.AddProduct("Wheat", 2000);
-            home.ColoniesFounded++;
-            // Remember what the colony added, so it can be owned (and presented to another nation).
-            state.Colonies.Add(new Colony
-            {
-                Name = region.Name,
-                OwnerId = home.Id,
-                FoundedById = home.Id,
-                FoundedDate = state.CurrentDate,
-                Population = Balance.ColonyStartPopulation,
-                Farms = 8,
-                Mines = 2,
-            });
-            state.LogMovement(MovementKind.Colony, MovementStatus.Completed, home.Id, home.Name, region.Id, region.Name,
-                $"A colony was founded in {region.Name}! Settlers and riches flow to the homeland.", inbox: InboxTopic.Colony);
-        }
-        state.ActiveExpedition = null;
     }
 
     /// <summary>

@@ -180,8 +180,22 @@ public static class TreatyService
     /// Hands a colony, with the people and buildings it added to its owner, to another nation. Callers have checked that
     /// <paramref name="from"/> owns it and still holds those totals (a present, or a term of a peace agreement).
     /// </summary>
-    public static void TransferColony(Colony colony, Nation from, Nation to)
+    public static void TransferColony(Colony colony, Nation from, Nation to) => TransferColony(null, colony, from, to);
+
+    /// <summary>
+    /// A colony changes hands. A colony that is a territory of its own (<see cref="Colony.IsTerritory"/>) just has a new owner: its record, with its people,
+    /// buildings and land, is now ruled by <paramref name="to"/> (nothing moves between the two countries' own totals, so nobody is counted twice).
+    /// A colony from before missions existed was only totals added to its owner, and those totals move.
+    /// </summary>
+    public static void TransferColony(GameState? state, Colony colony, Nation from, Nation to)
     {
+        if (colony.IsTerritory)
+        {
+            var record = state?.AllNations().FirstOrDefault(n => n.Id == colony.Id);
+            if (record is not null) record.AnnexedById = to.Id;
+            colony.OwnerId = to.Id;
+            return;
+        }
         from.Population -= colony.Population;
         from.Farms -= colony.Farms;
         from.Mines -= colony.Mines;

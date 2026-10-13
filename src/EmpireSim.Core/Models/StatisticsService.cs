@@ -22,8 +22,11 @@ public static class StatisticsService
     {
         var list = IncomeBreakdown(n);
         double territories = state.AnnexedBy(n.Id).Sum(t =>
-            Services.AnnexedStateService.TaxRevenue(n, t) + Services.AnnexedStateService.OtherIncome(state, t));
+            Services.AnnexedStateService.TaxRevenue(n, t) + Services.AnnexedStateService.OtherIncome(state, t));   // (colonies get a row of their own, below)
         if (state.AnnexedBy(n.Id).Count > 0) list.Add(("🏳️", "Annexed states", territories));
+        var colonies = state.ColoniesOf(n.Id);
+        if (colonies.Count > 0)
+            list.Add(("⛵", "Colonies", colonies.Sum(t => Services.AnnexedStateService.TaxRevenue(n, t) + Services.AnnexedStateService.OtherIncome(state, t))));
         return list;
     }
 

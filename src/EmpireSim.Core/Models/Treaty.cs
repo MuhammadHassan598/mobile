@@ -71,6 +71,16 @@ public sealed class Colony
     public string FoundedById { get; set; } = "";
     public DateOnly FoundedDate { get; set; }
 
+    /// <summary>
+    /// The colony region it was founded in. A colony founded by a colonisation mission has a local record of its own
+    /// (<see cref="Nation.IsColony"/>, the same id as this colony) that holds its people, buildings and land; a colony from before missions
+    /// existed has none (empty here) and is just the totals it added to its owner.
+    /// </summary>
+    public string RegionId { get; set; } = "";
+
+    /// <summary>Whether this colony is a territory of its own (see <see cref="RegionId"/>) rather than totals added to its owner.</summary>
+    public bool IsTerritory => RegionId.Length > 0;
+
     /// <summary>What the colony contributed to its owner's nation.</summary>
     public long Population { get; set; }
     public int Farms { get; set; }

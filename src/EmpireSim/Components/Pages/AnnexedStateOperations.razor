@@ -1,18 +1,19 @@
 @page "/annexed/{Id}"
+@page "/colonies/{Id}"
 @using EmpireSim.Core.Models
 @using EmpireSim.Core.Services
 @inject GameEngine Engine
 @inject NavigationManager Nav
 @implements IDisposable
 
-@* Annexed State Operations: the player manages one annexed territory — its taxes, people, production and building — under their own
+@* Annexed State Operations (and the same screen for a colony, at /colonies/{Id}): the player manages one annexed territory or colony — its taxes, people, production and building — under their own
    rule. Only the countries the player's realm annexed open here. Every control is a real rule of the game, and each says what it costs
    before it is used. The territory is not a country: it makes no decisions of its own; its tax is paid into the player's treasury. *@
 @{
     var t = Engine.Territory(Id);
 }
 <div class="ao-wrap">
-    <button class="ao-back" @onclick='() => Nav.NavigateTo("/annexed")'>‹ Annexed States</button>
+    <button class="ao-back" @onclick='() => Nav.NavigateTo(Colony ? "/colonies" : "/annexed")'>‹ @(Colony ? "Colonies" : "Annexed States")</button>
 
     @if (t is null)
     {
@@ -29,7 +30,7 @@
             <span class="ao-flag">@t.Emblem</span>
             <div class="ao-headtext">
                 <div class="ao-title">@t.Name</div>
-                <div class="ao-sub">Annexed state of @master.Name@(r.AnnexedDate is { } d ? $" since {d:dd-MM-yyyy}" : "") · capital @t.CapitalName</div>
+                <div class="ao-sub">@(t.IsColony ? "Colony" : "Annexed state") of @master.Name@(r.AnnexedDate is { } d ? $" {(t.IsColony ? "founded" : "since")} {d:dd-MM-yyyy}" : "") · @(t.IsColony ? "settlement" : "capital") @t.CapitalName</div>
             </div>
         </div>
         <div class="ao-status @(r.ShortItems.Count > 0 ? "bad" : "")">@r.Status</div>
@@ -38,7 +39,7 @@
             <div><span>Income / day</span><b>@r.TotalIncomePerDay.ToString("N1") 🪙</b></div>
             <div><span>Buildings</span><b>@r.Facilities.ToString("N0")</b></div>
         </div>
-        <div class="ao-law">Not an independent country: it has no diplomacy, war or decisions of its own. @master.Name rules it, and everything it earns is @master.Name's.</div>
+        <div class="ao-law">@(t.IsColony ? "A colony, not an independent country: land your settlers peacefully claimed. It has no diplomacy, war or decisions of its own." : "Not an independent country: it has no diplomacy, war or decisions of its own.") @master.Name rules it, and everything it earns is @master.Name's.</div>
 
         @if (!string.IsNullOrEmpty(_error)) { <div class="ao-error">⚠ @_error</div> }
         @if (!string.IsNullOrEmpty(_msg)) { <div class="ao-msg">@_msg</div> }
@@ -251,6 +252,9 @@
 
 @code {
     [Parameter] public string Id { get; set; } = "";
+
+    /// <summary>Whether this is the colony screen (the colony list leads here), for the wording and the way back.</summary>
+    private bool Colony => Engine.State.AllNations().FirstOrDefault(n => n.Id == Id)?.IsColony ?? Nav.Uri.Contains("/colonies/");
 
     private int _tab;
     private string? _error;

@@ -646,3 +646,11 @@ main.map-full .province-card {
 
     .start2 { font-size: 1.1rem; letter-spacing: 4px; padding: 11px; }
 }
+
+/* ---- colony popup on the map card ---- */
+.mp-sub { margin: 10px 0 4px; font-size: 0.72rem; letter-spacing: 1px; text-transform: uppercase; color: var(--gold); }
+.mp-req { display: flex; justify-content: space-between; gap: 10px; font-size: 0.85rem; padding: 3px 0; border-bottom: 1px dotted #3A4E7E; }
+.mp-req small { color: var(--muted); }
+.mp-req.ok > span:first-child { color: #6fcf7a; }
+.mp-req.bad > span:first-child { color: #ff8a80; font-weight: bold; }
+.mp-when { margin: 8px 0 2px; font-size: 0.85rem; }

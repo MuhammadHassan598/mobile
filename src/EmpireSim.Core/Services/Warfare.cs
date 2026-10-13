@@ -144,6 +144,7 @@ public static class Warfare
         // nobody is counted in two places).
         foreach (var colony in state.Colonies.Where(c => c.OwnerId == loser.Id))
         {
+            if (colony.IsTerritory) { colony.OwnerId = winner.Id; continue; }   // (a colony of its own is re-pointed to the winner below, with every other territory the loser ruled)
             long people = Math.Min(colony.Population, loser.Population);
             int farms = Math.Min(colony.Farms, loser.Farms), mines = Math.Min(colony.Mines, loser.Mines);
             loser.Population -= people; winner.Population += people;

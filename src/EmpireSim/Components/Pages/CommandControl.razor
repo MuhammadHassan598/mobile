@@ -5,8 +5,8 @@
 @inject NavigationManager Nav
 @implements IDisposable
 
-@* Command Control: where the ruler's administration is reached from. Command Staff (the six appointments) and Annexed States (the
-   territories the country has annexed) are separate screens; Army Management (soldiers, recruitment, fleet, upkeep) is separate too. *@
+@* Command Control: where the ruler's administration is reached from. Command Staff (the six appointments), Annexed States (the
+   territories the country has annexed) and Colonies (the land it has settled) are separate screens; Army Management (soldiers, recruitment, fleet, upkeep) is separate too. *@
 <div class="cc-wrap">
     <div class="cc-header">
         <span class="cc-emblem">@_nation.Emblem</span>
@@ -37,6 +37,19 @@
         <span class="cc-go">›</span>
     </button>
 
+    <button class="cc-card" @onclick='() => Nav.NavigateTo("/colonies")'>
+        <span class="cc-ico">⛵</span>
+        <span class="cc-body">
+            <b>Colonies @if (_colonies > 0) {<span class="cc-badge">@_colonies</span>}@if (_mission is not null) {<span class="cc-badge amber">⛵ under way</span>}</b>
+            <small>
+                @if (_colonies == 0 && _mission is null) { <text>No colonies yet. Tap an amber, unclaimed region on the map to send a colonisation mission; the land you settle is managed here, one colony at a time.</text> }
+                else if (_colonies == 0) { <text>The first colony is on its way to @_mission!.RegionName: the colonists land on @_mission.CompletionDate.ToString("dd-MM-yyyy").</text> }
+                else { <text>@_colonies @(_colonies == 1 ? "colony" : "colonies"), @_colonyPeople.ToString("N0") settlers and their children, paying you about @_colonyIncome.ToString("N0") gold a day.@(_mission is null ? "" : $" A mission is on its way to {_mission.RegionName} (lands {_mission.CompletionDate:dd-MM-yyyy}).")</text> }
+            </small>
+        </span>
+        <span class="cc-go">›</span>
+    </button>
+
     <div class="cc-note">Soldiers, recruitment, equipment, the fleet and upkeep stay in <b>Army Management</b> (the Troops tile of the main menu).</div>
 </div>
 
@@ -46,6 +59,10 @@
     private int _territories;
     private long _people;
     private double _income;
+    private int _colonies;
+    private long _colonyPeople;
+    private double _colonyIncome;
+    private ColonizationMission? _mission;
 
     protected override void OnInitialized() { Refresh(); Engine.StateChanged += OnStateChanged; }
     private void OnStateChanged() { Refresh(); InvokeAsync(StateHasChanged); }
@@ -57,6 +74,11 @@
         _territories = reports.Count;
         _people = reports.Sum(r => r.Population);
         _income = reports.Sum(r => r.TotalIncomePerDay);
+        var colonies = Engine.ColonyReports();
+        _colonies = colonies.Count;
+        _colonyPeople = colonies.Sum(r => r.Population);
+        _colonyIncome = colonies.Sum(r => r.TotalIncomePerDay);
+        _mission = Engine.PlayerMission;
     }
 }
 
@@ -74,5 +96,6 @@
 .cc-body small { font-size: 0.82rem; color: #5a4a2a; line-height: 1.3; }
 .cc-go { font-size: 1.8rem; color: #8b6914; }
 .cc-badge { display: inline-block; min-width: 22px; padding: 0 6px; border-radius: 11px; background: #8b1a1a; color: #fff; font-size: 0.8rem; text-align: center; margin-left: 6px; }
+.cc-badge.amber { background: #b8791f; }
 .cc-note { font-size: 0.8rem; color: #5a4a2a; padding: 6px 4px; }
 </style>

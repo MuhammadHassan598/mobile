@@ -1,0 +1,152 @@
+@page "/colonies"
+@using EmpireSim.Core.Models
+@using EmpireSim.Core.Services
+@inject GameEngine Engine
+@inject NavigationManager Nav
+@implements IDisposable
+
+@* Colonies: every colony the player's country has founded. A colony is land settled in peace, not a conquered country: it is listed here and never
+   under Annexed States. It stays under the player's rule — its people, tax, mills and stocks go on and are managed one colony at a time
+   (the same operations as an annexed state), and what it earns is the player's. *@
+<div class="cl-wrap">
+    <button class="cl-back" @onclick='() => Nav.NavigateTo("/command")'>‹ Command Control</button>
+    <div class="cl-title">⛵ Colonies</div>
+    <div class="cl-sub">Land your settlers claimed in peace. A colony is not an independent country and not an annexed state: it lives and works under your rule, pays its tax into your treasury, and is managed one colony at a time.</div>
+
+    @if (_mission is not null)
+    {
+        double progress = _mission.Progress(Engine.State.CurrentDate);
+        <div class="cl-mission">
+            <div class="cl-mhead"><b>⛵ Mission to @_mission.RegionName</b><span>@((progress * 100).ToString("N0"))% · @_mission.DaysLeft(Engine.State.CurrentDate) days</span></div>
+            <div class="cl-prog"><div class="cl-progfill" style="width:@((progress * 100).ToString("N0"))%"></div></div>
+            <div class="cl-mline">Sent @_mission.StartDate.ToString("dd-MM-yyyy") · @(_mission.Overland ? "marching overland" : "sailing") · the colonists land on <b>@_mission.CompletionDate.ToString("dd-MM-yyyy")</b>.</div>
+            <button class="cl-link" @onclick='() => Nav.NavigateTo($"/map?focus={_mission.RegionId}")'>📍 Show on the map</button>
+        </div>
+    }
+    else
+    {
+        <div class="cl-hint">No mission under way. Open the map and tap an amber, unclaimed region to see what it would cost to settle it.
+            <button class="cl-link" @onclick='() => Nav.NavigateTo("/map")'>🗺️ Open the map</button></div>
+    }
+
+    @if (_reports.Count == 0)
+    {
+        <div class="cl-empty">
+            <div class="cl-empty-ico">⛵</div>
+            <b>No colonies yet.</b>
+            <p>When a colonisation mission lands, the colony appears here with its own people, taxes, buildings and stocks for you to manage.</p>
+        </div>
+    }
+    else
+    {
+        <div class="cl-total">
+            <div><span>Colonies</span><b>@_reports.Count</b></div>
+            <div><span>People</span><b>@_reports.Sum(r => r.Population).ToString("N0")</b></div>
+            <div><span>Income / day</span><b>@_reports.Sum(r => r.TotalIncomePerDay).ToString("N0") 🪙</b></div>
+        </div>
+
+        @foreach (var r in _reports)
+        {
+            var region = Engine.State.RegionOf(Engine.State.AllNations().FirstOrDefault(n => n.Id == r.Id)?.ColonyRegionId ?? "");
+            <div class="cl-card @(r.ShortItems.Count > 0 ? "short" : "")">
+                <div class="cl-head">
+                    <span class="cl-flag">@r.Emblem</span>
+                    <div class="cl-name">
+                        <b>@r.Name</b>
+                        <small>settlement @r.CapitalName@(r.AnnexedDate is { } d ? $" · founded {d:dd-MM-yyyy}" : "")</small>
+                    </div>
+                </div>
+                <div class="cl-status">@r.Status</div>
+                <div class="cl-line"><span>Location</span>
+                    <b>@(region is null ? "—" : $"{(region.Landmass.Length > 0 ? region.Landmass : "open sea")} · ≈ {ColonizationService.AreaKm2(region):N0} km²")</b></div>
+                <div class="cl-grid">
+                    <div><span>Population</span><b>@r.Population.ToString("N0")</b></div>
+                    <div><span>Tax / day</span><b>@r.TaxRevenuePerDay.ToString("N1") 🪙</b></div>
+                    <div><span>Other income</span><b>@r.OtherIncomePerDay.ToString("N1") 🪙</b></div>
+                    <div><span>Buildings</span><b>@r.Facilities.ToString("N0")</b></div>
+                </div>
+                <div class="cl-line"><span>Production</span>
+                    <b>@(r.MillList.Count > 0 ? string.Join(" · ", r.MillList.Take(4).Select(m => $"{m.Icon} {m.Produces} +{m.OutputPerDay:N0}/day")) : "no mills")@(r.UnderConstruction > 0 ? $" · {r.UnderConstruction} being built" : "")</b></div>
+                <div class="cl-line"><span>Stocks</span>
+                    <b>@string.Join(" · ", StockLine(r))</b></div>
+                <div class="cl-line"><span>Shortages</span>
+                    @if (r.ShortItems.Count == 0) { <b class="ok">none</b> }
+                    else { <b class="bad">⚠ @string.Join(", ", r.ShortItems)</b> }
+                </div>
+                <div class="cl-actions">
+                    <button class="cl-btn" @onclick="() => Open(r.Id)">Manage colony ›</button>
+                    @if (region is not null)
+                    {
+                        <button class="cl-btn alt" @onclick='() => Nav.NavigateTo($"/map?focus={region.Id}")'>📍 On the map</button>
+                    }
+                </div>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    private List<TerritoryReport> _reports = new();
+    private ColonizationMission? _mission;
+
+    protected override void OnInitialized() { Load(); Engine.StateChanged += OnStateChanged; }
+    private void OnStateChanged() { Load(); InvokeAsync(StateHasChanged); }
+    public void Dispose() => Engine.StateChanged -= OnStateChanged;
+
+    private void Load()
+    {
+        _reports = Engine.ColonyReports();
+        _mission = Engine.PlayerMission;
+    }
+
+    private void Open(string id) => Nav.NavigateTo($"/colonies/{id}");
+
+    /// <summary>The stocks that matter at a glance: food, wood and iron in store.</summary>
+    private static IEnumerable<string> StockLine(TerritoryReport r) =>
+        new[] { "Wheat", "Bread", "Wood", "Iron" }
+            .Select(name => r.Items.FirstOrDefault(i => i.Item == name))
+            .Where(i => i is not null)
+            .Select(i => $"{i!.Icon} {i.Item} {i.Stock:N0}");
+}
+
+<style>
+.cl-wrap { background: linear-gradient(#f0e0b0, #e8d090); min-height: 100vh; padding: 10px 8px 90px; font-family: Georgia, serif; color: #3d2b1f; box-sizing: border-box; max-width: 100%; overflow-x: hidden; }
+.cl-back { background: none; border: none; color: #5a3a1a; font-family: inherit; font-size: 0.9rem; font-weight: bold; padding: 4px 2px; cursor: pointer; }
+.cl-title { font-size: 1.2rem; font-weight: bold; letter-spacing: 1px; margin: 4px 0; }
+.cl-sub { font-size: 0.82rem; color: #5a4a2a; margin-bottom: 10px; line-height: 1.3; }
+.cl-hint { font-size: 0.82rem; color: #5a4a2a; margin-bottom: 10px; line-height: 1.3; }
+.cl-link { background: none; border: none; color: #8b4a0a; font-family: inherit; font-size: 0.82rem; font-weight: bold; text-decoration: underline; cursor: pointer; padding: 2px 4px; }
+.cl-mission { background: rgba(255,243,205,.7); border: 2px solid #b8791f; border-radius: 10px; padding: 10px; margin-bottom: 10px; }
+.cl-mhead { display: flex; justify-content: space-between; gap: 8px; font-size: 0.95rem; }
+.cl-mhead span { color: #8b4a0a; font-weight: bold; }
+.cl-prog { height: 7px; background: rgba(60,40,10,.25); border-radius: 4px; overflow: hidden; margin: 6px 0; }
+.cl-progfill { height: 100%; background: #b8791f; border-radius: 4px; transition: width 0.3s; }
+.cl-mline { font-size: 0.8rem; color: #5a4a2a; }
+.cl-empty { text-align: center; background: rgba(255,255,255,.35); border: 2px dashed #8b6914; border-radius: 10px; padding: 24px 14px; }
+.cl-empty-ico { font-size: 3rem; }
+.cl-empty p { font-size: 0.86rem; color: #5a4a2a; margin: 6px 0 0; }
+.cl-total { display: flex; gap: 6px; margin-bottom: 10px; }
+.cl-total div { flex: 1; min-width: 0; text-align: center; background: rgba(255,255,255,.4); border: 1px solid #8b6914; border-radius: 8px; padding: 6px 4px; }
+.cl-total span { display: block; font-size: 0.7rem; text-transform: uppercase; color: #8b6914; }
+.cl-total b { font-size: 0.95rem; }
+.cl-card { display: block; box-sizing: border-box; overflow: hidden; text-align: left; background: rgba(255,255,255,.4); border: 2px solid #8b6914; border-radius: 10px; padding: 10px; margin-bottom: 10px; }
+.cl-card.short { border-color: #b03a2e; }
+.cl-head { display: flex; align-items: center; gap: 10px; }
+.cl-flag { font-size: 2rem; width: 42px; text-align: center; }
+.cl-name { flex: 1; display: flex; flex-direction: column; }
+.cl-name b { font-size: 1.05rem; }
+.cl-name small { font-size: 0.74rem; color: #5a4a2a; }
+.cl-status { font-size: 0.8rem; font-style: italic; color: #5a3a1a; margin: 4px 0 6px; }
+.cl-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px 8px; margin: 6px 0; }
+.cl-grid div { min-width: 0; background: rgba(255,253,245,.7); border: 1px solid #c9b98a; border-radius: 6px; padding: 4px 6px; display: flex; flex-direction: column; }
+.cl-grid span { font-size: 0.68rem; text-transform: uppercase; color: #8b6914; }
+.cl-grid b { font-size: 0.92rem; }
+.cl-line { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 8px; font-size: 0.8rem; padding: 2px 0; border-top: 1px dotted #c9b98a; }
+.cl-line span { color: #5a4a2a; }
+.cl-line b { text-align: right; min-width: 0; overflow-wrap: anywhere; }
+.cl-line b.ok { color: #2e7d32; }
+.cl-line b.bad { color: #b03a2e; }
+.cl-actions { display: flex; gap: 8px; margin-top: 8px; }
+.cl-btn { flex: 1; padding: 8px 4px; border-radius: 6px; border: 2px solid #8b6914; background: linear-gradient(#f7ead0, #d9bd85); font-family: inherit; font-weight: bold; color: #3d2b1f; cursor: pointer; }
+.cl-btn.alt { background: rgba(255,255,255,.5); }
+</style>

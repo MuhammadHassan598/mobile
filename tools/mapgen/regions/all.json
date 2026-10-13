@@ -1,1 +1,1 @@
-{ "include": ["west.json", "ottoman.json", "asia.json", "russia.json", "islands.json"] }
+{ "include": ["west.json", "ottoman.json", "asia.json", "russia.json", "islands.json", "colonies.json"] }

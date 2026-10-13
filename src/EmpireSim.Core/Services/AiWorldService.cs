@@ -165,12 +165,16 @@ public static class AiWorldService
         Economy(state, n);
         // An AI master governs its annexed territories through the simulation too: it keeps their people fed as it does its own (the
         // territories' economies themselves are advanced every day, with their tax paid to the master).
-        foreach (var territory in state.AnnexedBy(n.Id))
+        foreach (var territory in state.TerritoriesOf(n.Id))   // (annexed countries and colonies)
             ConsumptionService.EnsureSupply(territory, Balance.AiSupplyCoverage);
         CommandStaffService.AiAppoint(state, n);   // it fills one vacant post of its own command staff when it can afford it
+        ColonizationService.AiThink(state, n, rng);   // it may send a colonisation mission, by the same rules as the player
         TryAlliance(state, n, rng);
         TryWar(state, n, rng);
     }
+
+    /// <summary>Whether a country is at war with anyone (the player or another country).</summary>
+    public static bool AtWarAny(GameState state, Nation n) => n.AtWarWithPlayer || state.Wars.Any(w => w.Involves(n.Id));
 
     /// <summary>An AI country feeds its growing people and rebuilds its army (paying from its treasury).</summary>
     public static void Economy(GameState state, Nation n)

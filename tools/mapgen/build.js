@@ -41,11 +41,11 @@ const owners = [];   // {id, kind, name, color, polys, free}
 for (const n of world.nations) owners.push({ id: n.id, kind: 'nation', name: n.name, polys: n.polygons, free: false });
 for (const n of world.neutral) owners.push({ id: 'n:' + n.name, kind: 'neutral', name: n.name, polys: n.polygons, free: false });
 for (const n of world.frontier) owners.push({ id: 'f:' + n.name, kind: 'frontier', name: n.name, polys: n.polygons, free: true });
-let overrides = { capitals: {}, claims: [], extraNeutrals: [], free: [], replace: [], drop: [], carve: [], islands: [] };
+let overrides = { capitals: {}, claims: [], extraNeutrals: [], extraFrontiers: [], free: [], replace: [], drop: [], carve: [], islands: [] };
 if (overridesFile) {
   // an overrides file may "include" others (processed in order) so regions can be authored in separate files
   const load = f => { const j = JSON.parse(fs.readFileSync(f, 'utf8')); for (const inc of (j.include || [])) load(require('path').resolve(require('path').dirname(f), inc));
-    for (const k of ['claims', 'extraNeutrals', 'free', 'replace', 'drop', 'carve', 'islands']) overrides[k] = overrides[k].concat(j[k] || []);
+    for (const k of ['claims', 'extraNeutrals', 'extraFrontiers', 'free', 'replace', 'drop', 'carve', 'islands']) overrides[k] = overrides[k].concat(j[k] || []);
     Object.assign(overrides.capitals, j.capitals || {}); };
   load(overridesFile);
 }
@@ -59,6 +59,8 @@ for (const d of overrides.drop) {
 }
 const idx = new Map(); owners.forEach((o, i) => idx.set(o.id, i + 1));
 for (const x of overrides.extraNeutrals) { owners.push({ id: 'n:' + x.name, kind: 'neutral', name: x.name, polys: [], free: false }); idx.set('n:' + x.name, owners.length); }
+// colony regions carved out of neutral land (colonisable lands; the three open-sea archipelagos are the older frontier regions)
+for (const x of overrides.extraFrontiers) { owners.push({ id: 'f:' + x.name, kind: 'frontier', name: x.name, polys: [], free: false }); idx.set('f:' + x.name, owners.length); }
 
 // organic islands: a noisy ellipse (never a regular polygon), deterministic in its seed
 function island(cx, cy, rx, ry, seed, rot) {
@@ -85,6 +87,19 @@ const order = owners.map((o, i) => i).filter(i => !freeOwners.has(owners[i].id))
 for (const oi of order) for (const poly of owners[oi].polys) L.fillPoly(lab, poly, oi + 1, land);
 // authored claims (land is trimmed by the mask, so claims may overshoot into the sea)
 // authored claims are drawn with a steady hand; real borders are not: every edge gets fractal wobble (unless the claim says "exact")
+// An edge wobbles the same way whichever claim walks it (canonical direction, no per-claim seed), so two claims that share an edge keep sharing it.
+function jitterShared(poly) {
+  const out = [];
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i], b = poly[(i + 1) % poly.length]; const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    if (len <= 8) { out.push(a); continue; }
+    const flip = a[0] > b[0] || (a[0] === b[0] && a[1] > b[1]);
+    const seg = L.meander(flip ? b : a, flip ? a : b, Math.min(15, len * 0.21), 5, 77);
+    const ordered = flip ? seg.slice().reverse() : seg;
+    for (let k = 0; k < ordered.length - 1; k++) out.push(ordered[k]);
+  }
+  return out;
+}
 function jitter(poly, seed) {
   const out = [];
   for (let i = 0; i < poly.length; i++) {
@@ -94,13 +109,20 @@ function jitter(poly, seed) {
   }
   return out;
 }
+let seaDist = null;
 for (const c of overrides.claims) {
-  if (!c.exact) c.polygons = c.polygons.map((p, i) => jitter(p, (c.owner.length * 17 + i * 5) % 211));
+  if (c.shared) c.polygons = c.polygons.map(p => jitterShared(p));
+  else if (!c.exact) c.polygons = c.polygons.map((p, i) => jitter(p, (c.owner.length * 17 + i * 5) % 211));
   const v = idx.get(c.owner); if (!v) throw new Error('unknown owner ' + c.owner);
   let allow = land;
+  if (c.band) {   // only land within c.band pixels of the sea: a coastal strip that follows the shore
+    if (!seaDist) seaDist = L.distanceToSea(land, 400);
+    allow = new Uint8Array(W * H); for (let i = 0; i < allow.length; i++) allow[i] = (land[i] && seaDist[i] <= c.band) ? 1 : 0;
+  }
   if (c.only) {   // only overwrite pixels currently owned by these owners ("__unowned__" = land nobody owns yet)
-    const set = new Set(c.only.map(id => id === '__unowned__' ? 0 : idx.get(id))); allow = new Uint8Array(W * H);
-    for (let i = 0; i < allow.length; i++) allow[i] = (land[i] && set.has(lab[i])) ? 1 : 0;
+    const set = new Set(c.only.map(id => id === '__unowned__' ? 0 : idx.get(id)));
+    const base = allow; allow = new Uint8Array(W * H);
+    for (let i = 0; i < allow.length; i++) allow[i] = (base[i] && land[i] && set.has(lab[i])) ? 1 : 0;
   }
   for (const poly of c.polygons) L.fillPoly(lab, poly, v, c.free ? null : allow);
 }

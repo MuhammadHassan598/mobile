@@ -1,16 +1,21 @@
 /* EmpireSim world map: canvas rendering with pan, zoom and tap-to-select.
    Shapes arrive from .NET as { shapes: [...], selectedId } where each shape
    is { id, name, kind, color, polygons: [[{x,y}...], ...], labelX, labelY, annexedCities }.
-   kind is "nation", "neutral" or "frontier". A shape is one country (possibly several
-   polygons: islands, exclaves, annexed lands), a neutral territory or a frontier region.
+   kind is "nation", "neutral", "frontier" or "colony". A shape is one country (possibly several
+   polygons: islands, exclaves, annexed lands), a neutral territory, or a colony region. A colony region is
+   "frontier" while nobody has settled it (status "unclaimed": an open claim, or "mission": a country's colonists
+   are on their way, with progress 0..1) and "colony" once it is settled: it then has the colour of its owner and
+   realm = the owner's id, so the renderer treats it as part of that realm (a faint dotted line where it meets the
+   owner's own land, no border).
    Property names may arrive camelCase or PascalCase.
 
    The political map is one planar partition: two realms that meet share the SAME points along
    their border. The renderer relies on that to tell, edge by edge, what kind of line it is:
      - border: an edge used by two different realms        -> one thin, slightly darkened line (drawn once)
      - coast:  an edge used by one realm only               -> a hair-thin line in the realm's own darkened colour
-     - inner:  an edge between two polygons of one realm    -> a faint dotted province line (an annexed land beside its master)
+     - inner:  an edge between two polygons of one realm    -> a faint dotted province line (an annexed land or a colony beside its master)
      - bridge: an edge used twice by one polygon (the zero-width bridge to an enclave or lake) -> not drawn
+     - claim:  an edge of an unsettled colony region (open or under a mission), whoever is on its other side -> a dashed line
    Colours are muted towards the parchment so the painted terrain stays visible underneath. */
 
 window.empireMap = (() => {
@@ -141,7 +146,15 @@ window.empireMap = (() => {
                 if (clean.length >= 3) rings.push(clean);
             }
             const kind = p.kind || p.Kind || 'nation';
-            return { p, si, kind, painted: !!(p.painted ?? p.Painted), rgb: muted(p.color || p.Color || '#555555'), rings, coast: [], border: [], inner: [], outer: [] };
+            const status = p.status || p.Status || '';
+            const open = kind === 'frontier' && status !== 'mission';   // an open claim: nobody's colour
+            return {
+                p, si, kind, status, painted: !!(p.painted ?? p.Painted),
+                realm: String(p.realm ?? p.Realm ?? (p.id ?? p.Id)),
+                progress: Math.max(0, Math.min(1, +(p.progress ?? p.Progress ?? 0))),
+                rgb: open ? OPEN_CLAIM_RGB : muted(p.color || p.Color || '#555555'),
+                rings, coast: [], border: [], inner: [], outer: [], claim: [],
+            };
         });
 
         // every edge, keyed by its two end points (same key whichever way round it is walked)
@@ -165,9 +178,15 @@ window.empireMap = (() => {
                 const seg = [a[0], a[1], b[0], b[1]];
                 if (u.length === 1) { sh.coast.push(seg); sh.outer.push(seg); continue; }
                 const first = u[0].sh === sh && u[0].ri === ri;
-                if (u.length === 2 && u[0].sh === u[1].sh) {
-                    if (u[0].ri === u[1].ri) continue;                 // a bridge to an enclave or lake: never drawn
-                    if (first) sh.inner.push(seg);                     // two polygons of one realm meet: a faint province line, once
+                if (u.length === 2 && u[0].sh.realm === u[1].sh.realm) {
+                    if (u[0].sh === u[1].sh && u[0].ri === u[1].ri) continue;   // a bridge to an enclave or lake: never drawn
+                    if (first) sh.inner.push(seg);                     // two polygons of one realm meet (a colony beside its owner's land too): a faint province line, once
+                    continue;
+                }
+                const open = u.filter(x => x.sh.kind === 'frontier');
+                if (open.length) {                                     // an unsettled colony region on one side: the dashed claim line, drawn by it
+                    sh.outer.push(seg);
+                    if (open[0].sh === sh && open[0].ri === ri) sh.claim.push(seg);
                     continue;
                 }
                 // between two different realms: one line, drawn by the first of them; both realms outline it when selected
@@ -176,6 +195,9 @@ window.empireMap = (() => {
             }
         }));
         separateNeighbours(shapes, uses);
+        // a settled colony is drawn in exactly its owner's (possibly nudged) wash
+        const byId = new Map(shapes.filter(sh => sh.kind === 'nation').map(sh => [String(sh.p.id ?? sh.p.Id), sh]));
+        shapes.forEach(sh => { if (sh.kind === 'colony' && byId.has(sh.realm)) sh.rgb = byId.get(sh.realm).rgb; });
         return shapes;
     }
 
@@ -187,9 +209,14 @@ window.empireMap = (() => {
     function separateNeighbours(shapes, uses) {
         const nations = shapes.filter(sh => sh.kind === 'nation' && sh.rings.length);
         const adj = new Map(nations.map(sh => [sh, new Set()]));
+        // a settled colony counts as part of its owner when asking who borders whom
+        const byRealm = new Map(nations.map(sh => [sh.realm, sh]));
+        const ownerOf = sh => sh.kind === 'nation' ? sh : (sh.kind === 'colony' ? byRealm.get(sh.realm) : undefined);
         for (const u of uses.values()) {
-            if (u.length !== 2 || u[0].sh === u[1].sh) continue;
-            if (adj.has(u[0].sh) && adj.has(u[1].sh)) { adj.get(u[0].sh).add(u[1].sh); adj.get(u[1].sh).add(u[0].sh); }
+            if (u.length !== 2) continue;
+            const a = ownerOf(u[0].sh), b = ownerOf(u[1].sh);
+            if (!a || !b || a === b) continue;
+            adj.get(a).add(b); adj.get(b).add(a);
         }
         const id = sh => String(sh.p.id ?? sh.p.Id);
         const base = new Map(nations.map(sh => [sh, rgbToHsl(sh.rgb[0], sh.rgb[1], sh.rgb[2])]));
@@ -214,6 +241,32 @@ window.empireMap = (() => {
     }
 
     function getShapes() { return shapesCache || (shapesCache = buildShapes()); }
+
+    // An open claim wears amber, so it reads as "land to be had" against both the countries' washes and the neutral umber.
+    const OPEN_CLAIM_RGB = [240, 232, 196];
+
+    // The diagonal hatch of land with colonists on the way, in the claimant's own darkened colour (one pattern per colour).
+    const hatchCache = new Map();
+    function hatchFill(rgb) {
+        const k = rgb.join(',');
+        let pat = hatchCache.get(k);
+        if (pat) return pat;
+        const c = document.createElement('canvas'); c.width = 9; c.height = 9;
+        const g = c.getContext('2d');
+        g.strokeStyle = rgba(darker(rgb, 0.5), 0.7); g.lineWidth = 2;
+        g.beginPath(); g.moveTo(-1, 10); g.lineTo(10, -1); g.moveTo(-1, 1); g.lineTo(1, -1); g.moveTo(8, 10); g.lineTo(10, 8); g.stroke();
+        pat = ctx.createPattern(c, 'repeat');
+        hatchCache.set(k, pat);
+        return pat;
+    }
+
+    function washAlpha(sh, isSel) {
+        switch (sh.kind) {
+            case 'nation': case 'colony': return isSel ? 0.58 : 0.42;
+            case 'frontier': return sh.status === 'mission' ? (isSel ? 0.62 : 0.4) : (isSel ? 0.7 : 0.5);
+            default: return isSel ? 0.42 : 0.17;
+        }
+    }
 
     function render(newData) {
         data = newData || { shapes: [], selectedId: null };
@@ -291,11 +344,11 @@ window.empireMap = (() => {
         // 1. the washes: a translucent, muted colour over the terrain (neutral land and frontier isles are fainter)
         for (const sh of shapes) {
             const isSel = (sh.p.id ?? sh.p.Id) === selected;
-            const alpha = sh.kind === 'nation' ? (isSel ? 0.58 : 0.42) : sh.kind === 'frontier' ? (isSel ? 0.6 : 0.36) : (isSel ? 0.42 : 0.17);
-            ctx.fillStyle = rgba(sh.rgb, alpha);
+            ctx.fillStyle = rgba(sh.rgb, washAlpha(sh, isSel));
             ctx.beginPath();
             for (const ring of sh.rings) ringPath(ring);
             ctx.fill();
+            if (sh.kind === 'frontier' && sh.status === 'mission') { ctx.fillStyle = hatchFill(sh.rgb); ctx.fill(); }   // colonists on their way: hatched
         }
 
         ctx.lineCap = 'round';
@@ -309,7 +362,7 @@ window.empireMap = (() => {
             if (!sh.coast.length) continue;
             segPath(sh.coast);
             ctx.lineWidth = wCoast;
-            ctx.strokeStyle = rgba(darker(sh.rgb, 0.55), sh.kind === 'nation' ? 0.55 : 0.3);
+            ctx.strokeStyle = rgba(darker(sh.rgb, 0.55), (sh.kind === 'nation' || sh.kind === 'colony') ? 0.55 : sh.kind === 'frontier' ? 0.5 : 0.3);
             ctx.stroke();
         }
         // lines between two parts of one realm (an annexed land beside its master): faint and dotted, once
@@ -323,8 +376,8 @@ window.empireMap = (() => {
         }
         ctx.setLineDash([]);
         // borders between realms: one slightly darkened line, drawn once per shared edge.
-        // Neutral and frontier regions (not crowns) get the same line, lighter.
-        for (const kindSet of [['neutral', 'frontier'], ['nation']]) {
+        // Neutral regions (not crowns) get the same line, lighter. A settled colony is a crown's land: the crown's line.
+        for (const kindSet of [['neutral'], ['nation', 'colony']]) {
             ctx.beginPath(); let any = false;
             for (const sh of shapes) {
                 if (!kindSet.includes(sh.kind) || !sh.border.length) continue;
@@ -336,6 +389,16 @@ window.empireMap = (() => {
             ctx.strokeStyle = nation ? 'rgba(52,36,22,0.72)' : 'rgba(52,36,22,0.38)';
             ctx.stroke();
         }
+        // the edges of colony regions nobody has settled: dashed, amber-brown (the claimant's colour once a mission is on its way)
+        ctx.setLineDash([5, 4]);
+        for (const sh of shapes) {
+            if (!sh.claim.length) continue;
+            segPath(sh.claim);
+            ctx.lineWidth = Math.max(0.9, wBorder * 1.25);
+            ctx.strokeStyle = sh.status === 'mission' ? rgba(darker(sh.rgb, 0.45), 0.85) : 'rgba(110,70,15,0.8)';
+            ctx.stroke();
+        }
+        ctx.setLineDash([]);
 
         // 3. the selected realm's gold outline (its outer edge only: coasts and borders, never the lines inside the realm)
         for (const sh of shapes) {
@@ -349,23 +412,50 @@ window.empireMap = (() => {
         ctx.lineJoin = 'miter';
 
         paintNationLabels(labels);
-        drawAnnexedCities();
+        drawMissionProgress();
+        drawAnnexedCities(labels.map(l => l.box));
+    }
+
+    // A small bar under the name of every colony region with colonists on the way: how far along, in the claimant's colour.
+    function drawMissionProgress() {
+        if (view.scale < 0.4) return;
+        const w = cssW(), h = cssH();
+        const fs = Math.max(9, 10 * Math.min(view.scale, 1.3));
+        ctx.font = `${fs}px 'IM Fell English', Georgia, serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        for (const sh of getShapes()) {
+            if (sh.kind !== 'frontier' || sh.status !== 'mission') continue;
+            const lx = sh.p.labelX ?? sh.p.LabelX, ly = sh.p.labelY ?? sh.p.LabelY;
+            if (lx === undefined) continue;
+            const [sx, sy] = toScreen(lx, ly);
+            if (sx < -60 || sx > w + 60 || sy < -30 || sy > h + 30) continue;
+            const bw = 46, bh = 6, x = sx - bw / 2, y = sy + Math.max(10, 12 * Math.min(view.scale, 1.3)) / 2 + 5;
+            ctx.fillStyle = 'rgba(30,22,14,0.75)'; ctx.fillRect(x - 1, y - 1, bw + 2, bh + 2);
+            ctx.fillStyle = 'rgba(245,240,225,0.9)'; ctx.fillRect(x, y, bw, bh);
+            ctx.fillStyle = rgba(darker(sh.rgb, 0.7), 1); ctx.fillRect(x, y, bw * sh.progress, bh);
+            const text = Math.round(sh.progress * 100) + '%';
+            ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(245,240,225,0.85)'; ctx.strokeText(text, sx, y + bh + 2);
+            ctx.fillStyle = '#2A2118'; ctx.fillText(text, sx, y + bh + 2);
+        }
     }
 
     // The old capitals of annexed countries stay on the map as cities of the realm that swallowed them (shown once zoomed in).
-    function drawAnnexedCities() {
+    function drawAnnexedCities(avoid) {
         if (view.scale < 0.5) return;
         const fs = Math.max(9, 10.5 * Math.min(view.scale, 1.3));
         ctx.font = `italic ${fs}px 'IM Fell English', Georgia, serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'top';
         const w = cssW(), h = cssH();
+        const taken = (avoid || []).slice();   // the places names already hold: a colony's settlement name keeps clear of them (its dot is still drawn)
         for (const sh of getShapes()) {
             const p = sh.p;
             const cities = p.annexedCities || p.AnnexedCities || [];
             for (const c of cities) {
                 const name = c.name ?? c.Name;
                 if (!name) continue;
+                if (view.scale < (c.minScale ?? c.MinScale ?? 0)) continue;   // a colony's settlement shows only once zoomed in
                 const [sx, sy] = toScreen(c.x ?? c.X, c.y ?? c.Y);
                 if (sx < -60 || sx > w + 60 || sy < -30 || sy > h + 30) continue;
                 ctx.beginPath();
@@ -375,6 +465,11 @@ window.empireMap = (() => {
                 ctx.lineWidth = 1;
                 ctx.strokeStyle = 'rgba(245,240,225,0.9)';
                 ctx.stroke();
+                if ((c.minScale ?? c.MinScale ?? 0) > 0) {
+                    const tw = ctx.measureText(name).width, box = { x0: sx - tw / 2 - 2, y0: sy + 3, x1: sx + tw / 2 + 2, y1: sy + 5 + fs + 2 };
+                    if (taken.some(b => b.x0 < box.x1 && b.x1 > box.x0 && b.y0 < box.y1 && b.y1 > box.y0)) continue;
+                    taken.push(box);
+                }
                 ctx.lineWidth = 3;
                 ctx.strokeStyle = 'rgba(245,240,225,0.8)';
                 ctx.strokeText(name, sx, sy + 5);
@@ -579,7 +674,7 @@ window.empireMap = (() => {
 
     // Exposed for the headless checks (tools/mapgen/maptest.js) and for debugging: what the renderer decided about every edge.
     function inspect() {
-        return getShapes().map(sh => ({ id: sh.p.id ?? sh.p.Id, kind: sh.kind, rings: sh.rings.length, coast: sh.coast.length, border: sh.border.length, inner: sh.inner.length, outer: sh.outer.length }));
+        return getShapes().map(sh => ({ id: sh.p.id ?? sh.p.Id, kind: sh.kind, status: sh.status, realm: sh.realm, rings: sh.rings.length, coast: sh.coast.length, border: sh.border.length, inner: sh.inner.length, outer: sh.outer.length, claim: sh.claim.length }));
     }
 
     // Centre the view on a map point at a zoom (clamped like any other zoom); for debugging and the headless checks.

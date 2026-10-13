@@ -53,7 +53,9 @@ P('    {');
 for (const n of world.nations) P(`        ["${n.id}"] = "${enc(g.geometry[n.id] || [])}",`);
 P('    };');
 P('');
-const neutralNames = world.neutral.map(n => n.name).concat(['Greenland', 'Svalbard']);
+// neutral territories that still have land (a few were carved entirely into colony regions) and every colonisable region (the three open-sea archipelagos first)
+const neutralNames = g.owners.filter(o => o.kind === 'neutral' && (g.geometry[o.id] || []).length > 0).map(o => o.name);
+const frontierNames = g.owners.filter(o => o.kind === 'frontier').map(o => o.name);
 P('    private static readonly Dictionary<string, string> Neutrals = new()');
 P('    {');
 for (const nm of neutralNames) P(`        ["${nm}"] = "${enc(g.geometry['n:' + nm] || [])}",`);
@@ -61,7 +63,7 @@ P('    };');
 P('');
 P('    private static readonly Dictionary<string, string> Frontiers = new()');
 P('    {');
-for (const f of world.frontier) P(`        ["${f.name}"] = "${enc(g.geometry['f:' + f.name] || [])}",`);
+for (const nm of frontierNames) P(`        ["${nm}"] = "${enc(g.geometry['f:' + nm] || [])}",`);
 P('    };');
 P('');
 P('    /// <summary>Where each neutral / frontier region\'s name is written: the point deepest inside its biggest piece.</summary>');
@@ -69,7 +71,7 @@ P('    private static readonly Dictionary<string, (double X, double Y)> Labels =
 P('    {');
 const labels = {};
 for (const nm of neutralNames) { const p = labelPoint('n:' + nm); if (p) { labels[nm] = p; P(`        ["${nm}"] = (${p[0]}, ${p[1]}),`); } }
-for (const f of world.frontier) { const p = labelPoint('f:' + f.name); if (p) { labels[f.name] = p; P(`        ["${f.name}"] = (${p[0]}, ${p[1]}),`); } }
+for (const nm of frontierNames) { const p = labelPoint('f:' + nm); if (p) { labels[nm] = p; P(`        ["${nm}"] = (${p[0]}, ${p[1]}),`); } }
 P('    };');
 P('');
 P('    /// <summary>Capitals that were moved onto their own land (a harbour town the coast had put in the sea, or a capital that lay in another realm).</summary>');
@@ -83,6 +85,9 @@ P('    /// <summary>Countries whose islands are painted onto the open sea by the
 P('    private static readonly HashSet<string> PaintedNations = new() { ' + painted.map(id => `"${id}"`).join(', ') + ' };');
 P('');
 P('    public static IReadOnlyList<string> NeutralNames { get; } = new[] { ' + neutralNames.map(n => `"${n}"`).join(', ') + ' };');
+P('');
+P('    /// <summary>Every colonisable region, in a fixed order: the open-sea archipelagos first, then the regions carved out of neutral land.</summary>');
+P('    public static IReadOnlyList<string> FrontierNames { get; } = new[] { ' + frontierNames.map(n => `"${n}"`).join(', ') + ' };');
 P('}');
 fs.writeFileSync(outFile, lines.join('\r\n') + '\r\n');
 fs.writeFileSync(PATHS.out('labels.out.json'), JSON.stringify(labels));

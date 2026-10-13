@@ -39,12 +39,29 @@ public static class PopulationService
     /// or 0 while any item is short (based on the last day's shortage).
     /// Used by the daily tick and the Statistics screen so they always agree.
     /// </summary>
-    public static long DailyBirths(Nation nation)
+    public static long DailyBirths(Nation nation) =>
+        nation.IsColony ? (long)Math.Round(ExactBirths(nation)) : (long)ExactBirths(nation);
+
+    /// <summary>The births a day brings before they are counted in whole people (0 while any item is short).</summary>
+    public static double ExactBirths(Nation nation)
     {
         if (HasItemShortage(nation)) return 0;
         double rate = Services.Balance.GrowthPerDayWithSurplus * nation.GrowthMult
                     + ReligionService.PopulationGrowthBonus(nation) / 100.0;   // Islam: +0.005 points
-        return (long)(nation.Population * rate);
+        return nation.Population * rate;
+    }
+
+    /// <summary>
+    /// The people born in a day, in whole people. A country's births are whole people each day (as they always were); a colony has only a few thousand
+    /// settlers, so the fraction a day brings is carried over to the next (<see cref="Nation.BirthCarry"/>) rather than lost, and a young colony grows.
+    /// </summary>
+    public static long TakeBirths(Nation nation)
+    {
+        if (!nation.IsColony) return DailyBirths(nation);
+        nation.BirthCarry += ExactBirths(nation);
+        long born = (long)nation.BirthCarry;
+        nation.BirthCarry -= born;
+        return born;
     }
 
     /// <summary>Get workforce count by group key.</summary>

@@ -515,10 +515,10 @@ public sealed partial class GameEngine
         if (colony is null) return DipResult.Invalid("Colony not found.");
         var player = State.PlayerNation;
         if (colony.OwnerId != player.Id) return DipResult.Invalid($"You do not own {colony.Name}.");
-        if (player.Population < colony.Population || player.Farms < colony.Farms || player.Mines < colony.Mines)
+        if (!colony.IsTerritory && (player.Population < colony.Population || player.Farms < colony.Farms || player.Mines < colony.Mines))
             return DipResult.Invalid($"{colony.Name}'s people and buildings are no longer all yours to give.");
 
-        TreatyService.TransferColony(colony, player, t!);
+        TreatyService.TransferColony(State, colony, player, t!);
 
         DiplomacyService.AddRating(t, Balance.ColonyGiftRatingGain);
         State.LogMovement(MovementKind.Colony, MovementStatus.Completed, player, t,

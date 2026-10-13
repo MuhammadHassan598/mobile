@@ -310,13 +310,39 @@ public static class Balance
     public const double EdictEnactCost = 2;
     public const double StanceChangeCost = 2;
 
-    // ---- Colonisation ----
-    public const double ColonyCostGold = 20;
-    public const double ColonyCostFood = 3000;   // paid in Wheat
-    public const int ColonyColonists = 2000;
-    public const int ColonyDays = 30;
-    public const int ColonyWarshipsRequired = 5;
-    public const long ColonyStartPopulation = 5000;
+    // ---- Colonisation (see ColonizationService) ----
+    // A medium region close to home: 14,000 gold (28% of the 50,000 a country starts with; a year or so of an ordinary country's net
+    // income), 800 wheat, 1,000 wood and 2,500 settlers, with 5 warships to carry them. Distance, size and the way there change it.
+    public const double ColonyBaseGold = 14_000;
+    public const double ColonyBaseWheat = 800;     // paid in Wheat; it feeds the colony until its own fields give
+    public const double ColonyBaseWood = 1_000;    // ships' stores and the first huts; half of it ends up in the colony's stockpile
+    public const long ColonyBaseSettlers = 2_500;  // taken from the home population; they are the colony's first people
+    public const int ColonyWarshipsRequired = 5;   // carried by sea only; held, not spent: they must still be there when the mission lands
+    public const double ColonyDistanceGoldFactor = 0.5;   // +50% gold at 1,000 map units from the capital (up to 1.5x that)
+    public const double ColonyOverlandGoldMult = 0.6;     // a region that touches the owner's land: no fleet, 40% less gold
+    public const int ColonyBaseDays = 40;          // by sea: 40 days + 1 per 10 map units of distance (+ the region's size), 45..240 days
+    public const int ColonyOverlandBaseDays = 30;  // overland: 30 days + 1 per 25 map units, 30..150 days
+    public const int ColonyMinDays = 45, ColonyMaxDays = 240, ColonyMinOverlandDays = 30, ColonyMaxOverlandDays = 150;
+    public const double ColonySmallMax = 3_000, ColonyMediumMax = 7_500, ColonyLargeMax = 15_000;   // map units squared; above that a region is vast
+    public const double ColonySmallMult = 0.7, ColonyMediumMult = 1.0, ColonyLargeMult = 1.4, ColonyVastMult = 2.0;
+    public const double ColonyKm2PerMapUnitSq = 100;   // for the area shown to the player: one map unit squared is about this many square kilometres
+    public const int ColonyHomeMultiple = 100;     // a country needs this many people at home for every settler it sends
+    public const double ColonyFoodStockShare = 1.0;   // all the wheat sent arrives in the colony's stockpile
+    public const double ColonyWoodStockShare = 0.5;
+    public const double ColonySupplyCoverage = 1.15;  // the colony starts with mills enough to feed its settlers (the AI's own rule)
+    // The AI: how and when a country thinks of colonising (it uses the very same costs and rules as the player).
+    public const int AiColonyStartDays = 365;      // after the AI world begins: the first missions are a year and more into the game
+    public const double AiColonyReserve = 1.5;     // it keeps this many times a mission's gold in its treasury, and 1.2x the wheat and wood
+    public const double AiColonyChancePerThink = 0.025;  // when it is ready: about one try in forty thinks (a country thinks every few days)
+    public const int AiColonyConcurrent = 3;       // at most this many AI missions are under way in the world at once
+    public const long AiColonyMinPopulation = 2_000_000;   // a country this small does not look overseas
+    public const double AiColonyRange = 1_300;     // map units from its capital: the farthest an AI country sends settlers by sea (overland regions are never too far)
+    public const double AiColonyAppetiteMin = 0.35;   // each country has a stable appetite for colonies (0..1); below this it never sends one
+    public const double AiColonyMinDesire = 0.9;   // a region must be wanted at least this much (see ColonizationService.Desire)
+    public const int AiColonyCooldownDays = 150;   // after a mission ends, before the next
+    public const long AiColonyPopulationPerColony = 6_000_000;   // a country holds one colony per this many people (at least one, at most four)
+
+    public const long ColonyStartPopulation = 5000;   // (the old model's)
 
     // ---- Treasury (per in-game day) ----
     // Per-capita rates are rebased for historical 1600 populations: every

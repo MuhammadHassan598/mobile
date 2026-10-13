@@ -1,0 +1,1082 @@
+{
+ "extraFrontiers": [
+  {
+   "name": "Senegambia"
+  },
+  {
+   "name": "Guinea Coast"
+  },
+  {
+   "name": "Gold Coast"
+  },
+  {
+   "name": "Niger Delta"
+  },
+  {
+   "name": "Horn of Africa"
+  },
+  {
+   "name": "Swahili Coast"
+  },
+  {
+   "name": "Mozambique Coast"
+  },
+  {
+   "name": "Natal"
+  },
+  {
+   "name": "Cape of Good Hope"
+  },
+  {
+   "name": "Namib Coast"
+  },
+  {
+   "name": "Madagascar North"
+  },
+  {
+   "name": "Madagascar South"
+  },
+  {
+   "name": "Aden Coast"
+  },
+  {
+   "name": "Oman Coast"
+  },
+  {
+   "name": "North Sumatra"
+  },
+  {
+   "name": "South Sumatra"
+  },
+  {
+   "name": "Java"
+  },
+  {
+   "name": "Borneo"
+  },
+  {
+   "name": "Celebes"
+  },
+  {
+   "name": "Moluccas"
+  },
+  {
+   "name": "Timor"
+  },
+  {
+   "name": "West New Guinea"
+  },
+  {
+   "name": "East New Guinea"
+  },
+  {
+   "name": "Yenisei Valley"
+  },
+  {
+   "name": "Lena Valley"
+  },
+  {
+   "name": "Amur Basin"
+  },
+  {
+   "name": "Okhotsk Coast"
+  },
+  {
+   "name": "Kamchatka"
+  },
+  {
+   "name": "Ireland"
+  },
+  {
+   "name": "Iceland"
+  },
+  {
+   "name": "Greenland"
+  }
+ ],
+ "claims": [
+  {
+   "owner": "f:Madagascar North",
+   "only": [
+    "n:South Africa",
+    "__unowned__"
+   ],
+   "polygons": [
+    [
+     [
+      670,
+      830
+     ],
+     [
+      775,
+      830
+     ],
+     [
+      775,
+      906
+     ],
+     [
+      670,
+      906
+     ]
+    ]
+   ],
+   "shared": true
+  },
+  {
+   "owner": "f:Madagascar South",
+   "only": [
+    "n:South Africa",
+    "__unowned__"
+   ],
+   "polygons": [
+    [
+     [
+      670,
+      906
+     ],
+     [
+      775,
+      906
+     ],
+     [
+      775,
+      990
+     ],
+     [
+      670,
+      990
+     ]
+    ]
+   ],
+   "shared": true
+  },
+  {
+   "owner": "f:Senegambia",
+   "only": [
+    "n:West Africa",
+    "__unowned__"
+   ],
+   "band": 55,
+   "polygons": [
+    [
+     [
+      70,
+      560
+     ],
+     [
+      135,
+      560
+     ],
+     [
+      135,
+      720
+     ],
+     [
+      70,
+      720
+     ]
+    ]
+   ],
+   "shared": true
+  },
+  {
+   "owner": "f:Guinea Coast",
+   "only": [
+    "n:West Africa",
+    "__unowned__"
+   ],
+   "band": 55,
+   "polygons": [
+    [
+     [
+      135,
+      560
+     ],
+     [
+      215,
+      560
+     ],
+     [
+      215,
+      720
+     ],
+     [
+      135,
+      720
+     ]
+    ]
+   ],
+   "shared": true
+  },
+  {
+   "owner": "f:Gold Coast",
+   "only": [
+    "n:West Africa",
+    "__unowned__"
+   ],
+   "band": 55,
+   "polygons": [
+    [
+     [
+      215,
+      600
+     ],
+     [
+      290,
+      600
+     ],
+     [
+      290,
+      720
+     ],
+     [
+      215,
+      720
+     ]
+    ]
+   ],
+   "shared": true
+  },
+  {
+   "owner": "f:Niger Delta",
+   "only": [
+    "n:West Africa",
+    "__unowned__"
+   ],
+   "band": 55,
+   "polygons": [
+    [
+     [
+      290,
+      600
+     ],
+     [
+      400,
+      600
+     ],
+     [
+      400,
+      770
+     ],
+     [
+      290,
+      770
+     ]
+    ]
+   ],
+   "shared": true
+  },
+  {
+   "owner": "f:Horn of Africa",
+   "only": [
+    "n:East Africa",
+    "__unowned__"
+   ],
+   "band": 45,
+   "polygons": [
+    [
+     [
+      655,
+      596
+     ],
+     [
+      790,
+      596
+     ],
+     [
+      790,
+      722
+     ],
+     [
+      655,
+      722
+     ]
+    ]
+   ],
+   "shared": true
+  },
+  {
+   "owner": "f:Swahili Coast",
+   "only": [
+    "n:East Africa",
+    "__unowned__"
+   ],
+   "band": 50,
+   "polygons": [
+    [
+     [
+      610,
+      722
+     ],
+     [
+      730,
+      722
+     ],
+     [
+      730,
+      832
+     ],
+     [
+      610,
+      832
+     ]
+    ]
+   ],
+   "shared": true
+  },
+  {
+   "owner": "f:Mozambique Coast",
+   "only": [
+    "n:East Africa",
+    "n:South Africa",
+    "__unowned__"
+   ],
+   "band": 55,
+   "polygons": [
+    [
+     [
+      540,
+      832
+     ],
+     [
+      700,
+      832
+     ],
+     [
+      700,
+      906
+     ],
+     [
+      540,
+      906
+     ]
+    ]
+   ],
+   "shared": true
+  },
+  {
+   "owner": "f:Natal",
+   "only": [
+    "n:South Africa",
+    "__unowned__"
+   ],
+   "band": 55,
+   "polygons": [
+    [
+     [
+      520,
+      906
+     ],
+     [
+      650,
+      906
+     ],
+     [
+      650,
+      1030
+     ],
+     [
+      520,
+      1030
+     ]
+    ]
+   ],
+   "shared": true
+  },
+  {
+   "owner": "f:Cape of Good Hope",
+   "only": [
+    "n:South Africa",
+    "__unowned__"
+   ],
+   "band": 55,
+   "polygons": [
+    [
+     [
+      380,
+      1000
+     ],
+     [
+      525,
+      1000
+     ],
+     [
+      525,
+      1080
+     ],
+     [
+      380,
+      1080
+     ]
+    ]
+   ],
+   "shared": true
+  },
+  {
+   "owner": "f:Namib Coast",
+   "only": [
+    "n:South Africa",
+    "__unowned__"
+   ],
+   "band": 45,
+   "polygons": [
+    [
+     [
+      330,
+      886
+     ],
+     [
+      440,
+      886
+     ],
+     [
+      440,
+      1004
+     ],
+     [
+      330,
+      1004
+     ]
+    ]
+   ],
+   "shared": true
+  },
+  {
+   "owner": "f:Aden Coast",
+   "only": [
+    "n:Arabia",
+    "__unowned__"
+   ],
+   "band": 45,
+   "polygons": [
+    [
+     [
+      670,
+      560
+     ],
+     [
+      780,
+      560
+     ],
+     [
+      780,
+      640
+     ],
+     [
+      670,
+      640
+     ]
+    ]
+   ],
+   "shared": true
+  },
+  {
+   "owner": "f:Oman Coast",
+   "only": [
+    "n:Arabia",
+    "__unowned__"
+   ],
+   "band": 50,
+   "polygons": [
+    [
+     [
+      780,
+      500
+     ],
+     [
+      880,
+      500
+     ],
+     [
+      880,
+      625
+     ],
+     [
+      780,
+      625
+     ]
+    ]
+   ],
+   "shared": true
+  },
+  {
+   "owner": "f:Java",
+   "only": [
+    "n:East Indies",
+    "__unowned__"
+   ],
+   "polygons": [
+    [
+     [
+      1335,
+      780
+     ],
+     [
+      1445,
+      780
+     ],
+     [
+      1445,
+      845
+     ],
+     [
+      1335,
+      845
+     ]
+    ]
+   ],
+   "shared": true
+  },
+  {
+   "owner": "f:Timor",
+   "only": [
+    "n:East Indies",
+    "__unowned__"
+   ],
+   "polygons": [
+    [
+     [
+      1445,
+      780
+     ],
+     [
+      1630,
+      780
+     ],
+     [
+      1630,
+      925
+     ],
+     [
+      1445,
+      925
+     ]
+    ]
+   ],
+   "shared": true
+  },
+  {
+   "owner": "f:North Sumatra",
+   "only": [
+    "n:East Indies",
+    "__unowned__"
+   ],
+   "polygons": [
+    [
+     [
+      1170,
+      650
+     ],
+     [
+      1320,
+      650
+     ],
+     [
+      1312,
+      697
+     ],
+     [
+      1262,
+      745
+     ],
+     [
+      1212,
+      793
+     ],
+     [
+      1170,
+      840
+     ]
+    ]
+   ],
+   "shared": true
+  },
+  {
+   "owner": "f:South Sumatra",
+   "only": [
+    "n:East Indies",
+    "__unowned__"
+   ],
+   "polygons": [
+    [
+     [
+      1170,
+      850
+     ],
+     [
+      1170,
+      840
+     ],
+     [
+      1212,
+      793
+     ],
+     [
+      1262,
+      745
+     ],
+     [
+      1312,
+      697
+     ],
+     [
+      1335,
+      697
+     ],
+     [
+      1335,
+      850
+     ]
+    ]
+   ],
+   "shared": true
+  },
+  {
+   "owner": "f:Celebes",
+   "only": [
+    "n:East Indies",
+    "__unowned__"
+   ],
+   "polygons": [
+    [
+     [
+      1436,
+      722
+     ],
+     [
+      1480,
+      722
+     ],
+     [
+      1480,
+      690
+     ],
+     [
+      1540,
+      690
+     ],
+     [
+      1540,
+      808
+     ],
+     [
+      1436,
+      808
+     ]
+    ]
+   ],
+   "shared": true
+  },
+  {
+   "owner": "f:Borneo",
+   "only": [
+    "n:East Indies",
+    "__unowned__"
+   ],
+   "polygons": [
+    [
+     [
+      1335,
+      655
+     ],
+     [
+      1452,
+      655
+     ],
+     [
+      1452,
+      722
+     ],
+     [
+      1436,
+      722
+     ],
+     [
+      1436,
+      785
+     ],
+     [
+      1335,
+      785
+     ]
+    ]
+   ],
+   "shared": true
+  },
+  {
+   "owner": "f:Moluccas",
+   "only": [
+    "n:East Indies",
+    "__unowned__"
+   ],
+   "polygons": [
+    [
+     [
+      1510,
+      680
+     ],
+     [
+      1580,
+      680
+     ],
+     [
+      1580,
+      775
+     ],
+     [
+      1510,
+      775
+     ]
+    ]
+   ],
+   "shared": true
+  },
+  {
+   "owner": "f:West New Guinea",
+   "only": [
+    "n:East Indies",
+    "__unowned__"
+   ],
+   "polygons": [
+    [
+     [
+      1540,
+      720
+     ],
+     [
+      1670,
+      720
+     ],
+     [
+      1670,
+      838
+     ],
+     [
+      1540,
+      838
+     ]
+    ]
+   ],
+   "shared": true
+  },
+  {
+   "owner": "f:East New Guinea",
+   "only": [
+    "n:East Indies",
+    "__unowned__"
+   ],
+   "polygons": [
+    [
+     [
+      1670,
+      720
+     ],
+     [
+      1810,
+      720
+     ],
+     [
+      1810,
+      870
+     ],
+     [
+      1670,
+      870
+     ]
+    ]
+   ],
+   "shared": true
+  },
+  {
+   "owner": "f:Amur Basin",
+   "only": [
+    "n:Siberia",
+    "__unowned__"
+   ],
+   "polygons": [
+    [
+     [
+      1395,
+      262
+     ],
+     [
+      1455,
+      235
+     ],
+     [
+      1545,
+      222
+     ],
+     [
+      1628,
+      205
+     ],
+     [
+      1670,
+      300
+     ],
+     [
+      1665,
+      345
+     ],
+     [
+      1388,
+      345
+     ]
+    ]
+   ],
+   "shared": true
+  },
+  {
+   "owner": "f:Kamchatka",
+   "only": [
+    "n:Siberia",
+    "__unowned__"
+   ],
+   "polygons": [
+    [
+     [
+      1795,
+      186
+     ],
+     [
+      1870,
+      180
+     ],
+     [
+      1912,
+      230
+     ],
+     [
+      1898,
+      300
+     ],
+     [
+      1800,
+      310
+     ]
+    ]
+   ],
+   "shared": true
+  },
+  {
+   "owner": "f:Okhotsk Coast",
+   "only": [
+    "n:Siberia",
+    "__unowned__"
+   ],
+   "band": 60,
+   "polygons": [
+    [
+     [
+      1632,
+      98
+     ],
+     [
+      1700,
+      90
+     ],
+     [
+      1805,
+      102
+     ],
+     [
+      1812,
+      200
+     ],
+     [
+      1795,
+      296
+     ],
+     [
+      1670,
+      300
+     ],
+     [
+      1628,
+      205
+     ],
+     [
+      1620,
+      160
+     ]
+    ]
+   ],
+   "shared": true
+  },
+  {
+   "owner": "f:Yenisei Valley",
+   "only": [
+    "n:Siberia",
+    "__unowned__"
+   ],
+   "polygons": [
+    [
+     [
+      1195,
+      72
+     ],
+     [
+      1330,
+      62
+     ],
+     [
+      1398,
+      90
+     ],
+     [
+      1402,
+      175
+     ],
+     [
+      1395,
+      262
+     ],
+     [
+      1388,
+      340
+     ],
+     [
+      1195,
+      340
+     ]
+    ]
+   ],
+   "shared": true
+  },
+  {
+   "owner": "f:Lena Valley",
+   "only": [
+    "n:Siberia",
+    "__unowned__"
+   ],
+   "polygons": [
+    [
+     [
+      1398,
+      90
+     ],
+     [
+      1480,
+      68
+     ],
+     [
+      1585,
+      82
+     ],
+     [
+      1632,
+      98
+     ],
+     [
+      1620,
+      160
+     ],
+     [
+      1628,
+      205
+     ],
+     [
+      1545,
+      222
+     ],
+     [
+      1455,
+      235
+     ],
+     [
+      1395,
+      262
+     ],
+     [
+      1402,
+      175
+     ]
+    ]
+   ],
+   "shared": true
+  },
+  {
+   "owner": "f:Ireland",
+   "only": [
+    "n:Ireland"
+   ],
+   "polygons": [
+    [
+     [
+      130,
+      205
+     ],
+     [
+      210,
+      205
+     ],
+     [
+      210,
+      280
+     ],
+     [
+      130,
+      280
+     ]
+    ]
+   ],
+   "shared": true
+  },
+  {
+   "owner": "f:Iceland",
+   "only": [
+    "n:Iceland"
+   ],
+   "polygons": [
+    [
+     [
+      -20,
+      105
+     ],
+     [
+      135,
+      105
+     ],
+     [
+      135,
+      170
+     ],
+     [
+      -20,
+      170
+     ]
+    ]
+   ],
+   "shared": true
+  },
+  {
+   "owner": "f:Greenland",
+   "only": [
+    "n:Greenland"
+   ],
+   "polygons": [
+    [
+     [
+      -30,
+      -30
+     ],
+     [
+      170,
+      -30
+     ],
+     [
+      170,
+      150
+     ],
+     [
+      -30,
+      150
+     ]
+    ]
+   ],
+   "shared": true
+  }
+ ]
+}
