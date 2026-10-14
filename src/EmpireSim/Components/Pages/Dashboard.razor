@@ -25,7 +25,8 @@
         <div class="hero-center">
             <div class="hero-date">@Engine.State.CurrentDate.ToString("dd-MM-yyyy")</div>
             <div class="crest-ring large">
-                <div class="crest" style="background:@_nation.ColorHex">@Initials(_nation)</div>
+                @* the flag of the country being played (see FlagCatalog), cropped to the round emblem; a country without one shows a neutral emblem, never letters *@
+                <div class="crest flag" title="@_nation.Name">@((MarkupString)FlagCatalog.Svg(_nation.Id))</div>
             </div>
             <div class="hero-speed">
                 <button class="@Active(GameSpeed.Paused)" @onclick="() => SetSpeed(GameSpeed.Paused)">⏸</button>
@@ -82,13 +83,6 @@
     }
 
     private void OnStateChanged() => InvokeAsync(StateHasChanged);
-
-    private static string Initials(Nation n)
-    {
-        var parts = n.Name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        if (parts.Length == 1) return parts[0].Substring(0, Math.Min(2, parts[0].Length)).ToUpper();
-        return (parts[0][0].ToString() + parts[^1][0]).ToUpper();
-    }
 
     private string Active(GameSpeed speed) =>
         Engine.Clock.Speed == speed ? "active" : "";

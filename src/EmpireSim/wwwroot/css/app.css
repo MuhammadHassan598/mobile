@@ -413,6 +413,10 @@ main.map-full .province-card {
     border: 2px solid rgba(255,255,255,.35);
 }
 .crest-ring.large .crest { width: 102px; height: 102px; font-size: 1.8rem; }
+/* the flag in the round emblem: the middle of the 3:2 flag fills the circle (cropped, never stretched), with a soft inner shade like the gold ring around it */
+.crest.flag { position: relative; padding: 0; overflow: hidden; background: #202830; }
+.crest.flag .flag-svg { display: block; width: 100%; height: 100%; }
+.crest.flag::after { content: ""; position: absolute; inset: 0; border-radius: 50%; pointer-events: none; box-shadow: inset 0 0 9px rgba(0, 0, 0, .45); }
 .dropdown-anchor { position: relative; width: 100%; max-width: 340px; }
 .country-dropdown {
     width: 100%; background: linear-gradient(#3d3d3d, #242424);

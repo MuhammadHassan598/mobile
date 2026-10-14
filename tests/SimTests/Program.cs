@@ -6060,5 +6060,74 @@ Console.WriteLine("== 77. Navigation: one history behind one Back button; layers
     }
 }
 
+Console.WriteLine("== 78. Flags: every country's flag in the main-screen emblem, never its initials ==");
+{
+    var eng = NewDipEngine(780); var s = eng.State;
+    var nationIds = s.AllNations().Select(n => n.Id).OrderBy(x => x).ToList();
+    Check(nationIds.Count == 41 && FlagCatalog.Ids.OrderBy(x => x).SequenceEqual(nationIds), "every one of the 41 countries has a flag, and there is no flag without a country");
+
+    // each flag is a well-formed picture of the right shape, and is only a picture: no letters, no images, no scripts
+    var problems = new List<string>(); var distinct = new HashSet<string>();
+    foreach (var id in nationIds)
+    {
+        var svg = FlagCatalog.Svg(id); distinct.Add(System.Text.RegularExpressions.Regex.Replace(svg, "aria-label='[^']*'", ""));   // (the pictures, not their descriptions)
+        try
+        {
+            var doc = System.Xml.Linq.XDocument.Parse(svg); var root = doc.Root!;
+            var names = doc.Descendants().Select(e => e.Name.LocalName).ToHashSet();
+            if (root.Name.LocalName != "svg") problems.Add(id + ": not an svg");
+            if ((string?)root.Attribute("viewBox") != "0 0 300 200") problems.Add(id + ": not 3:2");
+            if ((string?)root.Attribute("preserveAspectRatio") != "xMidYMid slice") problems.Add(id + ": would stretch");
+            if (names.Overlaps(new[] { "text", "tspan", "image", "foreignObject", "script", "style", "use" })) problems.Add(id + ": has text, an image or a script");
+            if (svg.Length > 6000 || !names.Contains("rect") && !names.Contains("path") && !names.Contains("polygon")) problems.Add(id + ": empty or huge");
+            if (doc.Descendants().Any(e => e.Attribute("id") is not null)) problems.Add(id + ": has an id (two emblems on one page would clash)");
+            if (((string?)root.Attribute("aria-label") ?? "").StartsWith("Flag of ") == false) problems.Add(id + ": not described");
+        }
+        catch (Exception ex) { problems.Add(id + ": " + ex.Message); }
+    }
+    Check(problems.Count == 0, $"every flag is valid SVG, 3:2, cropped to fit rather than stretched, with no text, image or script ({string.Join("; ", problems.Take(4))})");
+    Check(distinct.Count == 40, $"the flags are all different, apart from the two that really were the same cross (England and Genoa): {distinct.Count} designs");
+    Check(FlagCatalog.Svg("ottoman").Contains("Flag of Ottoman Empire") && FlagCatalog.Svg("france").Contains("Flag of France") && FlagCatalog.Svg("japan").Contains("Flag of Japan") && FlagCatalog.Svg("ottoman") != FlagCatalog.Svg("france") && FlagCatalog.Svg("france") != FlagCatalog.Svg("japan"),
+        "the Ottoman Empire, France and Japan each get their own flag, named after them");
+    Check(FlagCatalog.Svg("ottoman").Contains("fill='#C8102E'") && FlagCatalog.Svg("ottoman").Contains("<circle") && FlagCatalog.Svg("japan").Contains("#BC002D") && FlagCatalog.Svg("denmark").Contains("<rect"), "(the Ottoman flag is the red field with the white crescent, Japan's the red disc, Denmark's the cross)");
+
+    // a country with no flag gets a neutral emblem, not letters and not nothing
+    var fallback = FlagCatalog.Svg("atlantis"); var none = FlagCatalog.Svg(null);
+    Check(!FlagCatalog.Has("atlantis") && !FlagCatalog.Has(null) && fallback == FlagCatalog.FallbackSvg && none == FlagCatalog.FallbackSvg, "an unknown country (or none) gets the neutral emblem");
+    {
+        var doc = System.Xml.Linq.XDocument.Parse(FlagCatalog.FallbackSvg);
+        Check(!doc.Descendants().Any(e => e.Name.LocalName is "text" or "image" or "tspan") && doc.Descendants().Any(e => e.Name.LocalName == "polygon") && FlagCatalog.FallbackSvg.Contains("viewBox='0 0 300 200'") && !nationIds.Any(id => FlagCatalog.Svg(id) == FlagCatalog.FallbackSvg), "the neutral emblem is a plain pennant: no letters, and no country uses it");
+    }
+
+    // the emblem follows the country being played: a new campaign, another country, a loaded game
+    string Shown(GameEngine e) => FlagCatalog.Svg(e.State.PlayerNation.Id);
+    Check(Shown(eng).Contains("Flag of Ottoman Empire") || eng.State.PlayerNation.Id != "ottoman", "(the default campaign shows its own flag)");
+    foreach (var (id, name) in new[] { ("ottoman", "Ottoman Empire"), ("france", "France"), ("japan", "Japan"), ("sweden", "Sweden"), ("nepal", "Nepal") })
+    {
+        var e2 = NewDipEngine(781); e2.StartCampaign(id);
+        Check(e2.State.PlayerNation.Id == id && Shown(e2).Contains($"Flag of {name}"), $"playing {name} shows the flag of {name}");
+    }
+    {
+        var e3 = NewDipEngine(782); e3.StartCampaign("sweden"); await e3.SaveAsync();
+        e3.StartCampaign("france");
+        Check(Shown(e3).Contains("Flag of France"), "(another country is chosen: its flag is shown)");
+        await e3.LoadAsync();
+        Check(e3.State.PlayerNation.Id == "sweden" && Shown(e3).Contains("Flag of Sweden"), "after loading a saved game the emblem shows the loaded country's flag");
+    }
+
+    // the main screen's markup uses it, and the letters are gone
+    {
+        string? root = AppContext.BaseDirectory; while (root is not null && !File.Exists(Path.Combine(root, "EmpireSim.sln"))) root = Path.GetDirectoryName(root);
+        if (root is not null)
+        {
+            string dash = File.ReadAllText(Path.Combine(root, "src", "EmpireSim", "Components", "Pages", "Dashboard.razor"));
+            string css = File.ReadAllText(Path.Combine(root, "src", "EmpireSim", "wwwroot", "css", "app.css"));
+            Check(dash.Contains("FlagCatalog.Svg(_nation.Id)") && !dash.Contains("Initials") && !dash.Contains("ToUpper()"), "the main screen shows FlagCatalog.Svg(the player's country) and has no initials code left");
+            Check(css.Contains(".crest.flag") && css.Contains(".crest.flag .flag-svg") && css.Contains(".crest-ring.large .crest { width: 102px; height: 102px;"), "the emblem keeps its size (102 px inside the 128 px gold ring) and the flag is cropped to the circle");
+        }
+        else Check(false, "(repository root not found)");
+    }
+}
+
 Console.WriteLine(failures == 0 ? "\nALL CHECKS PASSED" : $"\n{failures} CHECK(S) FAILED");
 return failures;
