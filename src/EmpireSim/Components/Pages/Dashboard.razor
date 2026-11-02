@@ -21,26 +21,45 @@
         </div>
     }
 
-    <div class="menu-hero">
-        <div class="hero-side">
-            <button class="hero-btn" @onclick='() => Nav.NavigateTo("/map")' title="World map">🗺️</button>
+    <!-- Hero Cockpit (styled after reference: Left wing, Center medallion, Right wing) -->
+    <div class="menu-hero-cockpit">
+        <!-- Left Wing: Hamburger Menu, Map, Events -->
+        <div class="hero-wing left">
+            <button class="wood-tab" @onclick="OpenHamburger" title="Imperial Menu">
+                <span class="tab-icon hamburger">☰</span>
+            </button>
+            <button class="wood-tab" @onclick='() => Nav.NavigateTo("/map")' title="World Map">
+                <span class="tab-icon">🗺️</span>
+            </button>
+            <button class="wood-tab" @onclick='() => Nav.NavigateTo("/events")' title="Events & Decrees">
+                <span class="tab-icon">📜</span>
+            </button>
         </div>
-        <div class="hero-center">
-            <div class="hero-date">@Engine.State.CurrentDate.ToString("dd-MM-yyyy")</div>
-            <div class="crest-ring large">
-                @* the flag of the country being played (see FlagCatalog), cropped to the round emblem; a country without one shows a neutral emblem, never letters *@
+
+        <!-- Center Column: Date Plaque on Top, Emblem Medallion in Middle -->
+        <div class="hero-center-column">
+            <div class="hero-date-badge">@Engine.State.CurrentDate.ToString("dd-MM-yyyy")</div>
+            <div class="crest-medallion">
                 <div class="crest flag" title="@_nation.Name">@((MarkupString)FlagCatalog.Svg(_nation.Id))</div>
-            </div>
-            <div class="hero-speed">
-                <button class="@Active(GameSpeed.Paused)" @onclick="() => SetSpeed(GameSpeed.Paused)">⏸</button>
-                <button class="@Active(GameSpeed.Normal)" @onclick="() => SetSpeed(GameSpeed.Normal)">▶</button>
+                <button class="crest-info-pill" @onclick='() => Nav.NavigateTo("/statistics")' title="Empire Statistics">ℹ</button>
             </div>
         </div>
-        <div class="hero-side">
-            <button class="hero-btn" @onclick='() => Nav.NavigateTo("/events")' title="Events">📜</button>
+
+        <!-- Right Wing: Speed Controls (Pause, Play, Fast) -->
+        <div class="hero-wing right">
+            <button class="wood-tab @Active(GameSpeed.Paused)" @onclick="() => SetSpeed(GameSpeed.Paused)" title="Pause">
+                <span class="tab-icon">⏸</span>
+            </button>
+            <button class="wood-tab @Active(GameSpeed.Normal)" @onclick="() => SetSpeed(GameSpeed.Normal)" title="Play (Normal Speed)">
+                <span class="tab-icon">▶</span>
+            </button>
+            <button class="wood-tab @Active(GameSpeed.Fast)" @onclick="() => SetSpeed(GameSpeed.Fast)" title="Fast Speed">
+                <span class="tab-icon">⏩</span>
+            </button>
         </div>
     </div>
 
+    <!-- Main Dashboard Tiles -->
     <div class="parchment-panel">
         <div class="tile-grid">
             <button class="menu-tile" @onclick='() => Nav.NavigateTo("/command")'><span class="tile-orb">🎖️</span><span>Command control</span></button>
@@ -66,11 +85,435 @@
     </div>
 </div>
 
+@* Hamburger Menu Modal *@
+@if (_hamburgerOpen)
+{
+    <div class="hbg-overlay" @onclick="CloseHamburger">
+        <BackLayer OnBack="CloseHamburger" />
+        <div class="hbg-panel" @onclick:stopPropagation>
+            <button class="hbg-close-btn" @onclick="CloseHamburger" title="Close">✕</button>
+
+            <div class="hbg-header">
+                <div class="hbg-crest">@((MarkupString)FlagCatalog.Svg(_nation.Id))</div>
+                <div class="hbg-header-text">
+                    <div class="hbg-title">Imperial Command</div>
+                    <div class="hbg-subtitle">@_nation.Name • @Engine.State.CurrentDate.ToString("dd-MM-yyyy")</div>
+                </div>
+            </div>
+
+            <div class="hbg-divider"></div>
+
+            @if (_confirmRestart)
+            {
+                <div class="hbg-warning-box">
+                    <div class="hbg-warn-header">⚠️ Restart Game?</div>
+                    <p class="hbg-warn-desc">
+                        Are you sure you want to restart? All current progress, gold, and conquered territories will be reset.
+                        The game will start fresh from <b>Day 1 (01-01-1600)</b> as <b>@_nation.Name</b>.
+                    </p>
+                    <div class="hbg-warn-actions">
+                        <button class="hbg-btn restart" @onclick="RestartGame">Yes, Restart</button>
+                        <button class="hbg-btn cancel" @onclick="() => _confirmRestart = false">Cancel</button>
+                    </div>
+                </div>
+            }
+            else if (_confirmChangeCountry)
+            {
+                <div class="hbg-warning-box">
+                    <div class="hbg-warn-header">⚠️ Change Country?</div>
+                    <p class="hbg-warn-desc">
+                        Are you sure you want to change country? You will abandon this campaign and return to the country selection screen to choose a new civilization.
+                    </p>
+                    <div class="hbg-warn-actions">
+                        <button class="hbg-btn change" @onclick="ChangeCountry">Yes, Change Country</button>
+                        <button class="hbg-btn cancel" @onclick="() => _confirmChangeCountry = false">Cancel</button>
+                    </div>
+                </div>
+            }
+            else
+            {
+                <div class="hbg-menu-list">
+                    <button class="hbg-menu-item" @onclick="() => _confirmRestart = true">
+                        <span class="hbg-item-icon">🔄</span>
+                        <div class="hbg-item-info">
+                            <span class="hbg-item-name">Restart Game</span>
+                            <span class="hbg-item-desc">Restart fresh from Day 1 as @_nation.Name</span>
+                        </div>
+                        <span class="hbg-chevron">›</span>
+                    </button>
+
+                    <button class="hbg-menu-item" @onclick="() => _confirmChangeCountry = true">
+                        <span class="hbg-item-icon">🏳️</span>
+                        <div class="hbg-item-info">
+                            <span class="hbg-item-name">Change Country</span>
+                            <span class="hbg-item-desc">Return to country selection page</span>
+                        </div>
+                        <span class="hbg-chevron">›</span>
+                    </button>
+                </div>
+
+                <div class="hbg-footer">
+                    <button class="hbg-resume-btn" @onclick="CloseHamburger">Resume Game</button>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+<style>
+/* Cockpit Layout matching Reference Image */
+.menu-hero-cockpit {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin: 4px 0 14px;
+    position: relative;
+    user-select: none;
+}
+
+.hero-wing {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    justify-content: center;
+}
+
+.wood-tab {
+    width: 60px;
+    height: 38px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: inherit;
+    position: relative;
+    background: linear-gradient(180deg, #d4a366 0%, #aa7738 50%, #855622 100%);
+    border: 2px solid #381f08;
+    box-shadow: 0 3px 5px rgba(0,0,0,0.5), inset 0 1px 1px rgba(255,255,255,0.3);
+    transition: transform 0.08s, box-shadow 0.08s;
+}
+
+.hero-wing.left .wood-tab {
+    border-radius: 8px 3px 3px 8px;
+    box-shadow: -2px 3px 5px rgba(0,0,0,0.5), inset 0 1px 1px rgba(255,255,255,0.3);
+}
+
+.hero-wing.right .wood-tab {
+    border-radius: 3px 8px 8px 3px;
+    box-shadow: 2px 3px 5px rgba(0,0,0,0.5), inset 0 1px 1px rgba(255,255,255,0.3);
+}
+
+.wood-tab:active {
+    transform: scale(0.95);
+}
+
+.wood-tab.active {
+    background: linear-gradient(180deg, #e6b876 0%, #c49652 50%, #9e7033 100%);
+    border-color: #ffd700;
+    box-shadow: 0 0 10px rgba(255,215,0,0.8), inset 0 0 5px rgba(255,215,0,0.5);
+}
+
+.tab-icon {
+    font-size: 1.25rem;
+    color: #2e1a0b;
+    text-shadow: 0 1px 0 rgba(255,255,255,0.25);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.tab-icon.hamburger {
+    font-size: 1.5rem;
+    font-weight: bold;
+    line-height: 1;
+}
+
+.hero-center-column {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+}
+
+.hero-date-badge {
+    background: linear-gradient(180deg, #2b1f14, #140d07);
+    color: #f5e6c4;
+    border: 1.5px solid #8b6914;
+    border-radius: 6px;
+    padding: 3px 16px;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 1px;
+    font-size: 0.95rem;
+    font-weight: bold;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.6);
+}
+
+.crest-medallion {
+    width: 124px;
+    height: 124px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, #ffd700, #b8860b 60%, #6b4f00);
+    border: 3px solid #fce89e;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.65), inset 0 0 8px rgba(0,0,0,0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+}
+
+.crest-medallion .crest.flag {
+    width: 100px;
+    height: 100px;
+    border-radius: 50%;
+    overflow: hidden;
+    position: relative;
+    box-shadow: inset 0 0 8px rgba(0,0,0,0.5);
+}
+
+.crest-info-pill {
+    position: absolute;
+    right: -4px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: #24170c;
+    border: 1.5px solid #ffd700;
+    color: #ffd700;
+    font-size: 0.78rem;
+    font-weight: bold;
+    font-family: serif;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.6);
+}
+
+/* Hamburger Imperial Menu Modal */
+.hbg-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 300;
+    background: rgba(0,0,0,0.75);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    backdrop-filter: blur(2px);
+}
+
+.hbg-panel {
+    background: linear-gradient(180deg, #2b1f15 0%, #171008 100%);
+    border: 2px solid #b8905e;
+    border-radius: 12px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.85), inset 0 0 0 1px #5c4125;
+    max-width: 380px;
+    width: 100%;
+    padding: 18px;
+    color: #f5e6c4;
+    font-family: Georgia, serif;
+    position: relative;
+}
+
+.hbg-close-btn {
+    position: absolute;
+    top: 10px;
+    right: 12px;
+    background: none;
+    border: none;
+    font-size: 1.3rem;
+    cursor: pointer;
+    color: #d4af37;
+    padding: 4px 8px;
+}
+
+.hbg-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding-right: 28px;
+}
+
+.hbg-crest {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    overflow: hidden;
+    border: 2px solid #ffd700;
+    flex-shrink: 0;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.5);
+}
+
+.hbg-crest .flag-svg {
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+
+.hbg-title {
+    font-size: 1.25rem;
+    font-weight: bold;
+    color: #ffd700;
+    text-shadow: 0 1px 2px #000;
+}
+
+.hbg-subtitle {
+    font-size: 0.85rem;
+    color: #c4ab80;
+    margin-top: 2px;
+}
+
+.hbg-divider {
+    height: 1px;
+    background: linear-gradient(90deg, transparent, #8b6914, transparent);
+    margin: 14px 0;
+}
+
+.hbg-menu-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.hbg-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: linear-gradient(180deg, #3d2c1d, #26190e);
+    border: 1.5px solid #8b6914;
+    border-radius: 8px;
+    padding: 12px 14px;
+    color: #f5e6c4;
+    text-align: left;
+    cursor: pointer;
+    transition: all 0.15s;
+    font-family: inherit;
+    width: 100%;
+}
+
+.hbg-menu-item:active {
+    transform: translateY(1px);
+    border-color: #ffd700;
+    background: #332010;
+}
+
+.hbg-item-icon {
+    font-size: 1.6rem;
+    flex-shrink: 0;
+}
+
+.hbg-item-info {
+    flex: 1;
+}
+
+.hbg-item-name {
+    display: block;
+    font-size: 1rem;
+    font-weight: bold;
+    color: #fce89e;
+}
+
+.hbg-item-desc {
+    display: block;
+    font-size: 0.78rem;
+    color: #bba27e;
+    margin-top: 2px;
+}
+
+.hbg-chevron {
+    font-size: 1.4rem;
+    color: #b8905e;
+}
+
+.hbg-warning-box {
+    background: rgba(46, 21, 10, 0.75);
+    border: 2px solid #b71c1c;
+    border-radius: 8px;
+    padding: 14px;
+    text-align: center;
+}
+
+.hbg-warn-header {
+    font-size: 1.15rem;
+    font-weight: bold;
+    color: #ff6b6b;
+    margin-bottom: 8px;
+}
+
+.hbg-warn-desc {
+    font-size: 0.88rem;
+    line-height: 1.4;
+    color: #f0e0c8;
+    margin-bottom: 14px;
+}
+
+.hbg-warn-actions {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+}
+
+.hbg-btn {
+    flex: 1;
+    padding: 10px 14px;
+    border-radius: 6px;
+    font-weight: bold;
+    font-family: inherit;
+    font-size: 0.95rem;
+    cursor: pointer;
+    border: 1.5px solid #2e1c0c;
+}
+
+.hbg-btn.restart {
+    background: linear-gradient(180deg, #c62828, #7f0000);
+    color: #fff;
+    border-color: #ff5252;
+    box-shadow: 0 2px 6px rgba(183,28,28,0.5);
+}
+
+.hbg-btn.change {
+    background: linear-gradient(180deg, #e6a836, #9c680c);
+    color: #1a0f00;
+    border-color: #ffd700;
+    box-shadow: 0 2px 6px rgba(230,168,54,0.5);
+}
+
+.hbg-btn.cancel {
+    background: linear-gradient(180deg, #5a4533, #352619);
+    color: #d8c29d;
+}
+
+.hbg-footer {
+    margin-top: 14px;
+    text-align: center;
+}
+
+.hbg-resume-btn {
+    width: 100%;
+    padding: 10px;
+    background: linear-gradient(180deg, #523b27, #332214);
+    border: 1.5px solid #8b6914;
+    border-radius: 6px;
+    color: #f5e6c4;
+    font-weight: bold;
+    font-family: inherit;
+    font-size: 0.95rem;
+    cursor: pointer;
+}
+</style>
+
 @code {
     private Nation _nation => Engine.State.PlayerNation;
 
     /// <summary>Messages in the inbox that have not been opened yet (shown as a badge on the Inbox tile).</summary>
     private int UnreadMessages => InboxService.UnreadCount(Engine.State);
+
+    private bool _hamburgerOpen;
+    private bool _confirmRestart;
+    private bool _confirmChangeCountry;
 
     protected override void OnInitialized()
     {
@@ -83,6 +526,33 @@
         Engine.Clock.Speed == speed ? "active" : "";
 
     private void SetSpeed(GameSpeed speed) => Engine.Clock.SetSpeed(speed);
+
+    private void OpenHamburger()
+    {
+        _confirmRestart = false;
+        _confirmChangeCountry = false;
+        _hamburgerOpen = true;
+    }
+
+    private void CloseHamburger()
+    {
+        _hamburgerOpen = false;
+        _confirmRestart = false;
+        _confirmChangeCountry = false;
+    }
+
+    private void RestartGame()
+    {
+        string currentNation = _nation.Id;
+        CloseHamburger();
+        Engine.StartCampaign(currentNation);
+    }
+
+    private void ChangeCountry()
+    {
+        CloseHamburger();
+        Engine.AbandonToMenu();
+    }
 
     public void Dispose()
     {
