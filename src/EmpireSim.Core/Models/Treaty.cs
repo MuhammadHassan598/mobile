@@ -14,6 +14,17 @@ public enum TreatyType
     SovereigntyGuarantee
 }
 
+/// <summary>Where a treaty came from.</summary>
+public enum TreatyOrigin
+{
+    /// <summary>Starting historical condition (1600 web): silent, not reported as a new mission.</summary>
+    Historical,
+    /// <summary>Player-initiated diplomatic action during gameplay.</summary>
+    Player,
+    /// <summary>AI-initiated diplomatic action during gameplay.</summary>
+    Ai
+}
+
 /// <summary>
 /// A tracked agreement between two nations (saved with the game).
 /// Embassy and SovereigntyGuarantee are directional: <see cref="NationAId"/> is the nation that
@@ -24,6 +35,7 @@ public sealed class Treaty
 {
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
     public TreatyType Type { get; set; }
+    public TreatyOrigin Origin { get; set; } = TreatyOrigin.Player;
     public string NationAId { get; set; } = "";
     public string NationBId { get; set; } = "";
     public DateOnly SignedDate { get; set; }

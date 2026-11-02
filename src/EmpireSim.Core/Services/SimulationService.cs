@@ -18,11 +18,19 @@ public sealed class SimulationService
     /// </summary>
     private readonly Random _aiRng;
 
+    /// <summary>Dedicated random stream for counter-espionage so other systems remain unaffected.</summary>
+    private readonly Random _espionageRng;
+
+    /// <summary>Dedicated random stream for naval warfare & strategic operations.</summary>
+    private readonly Random _navalRng;
+
     /// <param name="seed">Fixed seed for deterministic tests. Null = time-based.</param>
     public SimulationService(int? seed = null)
     {
         _rng = seed.HasValue ? new Random(seed.Value) : new Random();
         _aiRng = seed.HasValue ? new Random(unchecked(seed.Value * 7919 + 104729)) : new Random();
+        _espionageRng = seed.HasValue ? new Random(unchecked(seed.Value * 15485863 + 32452843)) : new Random();
+        _navalRng = seed.HasValue ? new Random(unchecked(seed.Value * 49979693 + 67867967)) : new Random();
     }
 
     public bool RollChance(double probability) => _rng.NextDouble() < probability;
@@ -55,6 +63,7 @@ public sealed class SimulationService
         ResearchService.Advance(state);
         ColonizationService.Advance(state);
         AdvanceMarches(state);
+        AdvanceNavalMissions(state);
         CheckDefeat(state);
     }
 
@@ -132,6 +141,10 @@ public sealed class SimulationService
         double taxRevenue = TaxationService.TotalRevenue(nation.Workforce, nation.TaxRates) * taxMult * owner.TaxMult;
         // (a territory's tax is its owner's money; it has no crown domain of its own: those went to the owner when it was annexed)
         owner.Gold += taxRevenue + Balance.CrownDomainIncomePerDay * nation.CrownDomains;
+        if (nation == owner && owner.IsPlayer && state.CounterEspionageGuards > 0)
+        {
+            owner.PayGold(state.CounterEspionageGuards * Balance.CounterEspionageGuardWage);
+        }
 
         // Approval update (gradual)
         double burden = TaxationService.WeightedBurden(nation.Workforce, nation.TaxRates);
@@ -232,6 +245,17 @@ public sealed class SimulationService
             var seller = state.AllNations().FirstOrDefault(n => n.Id == tc.SellerId);
             var product = TradeCatalog.Get(tc.ProductId);
             if (buyer is null || product is null) { tc.Status = TradeStatus.Cancelled; continue; }
+
+            // Naval Blockade: if an enemy at war is blockaded, their foreign merchant trade is intercepted
+            if (seller is not null && (state.IsNationBlockaded(seller.Id) || state.IsNationBlockaded(buyer.Id)) &&
+                ((seller.AtWarWithPlayer && !tc.IsPlayerBuyer) || (buyer.AtWarWithPlayer && !tc.IsPlayerBuyer)))
+            {
+                tc.Status = TradeStatus.Cancelled;
+                string blockadedName = state.IsNationBlockaded(seller.Id) ? seller.Name : buyer.Name;
+                state.LogMovement(MovementKind.Goods, MovementStatus.Failed, tc.SellerId, seller.Name, tc.BuyerId, buyer.Name,
+                    $"Naval Blockade: merchant shipment of {product.Name} intercepted off {blockadedName}.", military: true, inbox: InboxTopic.Trade);
+                continue;
+            }
 
             // Deliver goods to buyer
             buyer.AdjustProductStock(tc.ProductId, tc.Quantity);
@@ -531,6 +555,17 @@ public sealed class SimulationService
             {
                 AiWorldService.DeclareWarOnPlayer(state, other);
             }
+
+            // Hostile foreign nations may attempt covert operations against the player once AI world awakens
+            if (state.CurrentDate >= state.AiWorldStartDate
+                && !other.IsEliminated
+                && !state.IsPlayerAlly(other.Id)
+                && (other.AtWarWithPlayer || other.RelationToPlayer <= Balance.AiWarRelationThreshold)
+                && (!state.EspionageDeterrence.TryGetValue(other.Id, out var detUntil) || state.CurrentDate >= detUntil)
+                && _espionageRng.NextDouble() < Balance.AiSpyAttemptChancePerDay)
+            {
+                TriggerAiEspionageAgainstPlayer(state, other);
+            }
         }
 
         foreach (var net in state.SpyNetworks)
@@ -655,4 +690,212 @@ public sealed class SimulationService
             InboxService.Notify(state, InboxTopic.EmpireFallen, "Your empire has fallen. The dynasty is no more.");
         }
     }
-}
+
+    /// <summary>
+    /// Executes an AI covert mission attempt against the player, evaluated against the player's counter-espionage guards.
+    /// Returns the captured spy if caught, or null if the infiltrator escaped or was thwarted.
+    /// </summary>
+    public CapturedSpy? TriggerAiEspionageAgainstPlayer(GameState state, Nation? foreignNation = null, SpyMissionType? mission = null, bool forceCatch = false)
+    {
+        var player = state.PlayerNation;
+        var enemy = foreignNation ?? state.OtherNations.FirstOrDefault(n => !n.IsEliminated && n.RelationToPlayer <= 20)
+                                 ?? state.OtherNations.FirstOrDefault(n => !n.IsEliminated);
+        if (enemy is null || player.IsEliminated) return null;
+
+        var chosenMission = mission ?? (player.Gold >= 500 && _espionageRng.NextDouble() < 0.45 ? SpyMissionType.Theft
+            : (player.Farms + player.Mines + player.Sawmills + player.Workshops > 0) && _espionageRng.NextDouble() < 0.5 ? SpyMissionType.Sabotage
+            : SpyMissionType.InciteRevolt);
+
+        double catchChance = Math.Clamp(Balance.CounterEspionageBaseCatchChance + (state.CounterEspionageGuards * Balance.CounterEspionageGuardCatchBonus), 0.10, 0.95);
+        bool caught = forceCatch || (_espionageRng.NextDouble() < catchChance);
+
+        string missionName = chosenMission switch
+        {
+            SpyMissionType.Theft => "treasury theft",
+            SpyMissionType.Sabotage => "homeland sabotage",
+            _ => "inciting rebellion"
+        };
+
+        if (caught)
+        {
+            var captured = new CapturedSpy
+            {
+                FromNationId = enemy.Id,
+                FromNationName = enemy.Name,
+                MissionType = chosenMission,
+                CaptureDate = state.CurrentDate,
+                Status = CapturedSpyStatus.Imprisoned
+            };
+            state.CapturedSpies.Add(captured);
+            state.ActiveWarnings.Add($"🚨 Foreign spy from {enemy.Name} captured in the capital!");
+            state.LogMovement(MovementKind.Mission, MovementStatus.Failed, enemy, player,
+                $"🚨 Palace guards captured an enemy spy from {enemy.Name} attempting {missionName} in the capital!", inbox: InboxTopic.SpyCaught);
+            InboxService.Notify(state, InboxTopic.SpyCaught,
+                $"🚨 Foreign spy from {enemy.Name} captured attempting {missionName}!",
+                enemy.Id,
+                title: "Foreign Spy Intercepted",
+                details: $"Imperial Counter-Intelligence intercepted an enemy operative from {enemy.Name} attempting {missionName} in the capital.\n" +
+                         $"The prisoner is secured in the imperial dungeons awaiting your royal decree:\n" +
+                         $"• Execute them (+Ruler Rating, deters future spies)\n" +
+                         $"• Ransom them (+Gold from foreign crown)\n" +
+                         $"• Parade them publicly (+Justified Casus Belli, +Tax Approval)");
+            return captured;
+        }
+        else
+        {
+            // Slipped past security
+            switch (chosenMission)
+            {
+                case SpyMissionType.Theft:
+                    double stolen = Math.Min(player.Gold * 0.05, 500);
+                    if (stolen > 10)
+                    {
+                        player.PayGold(stolen);
+                        enemy.Gold += stolen;
+                        state.ActiveWarnings.Add($"⚠ Foreign thieves stole {Currency.Cost(stolen)} from the treasury!");
+                        state.LogMovement(MovementKind.Gold, MovementStatus.Completed, player, enemy,
+                            $"Foreign infiltrators stole {Currency.Cost(stolen)} from the imperial treasury.", inbox: InboxTopic.SpyMission);
+                    }
+                    break;
+                case SpyMissionType.Sabotage:
+                    if (player.Farms + player.Mines + player.Sawmills + player.Workshops > 0)
+                    {
+                        string sabotagedName = "building";
+                        if (player.Farms > 0) { player.Farms--; sabotagedName = "Farm"; }
+                        else if (player.Sawmills > 0) { player.Sawmills--; sabotagedName = "Sawmill"; }
+                        else if (player.Mines > 0) { player.Mines--; sabotagedName = "Mine"; }
+                        else if (player.Workshops > 0) { player.Workshops--; sabotagedName = "Workshop"; }
+                        state.ActiveWarnings.Add($"⚠ Saboteurs struck a {sabotagedName} in the homeland!");
+                        state.LogMovement(MovementKind.Mission, MovementStatus.Completed, enemy, player,
+                            $"Foreign saboteurs damaged a {sabotagedName} in the homeland.", inbox: InboxTopic.SpyMission);
+                    }
+                    break;
+                case SpyMissionType.InciteRevolt:
+                    int deserters = Math.Min(60, (int)(player.Soldiers * 0.03));
+                    if (deserters > 0)
+                    {
+                        ArmyHelper.RemoveSoldiers(player, deserters);
+                        state.ActiveWarnings.Add($"⚠ Foreign agitators incited {deserters} soldiers to desert!");
+                        state.LogMovement(MovementKind.Mission, MovementStatus.Completed, enemy, player,
+                            $"Foreign agitators incited {deserters} soldiers to desert.", inbox: InboxTopic.SpyMission);
+                    }
+                    break;
+            }
+            return null;
+        }
+    }
+
+    private void AdvanceNavalMissions(GameState state)
+        {
+            var player = state.PlayerNation;
+            var activeMissions = state.NavalMissions.Where(m => m.Status == NavalMissionStatus.Active).ToList();
+
+            foreach (var m in activeMissions)
+            {
+                m.DaysActive++;
+
+                switch (m.Type)
+                {
+                    case NavalMissionType.Blockade:
+                    {
+                        var target = state.AllNations().FirstOrDefault(n => n.Id == m.TargetNationId);
+                        if (target is null || target.IsEliminated || !target.AtWarWithPlayer)
+                        {
+                            m.Status = NavalMissionStatus.Recalled;
+                            state.LogMovement(MovementKind.Troops, MovementStatus.Completed, player, target ?? player,
+                                $"Naval blockade on {target?.Name ?? "enemy"} concluded; {m.Warships:N0} warships returned to dockyards.", military: true, inbox: InboxTopic.ArmyMovement);
+                            continue;
+                        }
+
+                        // Economic drain on blockaded enemy
+                        double drain = Math.Min(target.Gold, m.Warships * Balance.NavalBlockadeDailyDrainPerShip);
+                        if (drain > 0)
+                        {
+                            target.Gold -= drain;
+                        }
+
+                        // Check for enemy naval sortie against blockade
+                        if (target.Warships >= 3 && state.CurrentDate >= state.AiWorldStartDate)
+                        {
+                            if (_navalRng.NextDouble() < Balance.NavalSortieChance)
+                            {
+                                int enemyShips = Math.Min(target.Warships, (int)Math.Max(3, target.Warships * 0.75));
+                                double attMult = CommandStaffService.NavalCombatMult(target);
+                                double defMult = CommandStaffService.NavalCombatMult(player);
+
+                                double enemyPower = enemyShips * attMult * (0.9 + _navalRng.NextDouble() * 0.2);
+                                double playerPower = m.Warships * defMult * (0.9 + _navalRng.NextDouble() * 0.2);
+
+                                if (playerPower >= enemyPower)
+                                {
+                                    int enemyLosses = Math.Clamp((int)Math.Ceiling(enemyShips * 0.4), 1, enemyShips);
+                                    int playerLosses = Math.Clamp((int)Math.Floor(m.Warships * 0.15), 0, m.Warships - 1);
+                                    int prizes = (int)Math.Round((enemyShips - enemyLosses) * Balance.NavalPrizeCaptureChance);
+
+                                    target.Warships = Math.Max(0, target.Warships - enemyLosses - prizes);
+                                    player.Warships = Math.Max(0, player.Warships - playerLosses + prizes);
+                                    m.Warships = Math.Max(1, m.Warships - playerLosses);
+
+                                    string prizeText = prizes > 0 ? $" and captured {prizes:N0} prize warships" : "";
+                                    state.LogMovement(MovementKind.Troops, MovementStatus.Completed, player, target,
+                                        $"Naval Victory: Blockade squadron repelled {target.Name}'s sortie! Sunk {enemyLosses:N0} enemy ships{prizeText} (lost {playerLosses:N0}).",
+                                        military: true, inbox: InboxTopic.Battle);
+                                }
+                                else
+                                {
+                                    int playerLosses = Math.Clamp((int)Math.Ceiling(m.Warships * 0.45), 1, m.Warships);
+                                    int enemyLosses = Math.Clamp((int)Math.Floor(enemyShips * 0.15), 0, enemyShips - 1);
+
+                                    player.Warships = Math.Max(0, player.Warships - playerLosses);
+                                    target.Warships = Math.Max(0, target.Warships - enemyLosses);
+                                    m.Warships = Math.Max(0, m.Warships - playerLosses);
+                                    m.Status = NavalMissionStatus.Defeated;
+
+                                    state.ActiveWarnings.Add($"⚠ {target.Name}'s war fleet broke your blockade! {playerLosses:N0} warships lost.");
+                                    state.LogMovement(MovementKind.Troops, MovementStatus.Completed, target, player,
+                                        $"Naval Defeat: {target.Name}'s war fleet broke your blockade! Lost {playerLosses:N0} warships; surviving ships retreated to port.",
+                                        military: true, inbox: InboxTopic.Battle);
+                                }
+                            }
+                        }
+                        break;
+                    }
+
+                    case NavalMissionType.Patrol:
+                    {
+                        // Patrol protects home waters
+                        break;
+                    }
+
+                    case NavalMissionType.Privateering:
+                    {
+                        var target = state.AllNations().FirstOrDefault(n => n.Id == m.TargetNationId);
+                        if (target is null || target.IsEliminated || TreatyService.ForbidsAttack(state, player.Id, target.Id) is not null)
+                        {
+                            m.Status = NavalMissionStatus.Recalled;
+                            state.LogMovement(MovementKind.Troops, MovementStatus.Completed, player, target ?? player,
+                                $"Privateering letters of marque against {target?.Name ?? "rival"} revoked; {m.Warships:N0} warships returned.", military: true, inbox: InboxTopic.ArmyMovement);
+                            continue;
+                        }
+
+                        if (target.Gold > 20 && _navalRng.NextDouble() < Balance.NavalPrivateerPlunderChance)
+                        {
+                            double plunder = Math.Min(target.Gold, m.Warships * Balance.NavalPrivateerGoldPerShip);
+                            if (plunder > 0)
+                            {
+                                target.Gold -= plunder;
+                                player.Gold += plunder;
+                                m.PlunderGold += plunder;
+                                state.LogMovement(MovementKind.Gold, MovementStatus.Completed, target, player,
+                                    $"Privateers intercepted {target.Name}'s merchant shipping and plundered {Currency.Cost(plunder)} for the imperial treasury.",
+                                    military: true, inbox: InboxTopic.Trade);
+                            }
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+

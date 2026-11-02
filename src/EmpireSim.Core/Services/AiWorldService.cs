@@ -220,7 +220,7 @@ public static class AiWorldService
         }
         if (best is null) return;
 
-        TreatyService.Add(state, TreatyType.DefensiveAlliance, n, best);
+        TreatyService.Add(state, TreatyType.DefensiveAlliance, n, best, origin: TreatyOrigin.Ai);
         AddRelation(state, n, best, Balance.AiAllianceRelationGain);
         state.LogMovement(MovementKind.Treaty, MovementStatus.Completed, n, best,
             $"🛡 {n.Name} and {best.Name} formed a defensive alliance.");

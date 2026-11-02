@@ -520,7 +520,7 @@ main.map-full .province-card {
 /* ================= Select screen v2 (reference clone) ================= */
 .select2 { min-height: 100vh; display: flex; flex-direction: column; background: #241c12; }
 .select2-header {
-    display: flex; align-items: center; justify-content: space-between;
+    display: flex; align-items: center; min-height: 48px;
     padding: 10px 14px; background: linear-gradient(#1b2a4a, #0c1428);
     border-bottom: 2px solid #8b6914; position: sticky; top: 0; z-index: 60;
 }
@@ -652,9 +652,8 @@ main.map-full .province-card {
 /* ============ Select screen: narrow phones (portrait) ============ */
 @media (max-width: 480px) {
     .select2 { overflow-x: hidden; }
-    .select2-header { padding: 8px 10px; }
+    .select2-header { padding: 8px 10px; min-height: 40px; }
     .app-title { font-size: 1.15rem; }
-    .hbtn { width: 34px; height: 34px; font-size: 1rem; }
 
     .civ-rail { width: 84px; padding: 8px 5px 16px; }
     .civ-label { font-size: 0.5rem; }
@@ -693,3 +692,169 @@ main.map-full .province-card {
 .mp-req.ok > span:first-child { color: #6fcf7a; }
 .mp-req.bad > span:first-child { color: #ff8a80; font-weight: bold; }
 .mp-when { margin: 8px 0 2px; font-size: 0.85rem; }
+
+/* ---- counter-espionage & homeland defense ---- */
+.counter-box {
+    background: linear-gradient(135deg, rgba(26, 42, 74, 0.95), rgba(16, 26, 48, 0.95));
+    border: 1px solid #3A7EBB;
+    border-radius: 10px;
+    padding: 14px;
+    margin-bottom: 12px;
+}
+.counter-title {
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: var(--gold);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+.counter-desc {
+    color: var(--muted);
+    font-size: 0.84rem;
+    margin-bottom: 10px;
+}
+.counter-stats {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin: 8px 0;
+    font-size: 0.85rem;
+}
+.counter-stat-item {
+    background: var(--panel);
+    border: 1px solid #2B3A60;
+    border-radius: 6px;
+    padding: 6px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.counter-stat-item small {
+    color: var(--muted);
+    font-size: 0.72rem;
+    text-transform: uppercase;
+}
+.guard-stepper {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 10px 0 6px;
+}
+.guard-btn {
+    background: var(--panel-light);
+    color: var(--gold);
+    border: 1px solid #3A7EBB;
+    border-radius: 6px;
+    width: 36px;
+    height: 36px;
+    font-size: 1.2rem;
+    font-weight: bold;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.guard-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+.guard-label {
+    font-weight: bold;
+    font-size: 0.95rem;
+    color: var(--text);
+}
+.dungeon-box {
+    background: linear-gradient(135deg, rgba(58, 26, 26, 0.95), rgba(30, 16, 20, 0.95));
+    border: 1px solid #A03A2E;
+    border-radius: 10px;
+    padding: 14px;
+    margin-bottom: 12px;
+}
+.dungeon-title {
+    font-size: 1.05rem;
+    font-weight: bold;
+    color: #F5B7A8;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+.prisoner-card {
+    background: rgba(14, 22, 38, 0.85);
+    border: 1px solid #5A2A2A;
+    border-radius: 8px;
+    padding: 10px 12px;
+    margin-bottom: 8px;
+}
+.prisoner-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 4px;
+}
+.prisoner-origin {
+    font-weight: bold;
+    color: var(--gold);
+}
+.prisoner-date {
+    font-size: 0.75rem;
+    color: var(--muted);
+}
+.prisoner-detail {
+    font-size: 0.85rem;
+    margin-bottom: 8px;
+    color: var(--text);
+}
+.prisoner-actions {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+.prisoner-actions button {
+    flex: 1;
+    min-width: 100px;
+    padding: 7px 8px;
+    border-radius: 6px;
+    border: 1px solid #3A4E7E;
+    background: var(--panel-light);
+    color: var(--text);
+    font-size: 0.8rem;
+    font-weight: 500;
+    cursor: pointer;
+    text-align: center;
+}
+.prisoner-actions button.btn-execute {
+    border-color: #A03A2E;
+    color: #F5B7A8;
+}
+.prisoner-actions button.btn-ransom {
+    border-color: var(--gold);
+    color: var(--gold);
+}
+.prisoner-actions button.btn-parade {
+    border-color: #3A7EBB;
+    color: #A8D8F5;
+}
+.casus-belli-box {
+    background: linear-gradient(135deg, rgba(46, 38, 16, 0.95), rgba(26, 22, 10, 0.95));
+    border: 1px solid var(--gold);
+    border-radius: 10px;
+    padding: 10px 14px;
+    margin-bottom: 12px;
+    font-size: 0.88rem;
+    color: var(--gold);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.success-banner {
+    background: rgba(46, 125, 79, 0.25);
+    border: 1px solid #2E7D4F;
+    color: #8DF5B2;
+    padding: 8px 12px;
+    border-radius: 6px;
+    margin-bottom: 10px;
+    font-size: 0.9rem;
+}

@@ -16,6 +16,13 @@ void Check(bool condition, string name)
 var saveFolder = Path.Combine(Path.GetTempPath(), "empiresim-test");
 if (Directory.Exists(saveFolder)) Directory.Delete(saveFolder, recursive: true);
 
+if (args.Length > 0 && args.Contains("--ottoman"))
+{
+    await SimTests.OttomanPlaythroughAudit.Run(Check, saveFolder);
+    Console.WriteLine(failures == 0 ? "\nALL OTTOMAN CHECKS PASSED" : $"\n{failures} CHECK(S) FAILED");
+    return failures;
+}
+
 Console.WriteLine("== 1. New game starts 01-01-1600 ==");
 using (var engine = new GameEngine(new SimulationService(), new SaveService(saveFolder)))
 {
@@ -6128,6 +6135,305 @@ Console.WriteLine("== 78. Flags: every country's flag in the main-screen emblem,
         else Check(false, "(repository root not found)");
     }
 }
+
+Console.WriteLine("== 79. Historical starting embassies: silent initialization, not movement missions ==");
+using (var eng = new GameEngine(new SimulationService(790), new SaveService(saveFolder)))
+{
+    eng.StartCampaign("ottoman");
+    var s = eng.State;
+    var player = s.PlayerNation;
+
+    // 1. A new Ottoman game still starts with the intended historical embassies.
+    var startingEmbassies = s.Treaties.Where(t => t.Type == TreatyType.Embassy && t.NationAId == player.Id).ToList();
+    Check(startingEmbassies.Count == 4, "Ottoman starts with exactly 4 historical embassies");
+    Check(new[] { "crimea", "france", "england", "venice" }.All(id => TreatyService.HasEmbassy(s, player.Id, id)),
+        "historical embassies in Crimea, France, England and Venice all exist");
+    Check(startingEmbassies.All(t => t.Origin == TreatyOrigin.Historical),
+        "all default starting embassies are marked with TreatyOrigin.Historical");
+
+    // 2. Those embassies do not appear as new entries in Movement Report.
+    Check(MovementReport.ActiveMissions(s).Count == 0,
+        "default historical embassies do not appear in Movement Report ActiveMissions");
+    Check(MovementReport.Events(s).Count == 0,
+        "no movement report events exist at game start");
+
+    // 3. No inbox message is generated for those default embassies.
+    Check(s.Inbox.Count == 0,
+        "no inbox messages generated for default starting embassies");
+    Check(!s.EventLog.Any(l => l.Contains("keeps embassies in")),
+        "no event-log entry generated for default starting embassies");
+
+    // 4. A player-established embassy in other country where embassy before not established during gameplay appears in the appropriate report.
+    Check(!TreatyService.HasEmbassy(s, player.Id, "persia"), "Ottoman starts without an embassy in Persia");
+    var persia = eng.State.OtherNations.First(n => n.Id == "persia");
+    SetRating(persia, 60);
+    var dipRes = eng.EstablishEmbassy("persia");
+    Check(dipRes.Ok, "establishing embassy in Persia succeeds");
+    Check(TreatyService.HasEmbassy(s, player.Id, "persia"), "Persian embassy is now active in treaties");
+    var persiaTreaty = s.Treaties.First(t => t.Type == TreatyType.Embassy && t.NationBId == "persia");
+    Check(persiaTreaty.Origin == TreatyOrigin.Player, "player-established embassy has TreatyOrigin.Player");
+    var activeMissions = MovementReport.ActiveMissions(s);
+    Check(activeMissions.Count == 1 && activeMissions[0].LocationId == "persia" && activeMissions[0].Text.Contains("Embassy in Iran"),
+        "player-established embassy in Persia appears in Movement Report ActiveMissions");
+    Check(MovementReport.Events(s).Any(e => e.Kind == MovementKind.Mission && e.ToId == "persia"),
+        "player-established embassy appears in Movement Report Events");
+    Check(InboxService.Messages(s, InboxCategory.Other).Any(m => m.Topic == InboxTopic.Diplomacy && m.CountryId == "persia"),
+        "player-established embassy generates inbox notification");
+
+    // 5. Loading a save does not recreate or re-report historical starting embassies.
+    await eng.SaveAsync();
+    await eng.LoadAsync();
+    var loadedState = eng.State;
+    var loadedHistorical = loadedState.Treaties.Where(t => t.Type == TreatyType.Embassy && t.NationAId == loadedState.PlayerNation.Id && t.Origin == TreatyOrigin.Historical).ToList();
+    Check(loadedHistorical.Count == 4, "loaded save retains exactly 4 historical embassies with Origin.Historical");
+    var loadedMissions = MovementReport.ActiveMissions(loadedState);
+    Check(loadedMissions.Count == 1 && loadedMissions[0].LocationId == "persia",
+        "loading save does not recreate or re-report historical embassies in ActiveMissions (only Persia remains)");
+
+    // 6. Normal diplomatic effects and treaty expiration or cancellation continue working.
+    Check(eng.TradeBlock("france") is null && eng.TradeBlock("venice") is null,
+        "historical embassies allow immediate trade with France and Venice");
+    double franceRelBefore = eng.State.OtherNations.First(n => n.Id == "france").RelationToPlayer;
+    TreatyService.Advance(eng.State);
+    double franceRelAfter = eng.State.OtherNations.First(n => n.Id == "france").RelationToPlayer;
+    Check(franceRelAfter > franceRelBefore, "historical embassy warms relations daily via TreatyService.Advance");
+    var cancelRes = eng.CancelTreaty(TreatyType.Embassy, "france");
+    Check(cancelRes.Ok, "cancelling embassy in France succeeds");
+    Check(!TreatyService.HasEmbassy(eng.State, eng.State.PlayerNation.Id, "france"),
+        "embassy in France is removed after cancellation");
+    Check(eng.TradeBlock("france") is not null, "trade is now blocked with France after embassy cancellation");
+    Check(MovementReport.Events(eng.State).Any(e => e.Text.Contains("Cancelled the embassy with France")),
+        "cancellation is recorded in Movement Report Events");
+    var napRes = eng.ProposeNonAggression("persia");
+    Check(napRes.Ok, "proposing NAP with Persia succeeds");
+    var nap = TreatyService.Find(eng.State, TreatyType.NonAggression, eng.State.PlayerNation.Id, "persia");
+    Check(nap is not null, "NAP treaty is active");
+    eng.State.CurrentDate = nap!.ExpiresDate!.Value.AddDays(1);
+    TreatyService.Advance(eng.State);
+    Check(TreatyService.Find(eng.State, TreatyType.NonAggression, eng.State.PlayerNation.Id, "persia") is null,
+        "NAP treaty expires and is removed on expiry date");
+}
+
+// ============================================================================
+// 81. COUNTER-ESPIONAGE & PALACE SECURITY (HOMELAND DEFENSE & RULER CHOICES)
+// ============================================================================
+Console.WriteLine("\n== 81. COUNTER-ESPIONAGE, HOMELAND DEFENSE & RULER CHOICES ==");
+{
+    using var eng = new GameEngine(new SimulationService(), new SaveService(saveFolder));
+    var state = eng.State;
+    var player = state.PlayerNation;
+
+    // 1. Guard assignments and catch chance
+    Check(state.CounterEspionageGuards == 2, "starts with 2 counter-espionage guards assigned");
+    Check(Math.Abs(eng.CounterEspionageCatchChance - 0.42) < 0.001, "initial catch chance is 42% (10% base + 2 * 16%)");
+
+    Check(eng.SetCounterEspionageGuards(5) is null, "set counter-espionage guards to maximum (5)");
+    Check(Math.Abs(eng.CounterEspionageCatchChance - 0.90) < 0.001, "maximum catch chance is 90%");
+
+    Check(eng.AdjustCounterEspionageGuards(-2) is null, "adjusted guards by -2 (now 3 guards)");
+    Check(state.CounterEspionageGuards == 3, "counter-espionage guards count is now 3");
+    Check(Math.Abs(eng.CounterEspionageCatchChance - 0.58) < 0.001, "3 guards yield 58% catch chance");
+
+    Check(eng.SetCounterEspionageGuards(-1) is not null, "setting negative guards is rejected");
+    Check(eng.SetCounterEspionageGuards(6) is not null, "setting guards above maximum is rejected");
+
+    // 2. Intercepting foreign espionage & dungeon imprisonment
+    var austria = state.OtherNations.First(n => n.Id == "austria");
+    austria.Gold = 5000;
+    double goldBeforeTheft = player.Gold;
+
+    var spy1 = eng.TriggerAiEspionageAgainstPlayer("austria", SpyMissionType.Theft, forceCatch: true);
+    Check(spy1 is not null, "foreign spy successfully intercepted and returned");
+    Check(spy1!.FromNationId == "austria", "spy identified as Austrian operative");
+    Check(spy1.MissionType == SpyMissionType.Theft, "spy was caught attempting treasury theft");
+    Check(spy1.Status == CapturedSpyStatus.Imprisoned, "spy is imprisoned in the imperial dungeons");
+    Check(state.ImprisonedSpies().Count() == 1, "exactly 1 prisoner in the imperial dungeons");
+    Check(Math.Abs(player.Gold - goldBeforeTheft) < 0.001, "player gold untouched because theft was thwarted");
+    Check(state.ActiveWarnings.Any(w => w.Contains("captured in the capital")), "warning alert posted on dashboard");
+    Check(state.Inbox.Any(m => m.Topic == InboxTopic.SpyCaught && m.CountryId == "austria"), "inbox alert delivered to ruler");
+
+    // 3. Ruler Choice 1: Execute spy
+    double rating0 = player.RulerRating;
+    double austriaRel0 = austria.RelationToPlayer;
+    Check(eng.ExecuteSpy(spy1.Id) is null, "ruler decrees execution of Austrian spy");
+    Check(spy1.Status == CapturedSpyStatus.Executed, "spy status updated to Executed");
+    Check(player.RulerRating == Math.Clamp(rating0 + 3, 0, 100), "ruler rating increased by 3 after public execution");
+    Check(austria.RelationToPlayer < austriaRel0, "Austrian relations dropped following execution");
+    Check(state.EspionageDeterrence.ContainsKey("austria") && state.EspionageDeterrence["austria"] > state.CurrentDate,
+        "Austrian crown is deterred from attempting espionage for 90 days");
+    Check(state.ImprisonedSpies().Count() == 0, "dungeon has no remaining active prisoners");
+
+    // 4. Ruler Choice 2: Ransom spy
+    var france = state.OtherNations.First(n => n.Id == "france");
+    france.Gold = 8000;
+    double goldBeforeRansom = player.Gold;
+    double franceGoldBefore = france.Gold;
+
+    var spy2 = eng.TriggerAiEspionageAgainstPlayer("france", SpyMissionType.Sabotage, forceCatch: true);
+    Check(spy2 is not null && spy2.Status == CapturedSpyStatus.Imprisoned, "French saboteur captured in the homeland");
+    Check(eng.RansomSpy(spy2!.Id) is null, "ruler ransoms captured French spy back to Paris");
+    Check(spy2.Status == CapturedSpyStatus.Ransomed, "spy status updated to Ransomed");
+    Check(player.Gold == goldBeforeRansom + Balance.SpyRansomGold, "treasury received full ransom gold");
+    Check(france.Gold == franceGoldBefore - Balance.SpyRansomGold, "French treasury paid the ransom gold");
+
+    // 5. Ruler Choice 3: Parade treason & gain Casus Belli
+    var spain = state.OtherNations.First(n => n.Id == "spain");
+    double approvalBeforeParade = player.TaxApproval;
+    var spy3 = eng.TriggerAiEspionageAgainstPlayer("spain", SpyMissionType.InciteRevolt, forceCatch: true);
+    Check(spy3 is not null, "Spanish agitator captured in the capital");
+    Check(eng.ParadeSpy(spy3!.Id) is null, "ruler parades Spanish espionage treason publicly");
+    Check(spy3.Status == CapturedSpyStatus.Paraded, "spy status updated to Paraded");
+    Check(state.CasusBelliNations.Contains("spain"), "player now holds a legitimate Justified Casus Belli against Spain");
+    Check(player.TaxApproval == Math.Clamp(approvalBeforeParade + 5, 0, 100), "public tax approval rose by 5 points in patriotic unity");
+
+    // 6. Declaring War with Justified Casus Belli
+    double approvalBeforeWar = player.TaxApproval;
+    Check(eng.DeclareWar("spain") is null, "declared war on Spain with Casus Belli");
+    Check(spain.AtWarWithPlayer, "Spain is now at war with player");
+    Check(!state.CasusBelliNations.Contains("spain"), "Casus Belli against Spain consumed upon war declaration");
+    Check(player.TaxApproval == Math.Clamp(approvalBeforeWar + 5, 0, 100), "war declaration with Casus Belli awarded extra +5 approval");
+    Check(MovementReport.Events(state).Any(e => e.Text.Contains("JUSTIFIED WAR")), "movement report logs war as officially justified");
+
+    // 7. Guard wages and posture persist across day transitions
+    eng.AdvanceOneDay();
+    Check(state.CounterEspionageGuards == 3, "counter-espionage guards persist across day transitions");
+    Check(Math.Abs(eng.CounterEspionageCatchChance - 0.58) < 0.001, "catch chance remains active and stable");
+}
+
+// ============================================================================
+// 82. WARSHIPS & NAVAL STRATEGIC WARFARE (BLOCKADES, PATROLS, PRIVATEERS & CLASHES)
+// ============================================================================
+Console.WriteLine("\n== 82. WARSHIPS & NAVAL STRATEGIC WARFARE ==");
+{
+    using var eng = new GameEngine(new SimulationService(), new SaveService(saveFolder));
+    var state = eng.State;
+    var player = state.PlayerNation;
+
+    // 1. Initial Fleet & Port Status
+    int startShips = player.Warships;
+    Check(startShips > 0, "Ottomans start with standing warship fleet");
+    Check(eng.AvailableWarships == startShips, "all warships initially docked and available in home port");
+    Check(eng.DeployedWarships == 0, "no warships deployed at game start");
+
+    // 2. Recruiting Warships into the Imperial Navy
+    player.Wood = 5000;
+    player.Iron = 5000;
+    player.AddMilitaryItem("shipparts", 20);
+    Check(eng.RecruitWarships(5) is null, "successfully recruited 5 warships");
+    Check(player.Warships == startShips + 5, "fleet total increased by 5 warships");
+    Check(eng.AvailableWarships == startShips + 5, "newly launched warships immediately available in dockyards");
+
+    // 3. Fleet Commander Combat Multiplier
+    double baseNavalMult = CommandStaffService.NavalCombatMult(player);
+    Check(Math.Abs(baseNavalMult - 1.0) < 0.001, "baseline naval combat multiplier is 1.0 without commander");
+    eng.AppointCommander(CommanderRole.FleetCommander, 2);
+    double boostedNavalMult = CommandStaffService.NavalCombatMult(player);
+    Check(boostedNavalMult > 1.15, "Tier 2 Fleet Commander boosts fleet combat power by >15%");
+
+    // 4. Strategic Order 1: Naval Blockade (Economic Siege)
+    var venice = state.OtherNations.First(n => n.Id == "venice");
+    venice.Warships = 20;
+    venice.Gold = 6000;
+
+    // Cannot blockade without active war
+    Check(eng.DeployNavalBlockade("venice", 5) is not null, "cannot blockade nation when at peace");
+
+    // Declare war and enforce blockade
+    Check(eng.DeclareWar("venice") is null, "declared war on Venice");
+    Check(eng.DeployNavalBlockade("venice", 2) is not null, "blockade refused if fewer than 5 warships");
+    Check(eng.DeployNavalBlockade("venice", 999) is not null, "blockade refused if more ships than available");
+
+    Check(eng.DeployNavalBlockade("venice", 8) is null, "dispatched 8 warships to enforce naval blockade on Venice");
+    Check(eng.DeployedWarships == 8, "8 warships actively deployed");
+    Check(eng.AvailableWarships == player.Warships - 8, "remaining warships available in port");
+    Check(state.IsNationBlockaded("venice"), "Venice is officially recorded as under naval blockade");
+    Check(state.ActiveWarnings.Any(w => w.Contains("Enforcing naval blockade on Venice")), "active warning alert indicates blockade");
+    Check(MovementReport.ActiveMissions(state).Any(m => m.Text.Contains("warships blockading Venice")),
+        "active blockade squadron tracked live in Movement Report");
+
+    // 5. Blockade Economic Drain & Peace Leverage
+    venice.Population = 0;
+    venice.CrownDomains = 0;
+    venice.TaxRates = new TaxRates { Peasants = 0, Craftsmen = 0, MilitaryPersonnel = 0, Merchants = 0, Spies = 0, Saboteurs = 0 };
+    venice.Gold = 1000;
+    double veniceGoldBefore = venice.Gold;
+    eng.AdvanceOneDay();
+    Check(venice.Gold < veniceGoldBefore, "blockaded nation loses gold to economic siege each day");
+
+    var lev = PeaceService.LeverageOf(state, venice);
+    Check(lev.Weariness > 0.1, "naval blockade increases enemy war weariness and peace pressure");
+
+    // 6. Strategic Order 2: Trade Patrol / Convoy Escort
+    Check(eng.DeployNavalPatrol(4) is null, "dispatched 4 warships to patrol imperial shipping lanes");
+    Check(eng.DeployedWarships == 12, "12 warships actively deployed across missions");
+    Check(MovementReport.ActiveMissions(state).Any(m => m.Text.Contains("patrolling imperial shipping lanes")),
+        "patrol fleet tracked in Movement Report");
+
+    // 7. Strategic Order 3: State Privateering (Letters of Marque)
+    var spain = state.OtherNations.First(n => n.Id == "spain");
+    spain.Gold = 8000;
+    Check(eng.DeployPrivateering("spain", 5) is null, "issued letters of marque to 5 privateer warships against Spain");
+    Check(eng.DeployedWarships == 17, "17 warships deployed across blockade, patrol, and privateers");
+
+    var privMission = eng.ActiveNavalMissions.First(m => m.Type == NavalMissionType.Privateering);
+    Check(privMission.TargetNationId == "spain", "privateer mission targeting Spain");
+
+    // 8. Recalling Squadrons
+    int availableBeforeRecall = eng.AvailableWarships;
+    Check(eng.RecallNavalMission(privMission.Id) is null, "recalled privateer squadron back to port");
+    Check(eng.AvailableWarships == availableBeforeRecall + 5, "recalled privateer warships returned to available pool");
+    Check(privMission.Status == NavalMissionStatus.Recalled, "mission status updated to Recalled");
+
+    // 9. High-Seas Naval Engagement Simulation
+    int attShipsBefore = 12;
+    int defShipsBefore = 10;
+    player.Warships = 30;
+    venice.Warships = 15;
+    var clash = eng.ResolveNavalBattle(player, venice, attShipsBefore, defShipsBefore);
+    Check(clash is not null, "naval battle resolved successfully");
+    Check(clash.AttackerLosses >= 0 && clash.DefenderLosses >= 0, "casualties sustained in naval engagement");
+    Check(clash.Summary.Contains("Naval Battle:"), "battle summary generated with victor and casualties");
+    Check(MovementReport.Events(state).Any(e => e.Text.Contains("Naval Battle:")), "naval battle logged in movement events");
+
+    // 10. Peace Terms: Surrender of Warships
+    var terms = new List<PeaceTerm>
+    {
+        PeaceTerm.Peace(),
+        PeaceTerm.Warships("venice", player.Id, 4)
+    };
+    int playerShipsBeforePeace = player.Warships;
+    int veniceShipsBeforePeace = venice.Warships;
+
+    Check(PeaceService.Describe(state, terms[1]).Contains("Venice surrenders 4 warships to Ottoman Empire"),
+        "peace term accurately describes warship surrender");
+
+    var peaceRes = eng.ProposePeace("venice", terms);
+    Check(peaceRes.Ok, "proposed peace terms including warship surrender to Venice");
+
+    // Simulate AI accepting terms directly via PeaceService.Accept
+    var pendingOffer = eng.PendingPeaceOffer("venice");
+    Check(pendingOffer is not null, "peace offer is pending for Venice");
+    PeaceService.Accept(state, pendingOffer!);
+    Check(player.Warships == playerShipsBeforePeace + 4, "player received surrendered enemy warships");
+    Check(venice.Warships == veniceShipsBeforePeace - 4, "enemy handed over surrendered warships");
+
+    // End war and verify blockade is cleanly recalled
+    venice.AtWarWithPlayer = false;
+    foreach (var bm in state.NavalMissions.Where(m => m.TargetNationId == "venice" && m.Status == NavalMissionStatus.Active))
+        bm.Status = NavalMissionStatus.Recalled;
+
+    Check(!state.IsNationBlockaded("venice"), "naval blockade cleanly lifted when war ends");
+
+    // 11. Annexation: Surviving Warships Captured
+    var morocco = state.OtherNations.First(n => n.Id == "morocco");
+    morocco.Warships = 6;
+    int playerShipsBeforeAnnex = player.Warships;
+    Warfare.AnnexNation(state, player, morocco, byBattle: true);
+    Check(player.Warships == playerShipsBeforeAnnex + 6, "conquering nation incorporates all surviving enemy warships into its fleet");
+    Check(morocco.Warships == 0, "defeated nation warships reset to zero");
+}
+
+await SimTests.OttomanPlaythroughAudit.Run(Check, saveFolder);
 
 Console.WriteLine(failures == 0 ? "\nALL CHECKS PASSED" : $"\n{failures} CHECK(S) FAILED");
 return failures;

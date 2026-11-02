@@ -65,7 +65,8 @@ public static class Balance
     public const double LandCommanderRecruitMult = 0.90;  //   -10% land recruit cost
     public const double LandCommanderBattleMult = 1.05;   //   +5% battle strength of its armies (the existing BattleStrengthMult hook)
     public const double FleetCommanderUpkeepMult = 0.85;  // Fleet Commander: -15% naval upkeep
-    public const double FleetCommanderRecruitMult = 0.90; //   -10% warship cost (naval battles are not modelled, so no fighting bonus)
+    public const double FleetCommanderRecruitMult = 0.90; //   -10% warship cost
+    public const double FleetCommanderBattleMult = 1.15;  //   +15% naval combat power and blockade efficiency
     public const double CinCUpkeepMult = 0.95;            // Commander-in-Chief: -5% upkeep of all forces
     public const double CinCAttritionMult = 0.75;         //   -25% soldiers lost to attrition while at war
     public const double TributeCollectorTaxMult = 1.05;   // Chief Tribute Collector: +5% tax revenue
@@ -288,6 +289,15 @@ public static class Balance
     public const double InciteDesertionFraction = 0.05;
     public const double DiscoveryRelationHit = 30;
 
+    // ---- Counter-Espionage & Homeland Defense ----
+    public const int MaxCounterEspionageGuards = 5;
+    public const double CounterEspionageGuardWage = 1.0;          // gold per day per assigned guard
+    public const double CounterEspionageBaseCatchChance = 0.10;   // 10% base security
+    public const double CounterEspionageGuardCatchBonus = 0.16;   // +16% per guard (up to 90% at 5 guards)
+    public const double AiSpyAttemptChancePerDay = 0.04;          // daily roll for an unfriendly AI to attempt a covert deed
+    public const double SpyRansomGold = 1000.0;                   // ransom received when returning a captured spy
+    public const int EspionageDeterrenceDays = 90;                // days a nation is deterred from spying after its agent is executed
+
     // ---- Warfare ----
     public const double GarrisonFraction = 0.4;    // share of defender's army that fights
     public const double HomeAdvantageMult = 1.25;  // defender battle-power multiplier
@@ -358,6 +368,17 @@ public static class Balance
     public const int PaydayIntervalDays = 180;               // every 6 months
     public const int GracePeriodDays = 14;                   // days to pay after a missed payday
     public const double DesertionFractionOnGraceExpiry = 0.10; // 10% of soldiers desert
+
+    // ---- Naval Strategic Warfare ----
+    public const int NavalBlockadeMinWarships = 5;
+    public const double NavalBlockadeDailyDrainPerShip = 1.0; // gold/day drained from enemy per blockading ship
+    public const double NavalBlockadePeaceScorePerDay = 15.0; // peace leverage added to enemy weariness
+    public const int NavalPatrolMinWarships = 3;
+    public const int NavalPrivateerMinWarships = 3;
+    public const double NavalPrivateerPlunderChance = 0.25; // 25% chance per day to raid a merchant ship
+    public const double NavalPrivateerGoldPerShip = 8.0;    // gold plundered per raiding warship
+    public const double NavalPrizeCaptureChance = 0.25;     // 25% of surviving enemy ships captured as prizes
+    public const double NavalSortieChance = 0.15;           // chance per day an enemy with warships sorties against blockade
 
     // ---- Clock ----
     public static double DaysPerSecond(Models.GameSpeed speed) => speed switch

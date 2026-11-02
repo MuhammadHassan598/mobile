@@ -227,9 +227,6 @@ public static class HistoricalDiplomacy
         }
 
         foreach (var n in embassies)
-            TreatyService.Add(state, TreatyType.Embassy, player, n);
-
-        if (embassies.Count > 0)
-            state.Log($"{player.Name} keeps embassies in: {string.Join(", ", embassies.Select(n => n.Name))}.");
+            TreatyService.Add(state, TreatyType.Embassy, player, n, origin: TreatyOrigin.Historical);
     }
 }

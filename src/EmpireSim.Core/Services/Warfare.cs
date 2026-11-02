@@ -194,6 +194,13 @@ public static class Warfare
         }
 
         // Its army, officers, recruiting and the Assembly business about it go with it. (Its builders and mills keep working.)
+        // Incorporate surviving warships into victor's navy
+        if (loser.Warships > 0)
+        {
+            winner.Warships += loser.Warships;
+            state.LogMovement(MovementKind.Troops, MovementStatus.Completed, loser, winner,
+                $"{winner.Name} incorporated {loser.Warships:N0} warships of {loser.Name} into its imperial fleet.", military: true);
+        }
         loser.Units.Clear();
         loser.Warships = 0;
         loser.Reserves = 0;
@@ -201,6 +208,10 @@ public static class Warfare
         loser.RecruitmentQueue.Clear();
         loser.MilitaryCraftQueue.Clear();
         loser.MercenaryContracts.Clear();
+        foreach (var m in state.NavalMissions.Where(m => m.TargetNationId == loser.Id && m.Status == NavalMissionStatus.Active))
+        {
+            m.Status = NavalMissionStatus.Recalled;
+        }
         state.ActiveAssemblyPolicies.RemoveAll(p => p.TargetId == loser.Id);
         state.AssemblyProposals.RemoveAll(p => p.Status == ProposalStatus.VotingOpen && p.TargetId == loser.Id);
 

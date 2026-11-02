@@ -145,9 +145,28 @@ public static class MovementReport
             missions.Add(new Mission(MovementKind.Mission, player.Id, player.Name, targetId, NameOf(state, targetId),
                 $"Missionaries in {NameOf(state, targetId)} (influence {influence:N0}/{Balance.MissionaryConversionThreshold:N0})", null, null, null));
 
-        foreach (var e in state.Treaties.Where(t => t.Type == TreatyType.Embassy && t.NationAId == player.Id && t.IsActiveOn(today)))
-            missions.Add(new Mission(MovementKind.Mission, player.Id, player.Name, e.NationBId, NameOf(state, e.NationBId),
-                $"Embassy in {NameOf(state, e.NationBId)} since {e.SignedDate:dd-MM-yyyy}", null, null, null));
+        foreach (var e in state.Treaties.Where(t => t.Type == TreatyType.Embassy && t.IsActiveOn(today) && t.Origin != TreatyOrigin.Historical))
+        {
+            if (e.NationAId == player.Id)
+                missions.Add(new Mission(MovementKind.Mission, player.Id, player.Name, e.NationBId, NameOf(state, e.NationBId),
+                    $"Embassy in {NameOf(state, e.NationBId)} since {e.SignedDate:dd-MM-yyyy}", null, null, null));
+            else if (e.NationBId == player.Id)
+                missions.Add(new Mission(MovementKind.Mission, e.NationAId, NameOf(state, e.NationAId), player.Id, player.Name,
+                    $"{NameOf(state, e.NationAId)} embassy in {player.Name} since {e.SignedDate:dd-MM-yyyy}", null, null, null));
+        }
+
+        foreach (var nm in state.NavalMissions.Where(m => m.Status == NavalMissionStatus.Active))
+        {
+            string targetName = NameOf(state, nm.TargetNationId);
+            string desc = nm.Type switch
+            {
+                NavalMissionType.Blockade => $"{nm.Warships:N0} warships blockading {targetName}",
+                NavalMissionType.Patrol => $"{nm.Warships:N0} warships patrolling imperial shipping lanes",
+                NavalMissionType.Privateering => $"{nm.Warships:N0} privateers raiding {targetName} shipping",
+                _ => $"{nm.Warships:N0} warships on naval deployment"
+            };
+            missions.Add(new Mission(MovementKind.Troops, player.Id, player.Name, nm.TargetNationId, targetName, desc, null, null, null));
+        }
 
         // Only what concerns the player: their own missions and shipments, and armies of their allies marching in their wars.
         bool Concerns(Mission m) =>

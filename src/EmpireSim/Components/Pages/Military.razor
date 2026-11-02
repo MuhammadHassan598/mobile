@@ -246,14 +246,167 @@
     }
     else if (_tab == 5)
     {
-        <!-- NAVAL -->
-        <h3>NAVAL FORCES (@_nation.Warships.ToString("N0") 🚢)</h3>
+        <!-- NAVAL STRATEGIC WARFARE & FLEET OPERATIONS -->
+        <h3>IMPERIAL NAVY & FLEET OPERATIONS (@_nation.Warships.ToString("N0") 🚢)</h3>
+
+        <!-- Fleet Readiness Overview -->
+        <div class="mil-summary" style="margin-bottom:12px;">
+            <div class="ms-row"><span>Total Warships</span><b>@_nation.Warships.ToString("N0") 🚢</b></div>
+            <div class="ms-row"><span>Docked in Port (Available)</span><b style="color:#2e7d32;">@Engine.AvailableWarships.ToString("N0") ⚓</b></div>
+            <div class="ms-row"><span>On Blockade</span><b>@Engine.ActiveNavalMissions.Where(m => m.Type == NavalMissionType.Blockade).Sum(m => m.Warships).ToString("N0") ⚔️</b></div>
+            <div class="ms-row"><span>On Trade Patrol</span><b>@Engine.ActiveNavalMissions.Where(m => m.Type == NavalMissionType.Patrol).Sum(m => m.Warships).ToString("N0") 🛡️</b></div>
+            <div class="ms-row"><span>Privateering</span><b>@Engine.ActiveNavalMissions.Where(m => m.Type == NavalMissionType.Privateering).Sum(m => m.Warships).ToString("N0") 🏴‍☠️</b></div>
+            @if (_nation.HasCommander(CommanderRole.FleetCommander))
+            {
+                <div class="mil-sub" style="margin-top:6px; color:#2e7d32; font-weight:bold;">
+                    ⚓ Fleet Commander Active: +@(((CommandStaffService.NavalCombatMult(_nation) - 1) * 100).ToString("N0"))% combat power & blockade efficiency
+                </div>
+            }
+            else
+            {
+                <div class="mil-sub" style="margin-top:6px; color:#856404;">
+                    ⚓ No Fleet Commander appointed. Appoint one in Command Staff for naval battle bonuses.
+                </div>
+            }
+        </div>
+
+        <!-- Active Squadrons -->
+        <h3>ACTIVE SQUADRONS (@Engine.ActiveNavalMissions.Count)</h3>
+        @if (Engine.ActiveNavalMissions.Any())
+        {
+            @foreach (var m in Engine.ActiveNavalMissions)
+            {
+                var target = Engine.State.AllNations().FirstOrDefault(n => n.Id == m.TargetNationId);
+                string targetName = target?.Name ?? "Imperial Shipping Lanes";
+                string roleIcon = m.Type switch { NavalMissionType.Blockade => "⚔️", NavalMissionType.Patrol => "🛡️", _ => "🏴‍☠️" };
+                string roleName = m.Type switch { NavalMissionType.Blockade => "Blockade Squadron", NavalMissionType.Patrol => "Patrol & Escort Fleet", _ => "Privateer Squadron" };
+
+                <div class="rec-card" style="margin-bottom:8px;">
+                    <div class="rec-head">
+                        <span class="mil-ico">@roleIcon</span>
+                        <div>
+                            <div class="mil-name">@roleName — @m.Warships.ToString("N0") Warships</div>
+                            <div class="mil-sub">Target: <b>@targetName</b> · Active for @m.DaysActive days</div>
+                            @if (m.Type == NavalMissionType.Privateering && m.PlunderGold > 0)
+                            {
+                                <div class="mil-sub" style="color:#2e7d32; font-weight:bold;">Plunder Seized: @Currency.Cost(m.PlunderGold)</div>
+                            }
+                        </div>
+                    </div>
+                    <div style="display:flex; justify-content:flex-end;">
+                        <button class="mil-btn" style="background:linear-gradient(#8b3a3a, #5a2020);" @onclick="() => DoRecallMission(m.Id)">RECALL SQUADRON</button>
+                    </div>
+                </div>
+            }
+        }
+        else
+        {
+            <div class="mil-sub" style="font-style:italic; margin-bottom:12px;">All imperial warships are currently resting in home dockyards.</div>
+        }
+
+        <!-- Strategic Orders Console -->
+        <h3>STRATEGIC FLEET ORDERS</h3>
+        
+        <!-- Order 1: Naval Blockade -->
+        <div class="rec-card">
+            <div class="rec-head">
+                <span class="mil-ico">⚔️</span>
+                <div>
+                    <div class="mil-name">Enforce Naval Blockade (Economic Siege)</div>
+                    <div class="mil-sub">Chokes foreign trade contracts, cuts food/mineral imports, and drains enemy gold.</div>
+                </div>
+            </div>
+            @{
+                var atWarNations = Engine.State.LiveOtherNations().Where(n => n.AtWarWithPlayer).ToList();
+            }
+            @if (atWarNations.Any())
+            {
+                <div style="margin: 8px 0;">
+                    <label style="font-size:0.85rem; font-weight:bold;">Select Target Enemy:</label>
+                    <select class="qty-row" style="width:100%; padding:6px; margin-top:4px; font-family:inherit;" @bind="_blockadeTargetId">
+                        <option value="">-- Choose Enemy Nation --</option>
+                        @foreach (var enemy in atWarNations)
+                        {
+                            <option value="@enemy.Id">@enemy.Name (fields @enemy.Warships 🚢, holds @Currency.Cost(enemy.Gold))</option>
+                        }
+                    </select>
+                </div>
+                <div class="rec-actions">
+                    <div class="qty-row">
+                        <button @onclick="() => _blockadeShips = Math.Max(5, _blockadeShips - 5)">−5</button>
+                        <span>@_blockadeShips 🚢</span>
+                        <button @onclick="() => _blockadeShips = Math.Min(Engine.AvailableWarships, _blockadeShips + 5)">+5</button>
+                    </div>
+                    <button class="mil-btn" disabled="@(Engine.AvailableWarships < _blockadeShips || string.IsNullOrEmpty(_blockadeTargetId))" @onclick="DoDeployBlockade">ENFORCE BLOCKADE</button>
+                </div>
+            }
+            else
+            {
+                <div class="mil-sub" style="color:#5a4a2a; margin-top:6px;">Your empire is not currently at war with any maritime realm. Declare war to institute a naval blockade.</div>
+            }
+        </div>
+
+        <!-- Order 2: Patrol Sea Lanes -->
+        <div class="rec-card">
+            <div class="rec-head">
+                <span class="mil-ico">🛡️</span>
+                <div>
+                    <div class="mil-name">Patrol Imperial Sea Lanes (Convoy Escort)</div>
+                    <div class="mil-sub">Protects imperial merchant trade contracts against foreign corsairs and blockades.</div>
+                </div>
+            </div>
+            <div class="rec-actions" style="margin-top:8px;">
+                <div class="qty-row">
+                    <button @onclick="() => _patrolShips = Math.Max(3, _patrolShips - 5)">−5</button>
+                    <span>@_patrolShips 🚢</span>
+                    <button @onclick="() => _patrolShips = Math.Min(Engine.AvailableWarships, _patrolShips + 5)">+5</button>
+                </div>
+                <button class="mil-btn" disabled="@(Engine.AvailableWarships < _patrolShips)" @onclick="DoDeployPatrol">PATROL SEA LANES</button>
+            </div>
+        </div>
+
+        <!-- Order 3: State Privateering -->
+        <div class="rec-card">
+            <div class="rec-head">
+                <span class="mil-ico">🏴‍☠️</span>
+                <div>
+                    <div class="mil-name">Commission Privateers (Letters of Marque)</div>
+                    <div class="mil-sub">State-sponsored corsairs raid rival merchant shipping, seizing gold directly for the crown.</div>
+                </div>
+            </div>
+            @{
+                var rivalNations = Engine.State.LiveOtherNations()
+                    .Where(n => TreatyService.ForbidsAttack(Engine.State, _nation.Id, n.Id) is null)
+                    .OrderBy(n => n.Name).ToList();
+            }
+            <div style="margin: 8px 0;">
+                <label style="font-size:0.85rem; font-weight:bold;">Select Target Realm:</label>
+                <select class="qty-row" style="width:100%; padding:6px; margin-top:4px; font-family:inherit;" @bind="_privateerTargetId">
+                    <option value="">-- Choose Rival Nation --</option>
+                    @foreach (var rival in rivalNations)
+                    {
+                        <option value="@rival.Id">@rival.Name (Treasury: @Currency.Cost(rival.Gold))</option>
+                    }
+                </select>
+            </div>
+            <div class="rec-actions">
+                <div class="qty-row">
+                    <button @onclick="() => _privateerShips = Math.Max(3, _privateerShips - 5)">−5</button>
+                    <span>@_privateerShips 🚢</span>
+                    <button @onclick="() => _privateerShips = Math.Min(Engine.AvailableWarships, _privateerShips + 5)">+5</button>
+                </div>
+                <button class="mil-btn" disabled="@(Engine.AvailableWarships < _privateerShips || string.IsNullOrEmpty(_privateerTargetId))" @onclick="DoDeployPrivateering">COMMISSION</button>
+            </div>
+        </div>
+
+        <!-- Naval Dockyard -->
+        <h3>IMPERIAL DOCKYARDS</h3>
         <div class="rec-card">
             <div class="rec-head">
                 <span class="mil-ico">🚢</span>
                 <div>
-                    <div class="mil-name">Warship</div>
-                    <div class="mil-sub">Requires Ship Parts + Wood + Gold</div>
+                    <div class="mil-name">Build Warships</div>
+                    <div class="mil-sub">Requires Ship Parts + Wood + Iron + Gold</div>
                 </div>
             </div>
             <div class="rec-costs">
@@ -268,7 +421,7 @@
                     <span>@_shipCount</span>
                     <button @onclick="() => _shipCount += 5">+5</button>
                 </div>
-                <button class="mil-btn" @onclick="DoBuildShips">BUILD</button>
+                <button class="mil-btn" @onclick="DoBuildShips">BUILD WARSHIPS</button>
             </div>
         </div>
     }
@@ -360,6 +513,58 @@
         {
             _nation.AddMilitaryItem("shipparts", -2 * _shipCount);
             _msg = $"Building {_shipCount} warships.";
+        }
+    }
+
+    private string? _blockadeTargetId;
+    private int _blockadeShips = 5;
+    private int _patrolShips = 5;
+    private string? _privateerTargetId;
+    private int _privateerShips = 5;
+
+    private void DoDeployBlockade()
+    {
+        if (string.IsNullOrEmpty(_blockadeTargetId))
+        {
+            _error = "Select a target enemy nation to blockade.";
+            return;
+        }
+        _error = Engine.DeployNavalBlockade(_blockadeTargetId, _blockadeShips);
+        if (_error is null)
+        {
+            _msg = $"Naval blockade squadron deployed with {_blockadeShips} warships.";
+        }
+    }
+
+    private void DoDeployPatrol()
+    {
+        _error = Engine.DeployNavalPatrol(_patrolShips);
+        if (_error is null)
+        {
+            _msg = $"Trade patrol fleet deployed with {_patrolShips} warships.";
+        }
+    }
+
+    private void DoDeployPrivateering()
+    {
+        if (string.IsNullOrEmpty(_privateerTargetId))
+        {
+            _error = "Select a target realm for privateering.";
+            return;
+        }
+        _error = Engine.DeployPrivateering(_privateerTargetId, _privateerShips);
+        if (_error is null)
+        {
+            _msg = $"Letters of marque issued to {_privateerShips} privateer warships.";
+        }
+    }
+
+    private void DoRecallMission(string missionId)
+    {
+        _error = Engine.RecallNavalMission(missionId);
+        if (_error is null)
+        {
+            _msg = "Naval squadron recalled back to dockyards.";
         }
     }
 

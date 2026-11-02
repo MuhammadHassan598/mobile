@@ -131,11 +131,12 @@ public static class TreatyService
     // ---------------- Signing and ending ----------------
 
     /// <summary>Signs a treaty (callers have already validated and charged).</summary>
-    public static Treaty Add(GameState state, TreatyType type, Nation a, Nation b, int? days = null)
+    public static Treaty Add(GameState state, TreatyType type, Nation a, Nation b, int? days = null, TreatyOrigin origin = TreatyOrigin.Player)
     {
         var treaty = new Treaty
         {
             Type = type,
+            Origin = origin,
             NationAId = a.Id,
             NationBId = b.Id,
             SignedDate = state.CurrentDate,
@@ -356,5 +357,15 @@ public static class TreatyService
         foreach (var other in state.OtherNations.Where(n => n.HasTradePactWithPlayer && !n.IsEliminated))
             if (!Has(state, TreatyType.TradeAgreement, player.Id, other.Id))
                 Add(state, TreatyType.TradeAgreement, player, other);
+
+        // Old saves that were saved without an Origin property on starting embassies
+        foreach (var t in state.Treaties.Where(t => t.Type == TreatyType.Embassy && t.Origin == TreatyOrigin.Player))
+        {
+            if (HistoricalDiplomacy.TieBetween(t.NationAId, t.NationBId) is { Embassy: true }
+                && !state.Movements.Any(m => m.Kind == MovementKind.Mission && m.Involves(t.NationBId)))
+            {
+                t.Origin = TreatyOrigin.Historical;
+            }
+        }
     }
 }

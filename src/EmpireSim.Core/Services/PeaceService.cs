@@ -137,6 +137,7 @@ public static class PeaceService
             case PeaceTermKind.Goods: return t.Amount * (TradeCatalog.Get(t.ProductId)?.BasePricePer1000 ?? 0) / 1000;
             case PeaceTermKind.Colony: return state.Colonies.FirstOrDefault(c => c.Id == t.ColonyId) is { } c ? ColonyValue(state, c) : 0;
             case PeaceTermKind.Annexation: return Find(state, t.GiverId) is { } giver ? Worth(giver) : 0;
+            case PeaceTermKind.Warships: return t.Amount * (WarshipSpec.GoldCost + (WarshipSpec.WoodCost * 0.2) + (WarshipSpec.IronCost * 0.4));
             default: return 0;
         }
     }
@@ -153,6 +154,7 @@ public static class PeaceService
             PeaceTermKind.Goods => $"{giver} gives {t.Amount:N0} {TradeCatalog.Get(t.ProductId)?.Name ?? t.ProductId} to {receiver}",
             PeaceTermKind.Colony => $"{giver} hands the colony of {state.Colonies.FirstOrDefault(c => c.Id == t.ColonyId)?.Name ?? "?"} to {receiver}",
             PeaceTermKind.Annexation => $"{giver} is annexed by {receiver}",
+            PeaceTermKind.Warships => $"{giver} surrenders {t.Amount:N0} warships to {receiver}",
             _ => "The war ends",
         };
     }
@@ -224,6 +226,11 @@ public static class PeaceService
                     if (terms.Any(x => x.Kind is not (PeaceTermKind.Annexation or PeaceTermKind.Peace)))
                         return $"Annexing {giver.Name} takes everything it has: no other terms are needed (only the peace itself may be listed with it).";
                     if (TreatyService.AnnexationBlock(state, giver.Id) is { } block) return block;
+                    break;
+
+                case PeaceTermKind.Warships:
+                    if (t.Amount <= 0) return "The number of warships must be more than zero.";
+                    if (giver.Warships < t.Amount) return $"{giver.Name} has only {giver.Warships} warships to give.";
                     break;
             }
         }
@@ -342,7 +349,7 @@ public static class PeaceService
         bool annexed = offer.Terms.Any(t => t.Kind == PeaceTermKind.Annexation);
         Settle(state, offer, PeaceOfferStatus.Accepted, "Accepted.");
 
-        foreach (var t in offer.Terms.Where(t => t.Kind is PeaceTermKind.Gold or PeaceTermKind.Goods or PeaceTermKind.Colony))
+        foreach (var t in offer.Terms.Where(t => t.Kind is PeaceTermKind.Gold or PeaceTermKind.Goods or PeaceTermKind.Colony or PeaceTermKind.Warships))
             Transfer(state, t);
 
         if (annexed)
@@ -357,6 +364,10 @@ public static class PeaceService
             enemy.RelationToPlayer = DiplomacyService.FromDisplayRating(
                 enemyNet < -0.1 * scale ? Balance.PeaceHumbledRating : enemyNet > 0.1 * scale ? Balance.PeaceSatisfiedRating : Balance.PeaceAgreementRating);
             state.PendingVictories.RemoveAll(v => v.LoserId == enemy.Id);
+            foreach (var m in state.NavalMissions.Where(m => m.TargetNationId == enemy.Id && m.Status == NavalMissionStatus.Active && m.Type == NavalMissionType.Blockade))
+            {
+                m.Status = NavalMissionStatus.Recalled;
+            }
             OnWarEnded(state, enemy);
         }
 
@@ -425,6 +436,13 @@ public static class PeaceService
                 TreatyService.TransferColony(state, colony, giver, receiver);
                 state.LogMovement(MovementKind.Colony, MovementStatus.Completed, giver, receiver,
                     $"{giver.Name} ceded the colony of {colony.Name} to {receiver.Name} under the peace terms.", military: true);
+                break;
+            case PeaceTermKind.Warships:
+                int count = Math.Min(giver.Warships, (int)t.Amount);
+                giver.Warships -= count;
+                receiver.Warships += count;
+                state.LogMovement(MovementKind.Troops, MovementStatus.Completed, giver, receiver,
+                    $"{giver.Name} surrendered {count:N0} warships to {receiver.Name} under the peace terms.", military: true);
                 break;
         }
     }
@@ -504,6 +522,11 @@ public static class PeaceService
         bool exhausted = ai.Soldiers < Balance.AiMinWarForce;
         double lean = Math.Clamp(0.55 * power + 0.25 * record + 0.20 * casualties - (exhausted ? 0.25 : 0), -1, 1);
         double weariness = Math.Clamp((state.CurrentDate.DayNumber - front.StartDate.DayNumber) / (double)Balance.PeaceWearyDays, 0, 1);
+        if (state.IsNationBlockaded(ai.Id))
+        {
+            lean = Math.Clamp(lean - 0.20, -1, 1);
+            weariness = Math.Clamp(weariness + 0.15, 0, 1);
+        }
         double scale = Math.Max(Balance.PeaceMinScale, Balance.PeaceStakeFraction * (LiquidWealth(ai) + LiquidWealth(player)) / 2);
         double pLose = Math.Clamp((-lean - 0.3) / 0.7, 0, 1);
         return new PeaceLeverage(lean, weariness, scale, exhausted, pLose, front.Aim, own, enemy);

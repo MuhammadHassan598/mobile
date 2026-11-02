@@ -4,7 +4,7 @@
 
 <div class="dashboard">
     <div class="topbar">
-        <div class="nation-name">Espionage</div>
+        <div class="nation-name">Espionage & Palace Security</div>
     </div>
 
     @if (!string.IsNullOrEmpty(_error))
@@ -12,14 +12,107 @@
         <div class="warning">⚠ @_error</div>
     }
 
+    @if (!string.IsNullOrEmpty(_success))
+    {
+        <div class="success-banner">✓ @_success</div>
+    }
+
+    <!-- 1. Homeland Counter-Espionage & Palace Security Card -->
+    <div class="counter-box">
+        <div class="counter-title">
+            <span>🛡️ Counter-Espionage & Palace Security</span>
+        </div>
+        <div class="counter-desc">
+            Assign imperial guards to intercept foreign covert agents attempting theft, sabotage, or revolt in the capital.
+        </div>
+
+        <div class="counter-stats">
+            <div class="counter-stat-item">
+                <small>Interception Rate</small>
+                <strong>@((int)(Engine.CounterEspionageCatchChance * 100))%</strong>
+            </div>
+            <div class="counter-stat-item">
+                <small>Daily Upkeep</small>
+                <strong>@Currency.Cost(Engine.State.CounterEspionageGuards * Balance.CounterEspionageGuardWage)/day</strong>
+            </div>
+            <div class="counter-stat-item">
+                <small>Posture</small>
+                <strong>@SecurityPostureText(Engine.State.CounterEspionageGuards)</strong>
+            </div>
+        </div>
+
+        <div class="guard-stepper">
+            <button class="guard-btn" @onclick="() => AdjustGuards(-1)" disabled="@(Engine.State.CounterEspionageGuards <= 0)">−</button>
+            <span class="guard-label">@Engine.State.CounterEspionageGuards / @Balance.MaxCounterEspionageGuards Guards Assigned</span>
+            <button class="guard-btn" @onclick="() => AdjustGuards(1)" disabled="@(Engine.State.CounterEspionageGuards >= Balance.MaxCounterEspionageGuards)">+</button>
+        </div>
+    </div>
+
+    <!-- 2. Imperial Dungeons: Captured Foreign Operatives -->
+    @if (Engine.State.ImprisonedSpies().Any())
+    {
+        <div class="dungeon-box">
+            <div class="dungeon-title">
+                <span>🚨 Imperial Dungeons — Captured Infiltrators (@Engine.State.ImprisonedSpies().Count())</span>
+            </div>
+            <p class="page-hint" style="color: #F5B7A8;">Foreign operatives caught by your guards. Decree their fate:</p>
+
+            @foreach (var spy in Engine.State.ImprisonedSpies())
+            {
+                <div class="prisoner-card">
+                    <div class="prisoner-header">
+                        <span class="prisoner-origin">Agent from @spy.FromNationName</span>
+                        <span class="prisoner-date">Captured @spy.CaptureDate.ToString("dd-MM-yyyy")</span>
+                    </div>
+                    <div class="prisoner-detail">
+                        Caught attempting: <strong>@FormatMission(spy.MissionType)</strong> in the realm.
+                    </div>
+                    <div class="prisoner-actions">
+                        <button class="btn-execute" @onclick="() => Execute(spy.Id)">
+                            ⚔ Execute
+                            <span class="btn-cost">+3 Ruler Rating · Deters spies</span>
+                        </button>
+                        <button class="btn-ransom" @onclick="() => Ransom(spy.Id)">
+                            💰 Ransom
+                            <span class="btn-cost">+@Currency.Cost(Balance.SpyRansomGold) Gold</span>
+                        </button>
+                        <button class="btn-parade" @onclick="() => Parade(spy.Id)">
+                            📢 Parade Treason
+                            <span class="btn-cost">+Casus Belli · +5 Approval</span>
+                        </button>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+
+    <!-- 3. Active Casus Belli Banner -->
+    @if (Engine.State.CasusBelliNations.Any())
+    {
+        <div class="casus-belli-box">
+            <span>⚖ <strong>Justified Casus Belli:</strong> Treason paraded! You hold legitimate justification for war against: <strong>@string.Join(", ", Engine.State.CasusBelliNations.Select(id => Engine.State.AllNations().FirstOrDefault(n => n.Id == id)?.Name ?? id))</strong>. Declaring war grants +5 public approval!</span>
+        </div>
+    }
+
+    <!-- 4. Foreign Spy Networks Abroad -->
+    <div style="margin: 14px 0 6px; font-weight: bold; font-size: 1rem; color: var(--gold);">
+        🕵 Foreign Spy Networks Abroad
+    </div>
     <p class="page-hint">Networks grow +1 strength per day. Operations spend strength — and risk discovery.</p>
 
     @foreach (var n in Engine.State.LiveOtherNations())
     {
         var net = Engine.GetNetwork(n.Id);
+        bool hasCasusBelli = Engine.State.CasusBelliNations.Contains(n.Id);
         <div class="dip-card">
             <div class="dip-head">
-                <span class="dip-name">@n.Name</span>
+                <span class="dip-name">
+                    @n.Name
+                    @if (hasCasusBelli)
+                    {
+                        <span class="badge" style="background: #5A4E1F; color: var(--gold); border: 1px solid var(--gold); margin-left: 6px;">⚖ Casus Belli</span>
+                    }
+                </span>
                 <span class="muted">@(net is null ? "no network" : $"strength {net.Strength}")</span>
             </div>
             @if (net is not null)
@@ -44,14 +137,63 @@
 
 @code {
     private string? _error;
+    private string? _success;
 
     protected override void OnInitialized() => Engine.StateChanged += OnStateChanged;
     private void OnStateChanged() => InvokeAsync(StateHasChanged);
 
-    private void Establish(string id) => _error = Engine.EstablishNetwork(id);
-    private void Steal(string id) => _error = Engine.SpySteal(id);
-    private void Sabotage(string id) => _error = Engine.SpySabotage(id);
-    private void Incite(string id) => _error = Engine.SpyInciteRevolt(id);
+    private void AdjustGuards(int delta)
+    {
+        _error = null;
+        _success = null;
+        _error = Engine.AdjustCounterEspionageGuards(delta);
+    }
+
+    private void Execute(string id)
+    {
+        _error = null;
+        _success = null;
+        _error = Engine.ExecuteSpy(id);
+        if (_error is null) _success = "The spy was executed on the palace grounds. Enemy deterrence established.";
+    }
+
+    private void Ransom(string id)
+    {
+        _error = null;
+        _success = null;
+        _error = Engine.RansomSpy(id);
+        if (_error is null) _success = "Ransom collected successfully and deposited into the treasury.";
+    }
+
+    private void Parade(string id)
+    {
+        _error = null;
+        _success = null;
+        _error = Engine.ParadeSpy(id);
+        if (_error is null) _success = "Treason exposed publicly before the realm! You now hold a Justified Casus Belli.";
+    }
+
+    private void Establish(string id) { _error = Engine.EstablishNetwork(id); _success = null; }
+    private void Steal(string id) { _error = Engine.SpySteal(id); _success = null; }
+    private void Sabotage(string id) { _error = Engine.SpySabotage(id); _success = null; }
+    private void Incite(string id) { _error = Engine.SpyInciteRevolt(id); _success = null; }
+
+    private static string FormatMission(SpyMissionType type) => type switch
+    {
+        SpyMissionType.Theft => "Treasury Theft",
+        SpyMissionType.Sabotage => "Infrastructure Sabotage",
+        _ => "Inciting Rebellion in the Ranks"
+    };
+
+    private static string SecurityPostureText(int guards) => guards switch
+    {
+        0 => "Minimal palace watch (10% catch)",
+        1 => "City watch alerted (26% catch)",
+        2 => "Standard palace guard (42% catch)",
+        3 => "Counter-sweeps active (58% catch)",
+        4 => "High alert patrols (74% catch)",
+        _ => "Maximum fortress lockdown (90% catch)"
+    };
 
     public void Dispose() => Engine.StateChanged -= OnStateChanged;
 }

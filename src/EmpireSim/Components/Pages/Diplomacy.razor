@@ -59,7 +59,7 @@
                 var status = DiplomacyService.GetStatus(rating);
                 <div class="dip-row">
                     <span class="dip-flag">@n.Emblem</span>
-                    <span class="dip-name">@n.Name@if (Engine.HasTradeEmbassy(n.Id)) { <span class="dip-embassy" title="You have an embassy here: you can trade with this country"> 🏛</span> }</span>
+                    <span class="dip-name">@n.Name@if (Engine.HasTradeEmbassy(n.Id)) { <span class="dip-embassy" title="You have an embassy here: you can trade with this country"> 🏛</span> }@if (Engine.State.IsNationBlockaded(n.Id)) { <span class="dip-blockaded" title="Coastline under naval blockade"> ⚓</span> }</span>
                     <span class="dip-rel @DiplomacyService.StatusColorClass(status)">
                         @DiplomacyService.StatusName(status) (@rating)
                     </span>

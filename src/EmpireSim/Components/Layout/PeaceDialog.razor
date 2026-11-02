@@ -98,6 +98,7 @@
                                 <option value="gold">🪙 Gold</option>
                                 <option value="goods">📦 Goods</option>
                                 <option value="colony">⛵ Colony</option>
+                                <option value="warships">🚢 Warships</option>
                                 <option value="annex">🏰 Annex them</option>
                             </select>
                             @if (_kind != "annex")
@@ -126,7 +127,7 @@
                                     }
                                 </select>
                             }
-                            @if (_kind is "gold" or "goods")
+                            @if (_kind is "gold" or "goods" or "warships")
                             {
                                 <input type="number" class="pc-num" min="1" @bind="_amount" placeholder="amount" />
                                 @if (_kind == "gold")
@@ -137,6 +138,12 @@
                                             <button @onclick="() => _amount = Math.Floor((YouGive ? player.Gold : enemy.Gold) * pct / 100.0)">@pct%</button>
                                         }
                                         <span class="pc-hint">(@(YouGive ? "you hold" : enemy.Name + " holds") @((YouGive ? player.Gold : enemy.Gold).ToString("N0")))</span>
+                                    </div>
+                                }
+                                @if (_kind == "warships")
+                                {
+                                    <div class="pc-quick">
+                                        <span class="pc-hint">(@(YouGive ? "you have" : enemy.Name + " has") @((YouGive ? player.Warships : enemy.Warships).ToString("N0")) warships)</span>
                                     </div>
                                 }
                             }
@@ -238,6 +245,10 @@
                 if (string.IsNullOrEmpty(_colony)) { Say("Choose a colony.", false); return; }
                 _terms.Add(PeaceTerm.Colony(giver, receiver, _colony));
                 _colony = "";
+                break;
+            case "warships":
+                if (_amount <= 0) { Say("Enter a number of warships above zero.", false); return; }
+                _terms.Add(PeaceTerm.Warships(giver, receiver, (int)_amount));
                 break;
             default:
                 _terms.Add(PeaceTerm.Annexation(enemy.Id, player.Id));

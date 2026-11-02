@@ -263,6 +263,7 @@ public static class CommandStaffService
 
     /// <summary>Battle strength of the country's armies (multiplies the existing <see cref="Nation.BattleStrengthMult"/>).</summary>
     public static double BattleStrengthMult(Nation n) => Raise(Balance.LandCommanderBattleMult, Strength(n, CommanderRole.LandCommander));
+    public static double NavalCombatMult(Nation n) => Raise(Balance.FleetCommanderBattleMult, Strength(n, CommanderRole.FleetCommander));
 
     /// <summary>Soldiers lost to attrition while at war (multiplies <see cref="Balance.WarAttritionPerDay"/>).</summary>
     public static double AttritionMult(Nation n) => Reduce(Balance.CinCAttritionMult, Strength(n, CommanderRole.CommanderInChief));
@@ -303,6 +304,7 @@ public static class CommandStaffService
             {
                 $"−{Pct(1 - Reduce(Balance.FleetCommanderUpkeepMult, s))} naval upkeep",
                 $"−{Pct(1 - Reduce(Balance.FleetCommanderRecruitMult, s))} cost of building warships",
+                $"+{Pct(Raise(Balance.FleetCommanderBattleMult, s) - 1)} naval combat power & fleet efficiency",
             },
             CommanderRole.CommanderInChief => new List<string>
             {

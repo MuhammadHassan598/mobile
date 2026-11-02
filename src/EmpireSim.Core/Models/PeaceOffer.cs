@@ -13,6 +13,8 @@ public enum PeaceTermKind
     Annexation,
     /// <summary>The war between the two ends (has no giver or receiver: it binds both).</summary>
     Peace,
+    /// <summary>The giver surrenders warships to the receiver's navy.</summary>
+    Warships,
 }
 
 /// <summary>
@@ -47,6 +49,8 @@ public sealed class PeaceTerm
         new() { Kind = PeaceTermKind.Colony, GiverId = giverId, ReceiverId = receiverId, ColonyId = colonyId };
     public static PeaceTerm Annexation(string giverId, string receiverId) =>
         new() { Kind = PeaceTermKind.Annexation, GiverId = giverId, ReceiverId = receiverId };
+    public static PeaceTerm Warships(string giverId, string receiverId, int count) =>
+        new() { Kind = PeaceTermKind.Warships, GiverId = giverId, ReceiverId = receiverId, Amount = count };
 
     public PeaceTerm Copy() => (PeaceTerm)MemberwiseClone();
 }

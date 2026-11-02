@@ -1028,12 +1028,22 @@ public sealed partial class GameEngine : IDisposable
         if (TreatyService.ForbidsAttack(State, State.PlayerNation.Id, n.Id) is { } forbidden) return forbidden;
         if (TreatyService.WarDeclarationBlock(State) is { } warBanned) return warBanned;   // the Assembly's ban binds the player like everyone else
 
+        bool hasCasusBelli = State.CasusBelliNations.Contains(n.Id);
+        if (hasCasusBelli)
+        {
+            State.CasusBelliNations.Remove(n.Id);
+            State.PlayerNation.TaxApproval = Math.Clamp(State.PlayerNation.TaxApproval + 5, 0, 100);
+        }
+
         n.AtWarWithPlayer = true;
         n.HasTradePactWithPlayer = false;
         n.RelationToPlayer = -100;
         TreatyService.OnWar(State, State.PlayerNation, n);
         PeaceService.OnWarStarted(State, n, playerStarted: true);
-        State.LogMovement(MovementKind.War, MovementStatus.Completed, State.PlayerNation, n, $"You declared war on {n.Name}!");
+        string warMsg = hasCasusBelli
+            ? $"⚖ You declared a JUSTIFIED WAR on {n.Name} (Casus Belli: Exposed Infiltration)!"
+            : $"You declared war on {n.Name}!";
+        State.LogMovement(MovementKind.War, MovementStatus.Completed, State.PlayerNation, n, warMsg);
         StateChanged?.Invoke();
         return null;
     }
@@ -1106,6 +1116,114 @@ public sealed partial class GameEngine : IDisposable
         }
         StateChanged?.Invoke();
         return null;
+    }
+
+    // ---------------- Counter-Espionage & Homeland Defense ----------------
+
+    /// <summary>Catch chance (10% to 90%) based on assigned palace guards.</summary>
+    public double CounterEspionageCatchChance =>
+        Math.Clamp(Balance.CounterEspionageBaseCatchChance + (State.CounterEspionageGuards * Balance.CounterEspionageGuardCatchBonus), 0.10, 0.95);
+
+    /// <summary>Sets the number of guards assigned to homeland counter-intelligence (0 to 5).</summary>
+    public string? SetCounterEspionageGuards(int count)
+    {
+        if (count < 0 || count > Balance.MaxCounterEspionageGuards)
+            return $"Must assign between 0 and {Balance.MaxCounterEspionageGuards} guards.";
+        State.CounterEspionageGuards = count;
+        StateChanged?.Invoke();
+        return null;
+    }
+
+    /// <summary>Adjusts the number of assigned counter-espionage guards by delta.</summary>
+    public string? AdjustCounterEspionageGuards(int delta)
+    {
+        int newCount = Math.Clamp(State.CounterEspionageGuards + delta, 0, Balance.MaxCounterEspionageGuards);
+        return SetCounterEspionageGuards(newCount);
+    }
+
+    /// <summary>Ruler choice 1: Execute the captured spy as a traitor (+3 Ruler Rating, deters foreign nation from spying for 90 days).</summary>
+    public string? ExecuteSpy(string spyId)
+    {
+        var spy = State.CapturedSpies.FirstOrDefault(s => s.Id == spyId && s.Status == CapturedSpyStatus.Imprisoned);
+        if (spy is null) return "Prisoner not found in the dungeons.";
+
+        spy.Status = CapturedSpyStatus.Executed;
+        spy.ResolvedDate = State.CurrentDate;
+        spy.ResolutionNotes = "Executed on the palace grounds as a traitor.";
+
+        var enemy = FindNation(spy.FromNationId);
+        if (enemy is not null)
+        {
+            enemy.RelationToPlayer = Math.Max(-100, enemy.RelationToPlayer - 20);
+            State.EspionageDeterrence[enemy.Id] = State.CurrentDate.AddDays(Balance.EspionageDeterrenceDays);
+        }
+
+        State.PlayerNation.RulerRating = Math.Clamp(State.PlayerNation.RulerRating + 3, 0, 100);
+        State.LogMovement(MovementKind.Mission, MovementStatus.Completed, State.PlayerNation, enemy ?? State.PlayerNation,
+            $"Executed captured spy from {spy.FromNationName} on the palace grounds.", inbox: InboxTopic.SpyCaught);
+        StateChanged?.Invoke();
+        return null;
+    }
+
+    /// <summary>Ruler choice 2: Ransom the captured operative back to their crown for gold.</summary>
+    public string? RansomSpy(string spyId)
+    {
+        var spy = State.CapturedSpies.FirstOrDefault(s => s.Id == spyId && s.Status == CapturedSpyStatus.Imprisoned);
+        if (spy is null) return "Prisoner not found in the dungeons.";
+
+        var enemy = FindNation(spy.FromNationId);
+        double ransom = Balance.SpyRansomGold;
+        if (enemy is not null)
+        {
+            ransom = Math.Min(enemy.Gold, Balance.SpyRansomGold);
+            if (ransom < 200) ransom = 200; // minimum ransom paid from state treasury
+            enemy.PayGold(ransom);
+            enemy.RelationToPlayer = Math.Max(-100, enemy.RelationToPlayer - 5);
+        }
+
+        State.PlayerNation.Gold += ransom;
+        spy.Status = CapturedSpyStatus.Ransomed;
+        spy.ResolvedDate = State.CurrentDate;
+        spy.ResolutionNotes = $"Ransomed back to {spy.FromNationName} for {Currency.Cost(ransom)}.";
+
+        State.LogMovement(MovementKind.Gold, MovementStatus.Completed, enemy ?? State.PlayerNation, State.PlayerNation,
+            $"{spy.FromNationName} paid {Currency.Cost(ransom)} ransom for their captured operative.", inbox: InboxTopic.SpyCaught);
+        StateChanged?.Invoke();
+        return null;
+    }
+
+    /// <summary>Ruler choice 3: Parade the operative's treason publicly (+Casus Belli for War, +5 Tax Approval).</summary>
+    public string? ParadeSpy(string spyId)
+    {
+        var spy = State.CapturedSpies.FirstOrDefault(s => s.Id == spyId && s.Status == CapturedSpyStatus.Imprisoned);
+        if (spy is null) return "Prisoner not found in the dungeons.";
+
+        spy.Status = CapturedSpyStatus.Paraded;
+        spy.ResolvedDate = State.CurrentDate;
+        spy.ResolutionNotes = $"Paraded publicly before foreign ambassadors; Casus Belli gained against {spy.FromNationName}.";
+
+        var enemy = FindNation(spy.FromNationId);
+        if (enemy is not null)
+        {
+            enemy.RelationToPlayer = Math.Max(-100, enemy.RelationToPlayer - 35);
+            if (!State.CasusBelliNations.Contains(enemy.Id))
+                State.CasusBelliNations.Add(enemy.Id);
+        }
+
+        State.PlayerNation.TaxApproval = Math.Clamp(State.PlayerNation.TaxApproval + 5, 0, 100);
+        State.LogMovement(MovementKind.Mission, MovementStatus.Completed, State.PlayerNation, enemy ?? State.PlayerNation,
+            $"Paraded {spy.FromNationName}'s espionage treason publicly! You hold a Justified Casus Belli for war.", inbox: InboxTopic.SpyCaught);
+        StateChanged?.Invoke();
+        return null;
+    }
+
+    /// <summary>Triggers an AI espionage attempt against the player (used by daily simulation or tests).</summary>
+    public CapturedSpy? TriggerAiEspionageAgainstPlayer(string? nationId = null, SpyMissionType? mission = null, bool forceCatch = false)
+    {
+        var nation = nationId is not null ? FindNation(nationId) : null;
+        var captured = _sim.TriggerAiEspionageAgainstPlayer(State, nation, mission, forceCatch);
+        StateChanged?.Invoke();
+        return captured;
     }
 
     // ---------------- Espionage ----------------

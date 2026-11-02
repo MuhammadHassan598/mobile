@@ -25,6 +25,34 @@ public sealed class GameState
     /// <summary>The player's spy networks abroad.</summary>
     public List<SpyNetwork> SpyNetworks { get; set; } = new();
 
+    /// <summary>Number of palace guards assigned to counter-espionage at home (0 to 5).</summary>
+    public int CounterEspionageGuards { get; set; } = 2;
+
+    /// <summary>Foreign spies captured by imperial counter-intelligence.</summary>
+    public List<CapturedSpy> CapturedSpies { get; set; } = new();
+
+    /// <summary>Nations against which the player holds a justified Casus Belli (e.g. from paraded spies).</summary>
+    public List<string> CasusBelliNations { get; set; } = new();
+
+    /// <summary>Expiration dates for espionage deterrence (nations deterred from spying after executions).</summary>
+    public Dictionary<string, DateOnly> EspionageDeterrence { get; set; } = new();
+
+    /// <summary>Foreign agents currently held in the palace dungeons awaiting ruler decree.</summary>
+    public IEnumerable<CapturedSpy> ImprisonedSpies() => CapturedSpies.Where(s => s.Status == CapturedSpyStatus.Imprisoned);
+
+    /// <summary>Active and historical strategic naval deployments.</summary>
+    public List<NavalMission> NavalMissions { get; set; } = new();
+
+    /// <summary>Total warships currently deployed across all active missions.</summary>
+    public int DeployedWarships => NavalMissions.Where(m => m.Status == NavalMissionStatus.Active && m.OwnerId == PlayerNation.Id).Sum(m => m.Warships);
+
+    /// <summary>Warships currently docked in home port and available for orders.</summary>
+    public int AvailableWarships => Math.Max(0, PlayerNation.Warships - DeployedWarships);
+
+    /// <summary>Checks whether a nation is currently under an active naval blockade.</summary>
+    public bool IsNationBlockaded(string nationId) =>
+        NavalMissions.Any(m => m.Status == NavalMissionStatus.Active && m.Type == NavalMissionType.Blockade && m.TargetNationId == nationId);
+
     /// <summary>Uncharted regions that can be colonised.</summary>
     public List<FrontierRegion> FrontierRegions { get; set; } = new();
 
