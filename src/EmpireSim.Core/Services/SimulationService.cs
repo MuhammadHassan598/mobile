@@ -175,8 +175,7 @@ public sealed class SimulationService
         var shortage = ConsumptionService.Apply(nation);
         ConsumptionService.ApplyShortageEffects(nation, shortage);
         if (shortage.ShortItems.Any())
-            Warn(state, owner, $"Shortage in {nation.Name}: {string.Join(", ", shortage.ShortItems)} — " +
-                $"{nation.LastShortageDeaths:N1} deaths/day, ruler rating -{nation.LastRatingDrop:0.######}/day.");
+            Warn(state, owner, $"Shortage in {nation.Name}: {string.Join(", ", shortage.ShortItems)}");
 
         // The inbox hears of a shortage when it begins or when the list of short items changes — not every day it goes on.
         if (owner.IsPlayer)
