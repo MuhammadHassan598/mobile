@@ -1,4 +1,4 @@
-using EmpireSim.Core.Models;
+﻿using EmpireSim.Core.Models;
 
 namespace EmpireSim.Core.Services;
 
@@ -14,6 +14,13 @@ public sealed partial class GameEngine : IDisposable
     private readonly SaveService _save;
     private bool _disposed;
 
+    private readonly SemaphoreSlim _saveLock = new(1, 1);
+    private DateTime _lastAutoSaveRealTime = DateTime.MinValue;
+    private int _daysSinceLastAutoSave;
+
+    /// <summary>Controls whether the engine auto-saves to disk periodically.</summary>
+    public bool AutoSaveEnabled { get; set; } = true;
+
     public GameClock Clock { get; } = new();
     public GameState State { get; private set; }
 
@@ -27,6 +34,7 @@ public sealed partial class GameEngine : IDisposable
         State = GameState.NewGame();
         CampaignChosen = false;
         Clock.DayElapsed += OnDayElapsed;
+        Clock.SpeedChanged += OnSpeedChanged;
     }
 
     /// <summary>False until the player picks a nation on the start screen.</summary>
@@ -38,6 +46,9 @@ public sealed partial class GameEngine : IDisposable
         Clock.SetSpeed(GameSpeed.Paused);
         State = GameState.NewGame(nationId);
         CampaignChosen = true;
+        _daysSinceLastAutoSave = 0;
+        _lastAutoSaveRealTime = DateTime.UtcNow;
+        _ = AutoSaveAsync();
         StateChanged?.Invoke();
     }
 
@@ -54,11 +65,36 @@ public sealed partial class GameEngine : IDisposable
         StartCampaign("ottoman");
     }
 
-    public async Task SaveAsync()
+    public async Task SaveAsync(bool silent = false)
     {
-        await _save.SaveAsync(State);
-        State.Log("Game saved.");
-        StateChanged?.Invoke();
+        await _saveLock.WaitAsync();
+        try
+        {
+            await _save.SaveAsync(State);
+            if (!silent)
+            {
+                State.Log("Game saved.");
+                StateChanged?.Invoke();
+            }
+        }
+        finally
+        {
+            _saveLock.Release();
+        }
+    }
+
+    /// <summary>Silently persists the current game state to disk.</summary>
+    public async Task AutoSaveAsync()
+    {
+        if (!AutoSaveEnabled || !CampaignChosen || State.Defeated) return;
+        try
+        {
+            await SaveAsync(silent: true);
+        }
+        catch
+        {
+            // Auto-save shouldn't crash the application if background I/O is interrupted
+        }
     }
 
     public async Task LoadAsync()
@@ -1357,10 +1393,32 @@ public sealed partial class GameEngine : IDisposable
     /// <summary>Advances exactly one day. Used by the clock and by tests.</summary>
     public void AdvanceOneDay() => OnDayElapsed();
 
+    private void OnSpeedChanged(GameSpeed speed)
+    {
+        if (speed == GameSpeed.Paused && _daysSinceLastAutoSave > 0)
+        {
+            _daysSinceLastAutoSave = 0;
+            _lastAutoSaveRealTime = DateTime.UtcNow;
+            _ = AutoSaveAsync();
+        }
+    }
+
     private void OnDayElapsed()
     {
         State.CurrentDate = State.CurrentDate.AddDays(1);
         _sim.AdvanceDay(State);
+        _daysSinceLastAutoSave++;
+
+        if (AutoSaveEnabled && Clock.Speed != GameSpeed.Paused)
+        {
+            if (_daysSinceLastAutoSave >= 10 && (DateTime.UtcNow - _lastAutoSaveRealTime).TotalSeconds >= 3)
+            {
+                _daysSinceLastAutoSave = 0;
+                _lastAutoSaveRealTime = DateTime.UtcNow;
+                _ = AutoSaveAsync();
+            }
+        }
+
         StateChanged?.Invoke();
     }
 
@@ -1369,6 +1427,8 @@ public sealed partial class GameEngine : IDisposable
         if (_disposed) return;
         _disposed = true;
         Clock.DayElapsed -= OnDayElapsed;
+        Clock.SpeedChanged -= OnSpeedChanged;
         Clock.Dispose();
+        _saveLock.Dispose();
     }
 }

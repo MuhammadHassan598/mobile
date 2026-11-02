@@ -6,7 +6,10 @@
 <div class="menu-screen">
     @if (Engine.State.Defeated)
     {
-        <div class="defeat">💀 Your empire has fallen.</div>
+        <div class="defeat" style="display:flex; justify-content:space-between; align-items:center;">
+            <span>💀 Your empire has fallen.</span>
+            <button style="background:var(--gold); color:#1a0f00; border:none; border-radius:4px; padding:4px 10px; font-weight:bold; cursor:pointer;" @onclick="() => Engine.AbandonToMenu()">NEW CAMPAIGN</button>
+        </div>
     }
     @if (Engine.State.ActiveWarnings.Count > 0)
     {
@@ -63,12 +66,6 @@
             <button class="menu-tile" @onclick='() => Nav.NavigateTo("/research")'><span class="tile-orb">🔬</span><span>Research</span></button>
         </div>
     </div>
-
-    <div class="game-actions">
-        <button @onclick="Save">💾 Save</button>
-        <button @onclick="Load" disabled="@(!Engine.HasSave)">📂 Load</button>
-        <button @onclick="NewCampaign">🆕 New</button>
-    </div>
 </div>
 
 @code {
@@ -88,10 +85,6 @@
         Engine.Clock.Speed == speed ? "active" : "";
 
     private void SetSpeed(GameSpeed speed) => Engine.Clock.SetSpeed(speed);
-
-    private async Task Save() => await Engine.SaveAsync();
-    private async Task Load() => await Engine.LoadAsync();
-    private void NewCampaign() => Engine.AbandonToMenu();
 
     public void Dispose()
     {

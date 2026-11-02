@@ -1,4 +1,4 @@
-# EmpireSim — Complete Game Flow & Mechanics Guide
+﻿# EmpireSim — Complete Game Flow & Mechanics Guide
 
 This guide explains **how every flow, feature, and system works** in EmpireSim at a clear, high-level conceptual level. It serves as the primary reference for understanding player actions, game systems, and how mechanics interact across the entire game.
 
@@ -362,16 +362,19 @@ The communication nerve center of the empire keeps the ruler informed.
 
 ---
 
-### Flow 16: Saving, Loading & Session Persistence
-The entire state of the world persists cleanly between sessions.
+### Flow 16: Continuous Auto-Save, Auto-Load & Session Persistence
+The entire state of the world persists automatically and seamlessly without requiring manual save or load buttons.
 
-* **Saving (`SaveAsync`)**:
-  - Captures complete game state: exact gold treasury, stockpiles, troop regiments, calendar date, active construction projects, cabinet advisors, diplomatic treaties, ongoing merchant contracts, colonies, and annexed provinces.
-* **Loading (`LoadAsync`)**:
-  - Restores all data structures completely with 100% round-trip fidelity, allowing players to resume their empire right where they left off.
+* **Continuous Background Auto-Save (AutoSaveAsync)**:
+  - **Campaign Start**: Automatically saves initial imperial state upon choosing a civilization and pressing Start.
+  - **Periodic Simulation Saving**: Automatically persists the game state in the background every 10 in-game days while time is running (throttled to at least 3 seconds between disk writes to prevent I/O lag).
+  - **Immediate Save on Pause**: Whenever the clock speed is paused (⏸), any unsaved progress is flushed to disk immediately.
+  - **App Lifecycle Hooks**: Minimized, deactivated, or closed sessions (via OnSleep, Window.Deactivated, Window.Destroying) trigger an instant state flush.
+  - **Atomic File Writing**: Writes to a temporary buffer file (savegame.json.tmp) and replaces atomically, protecting saves from corruption during unexpected shutdowns.
+* **Seamless Auto-Load on App Launch**:
+  - Returning players are automatically resumed into their active campaign on launch without seeing menu screens or needing manual load buttons.
 
 ---
-
 ## 4. End-to-End Player Journey: A Practical Example
 
 To see how these flows connect during actual gameplay, here is a typical campaign walkthrough as the **Ottoman Empire**:

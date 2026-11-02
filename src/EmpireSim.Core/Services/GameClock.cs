@@ -14,14 +14,20 @@ public sealed class GameClock : IDisposable
     /// <summary>Raised on a background thread once per in-game day. UI must marshal via InvokeAsync.</summary>
     public event Action? DayElapsed;
 
+    /// <summary>Raised when clock speed changes.</summary>
+    public event Action<GameSpeed>? SpeedChanged;
+
     private CancellationTokenSource? _cts;
     private bool _disposed;
 
     public void SetSpeed(GameSpeed speed)
     {
         if (_disposed) return;
+        var prev = Speed;
         Speed = speed;
         RestartLoop();
+        if (prev != speed)
+            SpeedChanged?.Invoke(speed);
     }
 
     private void RestartLoop()

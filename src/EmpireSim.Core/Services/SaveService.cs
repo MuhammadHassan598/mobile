@@ -27,7 +27,9 @@ public sealed class SaveService
     {
         Directory.CreateDirectory(_folder);
         var json = JsonSerializer.Serialize(state, JsonOptions);
-        await File.WriteAllTextAsync(Path, json);
+        string tempPath = Path + ".tmp";
+        await File.WriteAllTextAsync(tempPath, json);
+        File.Move(tempPath, Path, overwrite: true);
     }
 
     public async Task<GameState?> LoadAsync()
