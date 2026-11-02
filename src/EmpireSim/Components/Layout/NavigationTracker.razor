@@ -1,5 +1,6 @@
 @inject NavigationManager Nav
 @inject NavigationHistory History
+@inject GameEngine Engine
 @inject IJSRuntime JS
 @implements IDisposable
 
@@ -23,6 +24,7 @@
     private void OnLocationChanged(object? sender, LocationChangedEventArgs e)
     {
         string location = Nav.ToBaseRelativePath(e.Location);
+        _ = Engine.AutoSaveAsync();
         History.Navigating();
         if (History.IsPendingBack(location))
         {

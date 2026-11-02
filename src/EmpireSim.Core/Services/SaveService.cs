@@ -10,7 +10,7 @@ namespace EmpireSim.Core.Services;
 /// </summary>
 public sealed class SaveService
 {
-    private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
+    private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = false };
     private readonly string _folder;
     private const string FileName = "savegame.json";
 
@@ -29,7 +29,15 @@ public sealed class SaveService
         var json = JsonSerializer.Serialize(state, JsonOptions);
         string tempPath = Path + ".tmp";
         await File.WriteAllTextAsync(tempPath, json);
-        File.Move(tempPath, Path, overwrite: true);
+        try
+        {
+            File.Move(tempPath, Path, overwrite: true);
+        }
+        catch
+        {
+            File.Copy(tempPath, Path, overwrite: true);
+            try { File.Delete(tempPath); } catch { }
+        }
     }
 
     public async Task<GameState?> LoadAsync()

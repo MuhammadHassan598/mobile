@@ -14,9 +14,10 @@ public sealed partial class GameEngine : IDisposable
     private readonly SaveService _save;
     private bool _disposed;
 
+    private readonly object _autoSaveLock = new();
+    private bool _isSaving;
+    private bool _needsAnotherSave;
     private readonly SemaphoreSlim _saveLock = new(1, 1);
-    private DateTime _lastAutoSaveRealTime = DateTime.MinValue;
-    private int _daysSinceLastAutoSave;
 
     /// <summary>Controls whether the engine auto-saves to disk periodically.</summary>
     public bool AutoSaveEnabled { get; set; } = true;
@@ -46,8 +47,6 @@ public sealed partial class GameEngine : IDisposable
         Clock.SetSpeed(GameSpeed.Paused);
         State = GameState.NewGame(nationId);
         CampaignChosen = true;
-        _daysSinceLastAutoSave = 0;
-        _lastAutoSaveRealTime = DateTime.UtcNow;
         _ = AutoSaveAsync();
         StateChanged?.Invoke();
     }
@@ -87,13 +86,44 @@ public sealed partial class GameEngine : IDisposable
     public async Task AutoSaveAsync()
     {
         if (!AutoSaveEnabled || !CampaignChosen || State.Defeated) return;
+
+        lock (_autoSaveLock)
+        {
+            if (_isSaving)
+            {
+                _needsAnotherSave = true;
+                return;
+            }
+            _isSaving = true;
+        }
+
         try
         {
-            await SaveAsync(silent: true);
+            while (true)
+            {
+                lock (_autoSaveLock)
+                {
+                    _needsAnotherSave = false;
+                }
+
+                await SaveAsync(silent: true);
+
+                lock (_autoSaveLock)
+                {
+                    if (!_needsAnotherSave)
+                    {
+                        _isSaving = false;
+                        break;
+                    }
+                }
+            }
         }
         catch
         {
-            // Auto-save shouldn't crash the application if background I/O is interrupted
+            lock (_autoSaveLock)
+            {
+                _isSaving = false;
+            }
         }
     }
 
@@ -1395,10 +1425,8 @@ public sealed partial class GameEngine : IDisposable
 
     private void OnSpeedChanged(GameSpeed speed)
     {
-        if (speed == GameSpeed.Paused && _daysSinceLastAutoSave > 0)
+        if (speed == GameSpeed.Paused)
         {
-            _daysSinceLastAutoSave = 0;
-            _lastAutoSaveRealTime = DateTime.UtcNow;
             _ = AutoSaveAsync();
         }
     }
@@ -1407,16 +1435,11 @@ public sealed partial class GameEngine : IDisposable
     {
         State.CurrentDate = State.CurrentDate.AddDays(1);
         _sim.AdvanceDay(State);
-        _daysSinceLastAutoSave++;
 
+        // Auto-save per day movement while simulation is running
         if (AutoSaveEnabled && Clock.Speed != GameSpeed.Paused)
         {
-            if (_daysSinceLastAutoSave >= 10 && (DateTime.UtcNow - _lastAutoSaveRealTime).TotalSeconds >= 3)
-            {
-                _daysSinceLastAutoSave = 0;
-                _lastAutoSaveRealTime = DateTime.UtcNow;
-                _ = AutoSaveAsync();
-            }
+            _ = AutoSaveAsync();
         }
 
         StateChanged?.Invoke();

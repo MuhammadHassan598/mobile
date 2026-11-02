@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using System.Text.Json.Nodes;
 using EmpireSim.Core.Models;
 using EmpireSim.Core.Services;
@@ -6432,6 +6432,34 @@ Console.WriteLine("\n== 82. WARSHIPS & NAVAL STRATEGIC WARFARE ==");
     Check(player.Warships == playerShipsBeforeAnnex + 6, "conquering nation incorporates all surviving enemy warships into its fleet");
     Check(morocco.Warships == 0, "defeated nation warships reset to zero");
 }
+
+Console.WriteLine("== 83. PER-DAY AUTO-SAVE & SESSION PERSISTENCE ==");
+var autoSaveFolder = Path.Combine(Path.GetTempPath(), "empiresim-autosave-test");
+if (Directory.Exists(autoSaveFolder)) Directory.Delete(autoSaveFolder, recursive: true);
+{
+    using var eng1 = new GameEngine(new SimulationService(830), new SaveService(autoSaveFolder));
+    eng1.StartCampaign("ottoman");
+    Check(eng1.State.CurrentDate == new DateOnly(1600, 1, 1), "campaign starts on day 1 (01-01-1600)");
+
+    // Simulate 7 days with running clock
+    eng1.Clock.SetSpeed(GameSpeed.Normal);
+    for (int d = 0; d < 7; d++)
+    {
+        eng1.AdvanceOneDay();
+    }
+    await Task.Delay(100); // allow async save loop to flush to disk
+    Check(eng1.State.CurrentDate == new DateOnly(1600, 1, 8), "game advanced 7 days to 08-01-1600");
+    Check(eng1.HasSave, "save file exists on disk");
+
+    // Simulate closing app and relaunching: new engine instance loads from same folder
+    using var eng2 = new GameEngine(new SimulationService(831), new SaveService(autoSaveFolder));
+    Check(eng2.HasSave, "new session detects existing save file");
+    await eng2.LoadAsync();
+    Check(eng2.CampaignChosen, "campaign automatically recognized as chosen");
+    Check(eng2.State.CurrentDate == new DateOnly(1600, 1, 8), "relaunch restores exact day 7/8 state (08-01-1600), not day 1");
+    Check(eng2.State.PlayerNation.Id == "ottoman", "player nation restored as ottoman");
+}
+if (Directory.Exists(autoSaveFolder)) Directory.Delete(autoSaveFolder, recursive: true);
 
 await SimTests.OttomanPlaythroughAudit.Run(Check, saveFolder);
 
