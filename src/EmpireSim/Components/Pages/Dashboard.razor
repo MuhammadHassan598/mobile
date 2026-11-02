@@ -47,27 +47,8 @@
         </div>
     </div>
 
-    <!-- Flowing Warning Ticker Ribbon (placed below flag block) -->
-    @if (Engine.State.ActiveWarnings.Count > 0)
-    {
-        <div class="alert-ticker-ribbon" title="Active Alerts">
-            <div class="alert-ticker-track">
-                @for (int copy = 0; copy < 2; copy++)
-                {
-                    <div class="alert-ticker-content" aria-hidden="@(copy > 0 ? "true" : null)">
-                        @for (int rep = 0; rep < Math.Max(1, 3 / Engine.State.ActiveWarnings.Count); rep++)
-                        {
-                            @foreach (var w in Engine.State.ActiveWarnings)
-                            {
-                                <span class="ticker-text">⚠ @w</span>
-                                <span class="ticker-bullet">✦</span>
-                            }
-                        }
-                    </div>
-                }
-            </div>
-        </div>
-    }
+    <!-- Flowing Warning Ticker Ribbon (isolated component with ShouldRender to prevent animation stutters) -->
+    <AlertTicker Warnings="@Engine.State.ActiveWarnings" />
 
     <!-- Main Dashboard Tiles -->
     <div class="parchment-panel">
@@ -312,64 +293,6 @@
     justify-content: center;
     cursor: pointer;
     box-shadow: 0 2px 5px rgba(0,0,0,0.6);
-}
-
-/* Continuous Flowing Warning Ticker Ribbon */
-.alert-ticker-ribbon {
-    width: 100%;
-    overflow: hidden;
-    background: linear-gradient(180deg, #30170a 0%, #1c0e05 100%);
-    border-top: 1.5px solid #8b6914;
-    border-bottom: 1.5px solid #8b6914;
-    box-shadow: inset 0 2px 4px rgba(0,0,0,0.6), 0 2px 5px rgba(0,0,0,0.4);
-    margin: 2px 0 12px 0;
-    border-radius: 6px;
-    padding: 6px 0;
-    user-select: none;
-}
-
-.alert-ticker-track {
-    display: flex;
-    width: max-content;
-    animation: ticker-flow 25s linear infinite;
-    will-change: transform;
-}
-
-.alert-ticker-ribbon:hover .alert-ticker-track,
-.alert-ticker-ribbon:active .alert-ticker-track {
-    animation-play-state: paused;
-}
-
-.alert-ticker-content {
-    display: flex;
-    align-items: center;
-    white-space: nowrap;
-    flex-shrink: 0;
-}
-
-.ticker-text {
-    color: #ffd466;
-    font-family: Georgia, serif;
-    font-size: 0.86rem;
-    font-weight: bold;
-    letter-spacing: 0.4px;
-    text-shadow: 0 1px 2px #000;
-}
-
-.ticker-bullet {
-    color: #e53935;
-    margin: 0 16px;
-    font-size: 0.85rem;
-    opacity: 0.85;
-}
-
-@@keyframes ticker-flow {
-    0% {
-        transform: translate3d(0, 0, 0);
-    }
-    100% {
-        transform: translate3d(-50%, 0, 0);
-    }
 }
 
 /* Hamburger Imperial Menu Modal */
