@@ -2,7 +2,7 @@
 
 @if (Warnings is { Count: > 0 })
 {
-    <div class="alert-ticker-ribbon" title="Active Alerts">
+    <div class="alert-ticker-ribbon">
         <div class="alert-ticker-track">
             <div class="alert-ticker-content">
                 @for (int rep = 0; rep < _repeatCount; rep++)
@@ -41,6 +41,7 @@
     border-radius: 6px;
     padding: 6px 0;
     user-select: none;
+    pointer-events: none;
     position: relative;
 }
 
@@ -50,11 +51,7 @@
     animation: ticker-flow 80s linear infinite;
     will-change: transform;
     transform: translateZ(0);
-}
-
-.alert-ticker-ribbon:hover .alert-ticker-track,
-.alert-ticker-ribbon:active .alert-ticker-track {
-    animation-play-state: paused;
+    pointer-events: none;
 }
 
 .alert-ticker-content {
@@ -62,6 +59,7 @@
     align-items: center;
     white-space: nowrap;
     flex-shrink: 0;
+    pointer-events: none;
 }
 
 .ticker-text {
@@ -71,6 +69,7 @@
     font-weight: bold;
     letter-spacing: 0.4px;
     text-shadow: 0 1px 2px #000;
+    pointer-events: none;
 }
 
 .ticker-bullet {
@@ -78,6 +77,7 @@
     margin: 0 20px;
     font-size: 0.85rem;
     opacity: 0.85;
+    pointer-events: none;
 }
 
 @@keyframes ticker-flow {
