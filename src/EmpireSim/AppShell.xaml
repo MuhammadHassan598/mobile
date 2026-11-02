@@ -7,7 +7,7 @@
     Shell.FlyoutBehavior="Disabled">
 
     <ShellContent
-        Title="EmpireSim"
+        Title="Empire Simulator 1600"
         ContentTemplate="{DataTemplate local:MainPage}"
         Route="MainPage" />
 

@@ -7,7 +7,7 @@
   <Identity Name="com.blyr.empiresim" Publisher="CN=blyr" Version="1.0.0.0" />
 
   <Properties>
-    <DisplayName>EmpireSim</DisplayName>
+    <DisplayName>Empire Simulator 1600</DisplayName>
     <PublisherDisplayName>blyr</PublisherDisplayName>
     <Logo>Assets\StoreLogo.png</Logo>
   </Properties>
@@ -24,8 +24,8 @@
   <Applications>
     <Application Id="App" Executable="$targetnametoken$.exe" EntryPoint="$targetentrypoint$">
       <uap:VisualElements
-        DisplayName="EmpireSim"
-        Description="EmpireSim"
+        DisplayName="Empire Simulator 1600"
+        Description="Empire Simulator 1600"
         BackgroundColor="transparent"
         Square150x150Logo="Assets\Square150x150Logo.png"
         Square44x44Logo="Assets\Square44x44Logo.png">

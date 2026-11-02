@@ -12,7 +12,7 @@
     <Nullable>enable</Nullable>
 
     <!-- Display name -->
-    <ApplicationTitle>EmpireSim</ApplicationTitle>
+    <ApplicationTitle>Empire Simulator 1600</ApplicationTitle>
 
     <!-- App Identifier -->
     <ApplicationId>com.blyr.empiresim</ApplicationId>
